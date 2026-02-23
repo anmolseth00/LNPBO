@@ -1,0 +1,23 @@
+import argparse
+
+from .encode import add_encode_command
+from .suggest import add_suggest_command
+from .register import add_register_command
+from .checkpoint import add_checkpoint_command
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="lnpbo",
+        description="LNP Bayesian Optimization Toolkit",
+    )
+
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    add_encode_command(subparsers)
+    add_suggest_command(subparsers)
+    add_register_command(subparsers)
+    add_checkpoint_command(subparsers)
+
+    args = parser.parse_args()
+    args.func(args)
