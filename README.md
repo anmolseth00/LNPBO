@@ -16,7 +16,7 @@ Things LNPBO can do:
 
 - Back-and-forth suggest new LNPs based on subsequent batches
 
-To do these things, LNPBO encodes the inputted LNPs. Besides molar ratios, featurizing lipid identity involves generating encodings of Morgan fingerprints, Mordred descriptors, or LiON model fingerprints. The inputted LNPs are expected to follow a column format similar to what we introduced in [LNPDB](https://lnpdb.molcube.com/). We detail this input organization in the [Usage](#usage) section, where we walk through examples that illustrate what LNPBO can do.
+To do these things, LNPBO encodes the inputted LNPs. Besides molar ratios, featurizing lipid identity involves generating encodings of Morgan fingerprints, Mordred descriptors, or LiON model fingerprints. The inputted LNPs are expected to follow a column format similar to what we introduced in [LNPDB](https://www.nature.com/articles/s41467-026-68818-1). We detail this input organization in the [Usage](#usage) section, where we walk through examples that illustrate what LNPBO can do.
 
 
 Future version of LNPBO will also do these things:
@@ -30,7 +30,6 @@ _____
 # Table of contents
 
 - [Getting started / installation](#installation)
-- [Installation guide](#installation-guide)
 - [Usage](#usage)
 - [Citation](#citation)
 
