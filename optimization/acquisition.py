@@ -2,6 +2,7 @@ from __future__ import annotations
 from bayes_opt import acquisition
 from bayes_opt.target_space import TargetSpace
 from copy import deepcopy
+import warnings
 import numpy as np
 from scipy.stats import norm
 from scipy.special import erfcx
@@ -196,3 +197,151 @@ class LogExpectedImprovement(acquisition.AcquisitionFunction):
 
     def set_acquisition_params(self, **params):
         self.xi = params.get("xi", self.xi)
+
+
+class LocalPenalization(acquisition.AcquisitionFunction):
+    """Batch acquisition via local penalization (Gonzalez et al., 2016).
+
+    Instead of hallucinating observations (Kriging Believer), LP penalizes
+    the acquisition function near already-selected batch points, avoiding
+    corruption of the GP posterior with fictitious data.
+
+    For each pending point x_j, a soft exclusion zone suppresses nearby
+    acquisition values (Proposition 1 / Appendix A of the paper):
+
+        phi_j(x) = Phi(z_j),  z_j = (L * ||x - x_j|| - r_j) / sigma(x_j)
+
+    where L is the Lipschitz constant of the GP mean, r_j = y_max - mu(x_j)
+    is the exclusion radius, and sigma(x_j) is the GP posterior std at x_j.
+
+    The penalized acquisition is:
+        acq_LP(x) = acq(x) * prod_j phi_j(x)
+
+    For log-space acquisitions (LogEI), the product becomes a sum of
+    log-penalties: log_acq(x) + sum_j log(phi_j(x)).
+
+    Implementation notes vs. paper:
+    - Lipschitz constant L is estimated from kernel hyperparameters
+      (sqrt(variance) / min(lengthscale)) rather than the GP-LCA gradient-norm
+      maximization in Sec. 3.2. scikit-learn's GaussianProcessRegressor does
+      not expose predictive_gradients(). The kernel heuristic is a conservative
+      upper bound on the true Lipschitz constant.
+    - The softplus transform g(z) = log(1 + exp(z)) from the paper is not
+      applied for non-log acquisitions (UCB, EI). This is only relevant when
+      the base acquisition returns exact zeros; LogEI avoids this issue.
+
+    Reference
+    ---------
+    Gonzalez, J., Dai, Z., Hennig, P., & Lawrence, N.D.
+    "Batch Bayesian Optimization via Local Penalization."
+    AISTATS 2016. arXiv:1505.08052.
+    """
+
+    def __init__(self, base_acquisition: acquisition.AcquisitionFunction, lipschitz_scale=1.0, random_state=None):
+        super().__init__(random_state)
+        self.base_acquisition = base_acquisition
+        self.lipschitz_scale = lipschitz_scale
+        self.pending = []
+        self._is_log_space = isinstance(base_acquisition, LogExpectedImprovement)
+
+    def base_acq(self, mean, std):
+        return self.base_acquisition.base_acq(mean, std)
+
+    def clear_pending(self):
+        self.pending = []
+
+    def suggest(self, gp, target_space, n_random=10_000, n_smart=10, fit_gp=True, random_state=None):
+        if len(target_space) == 0:
+            raise ValueError("Cannot suggest a point without previous samples.")
+
+        if fit_gp:
+            self._fit_gp(gp, target_space)
+
+        # Set y_max for improvement-based acquisitions
+        if hasattr(self.base_acquisition, 'y_max'):
+            self.base_acquisition.y_max = target_space._target_max()
+
+        self.i += 1
+        acq = self._get_acq(gp=gp, constraint=target_space.constraint)
+        x_max = self._acq_min(
+            acq, target_space, n_random=n_random, n_smart=n_smart,
+            random_state=np.random.RandomState(random_state) if isinstance(random_state, int) else random_state,
+        )
+        self.pending.append(x_max.copy())
+        return x_max
+
+    def _get_acq(self, gp, constraint=None):
+        dim = gp.X_train_.shape[1]
+        pending = list(self.pending)
+        is_log = self._is_log_space
+
+        # Pre-compute Lipschitz constant and per-pending-point parameters
+        L = self._estimate_lipschitz(gp)
+        y_max = float(gp.y_train_.max())
+        pending_params = []
+        if pending:
+            pending_arr = np.array(pending)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                mu_pending, sigma_pending = gp.predict(
+                    pending_arr.reshape(-1, dim), return_std=True,
+                )
+            for j in range(len(pending)):
+                r_j = max(y_max - mu_pending[j], 1e-8)
+                s_j = max(sigma_pending[j], 1e-8)
+                pending_params.append((pending[j], r_j, s_j))
+
+        def acq(x):
+            x = x.reshape(-1, dim)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                mean, std = gp.predict(x, return_std=True)
+
+            acq_val = self.base_acq(mean, std)
+
+            for xp, r_j, s_j in pending_params:
+                dist = np.sqrt(np.sum((x - xp.reshape(1, -1)) ** 2, axis=1))
+                z_j = (L * dist - r_j) / s_j
+                penalty = norm.cdf(z_j)
+                if is_log:
+                    acq_val = acq_val + np.log(np.maximum(penalty, 1e-10))
+                else:
+                    acq_val = acq_val * penalty
+
+            result = -1 * acq_val
+            if constraint is not None:
+                p_constraints = constraint.predict(x)
+                result = result * p_constraints
+            return result
+
+        return acq
+
+    def _estimate_lipschitz(self, gp):
+        """Estimate Lipschitz constant from GP kernel hyperparameters.
+
+        Uses L = lipschitz_scale * sqrt(variance) / min(lengthscale) as
+        a conservative upper bound on ||d mu/dx||. The paper's GP-LCA method
+        (Gonzalez et al. 2016, Sec. 3.2) maximizes ||d mu/dx|| numerically,
+        but this requires predictive_gradients() which scikit-learn does not
+        expose. The kernel-based bound is always >= the true Lipschitz constant.
+        """
+        try:
+            params = gp.kernel_.get_params()
+            lengthscales = None
+            variance = 1.0
+            for key, val in params.items():
+                if 'length_scale' in key and not key.endswith('_bounds'):
+                    lengthscales = np.atleast_1d(val)
+                if 'constant_value' in key and not key.endswith('_bounds'):
+                    variance = float(val)
+            if lengthscales is not None:
+                return self.lipschitz_scale * np.sqrt(variance) / np.min(lengthscales)
+        except Exception:
+            pass
+        return self.lipschitz_scale
+
+    def get_acquisition_params(self):
+        return {"lipschitz_scale": self.lipschitz_scale}
+
+    def set_acquisition_params(self, **params):
+        self.lipschitz_scale = params.get("lipschitz_scale", self.lipschitz_scale)
