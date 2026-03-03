@@ -4,8 +4,22 @@ from bayes_opt.target_space import TargetSpace
 from copy import deepcopy
 import numpy as np
 
-    
+
 class KrigingBeliever(acquisition.AcquisitionFunction):
+    """Batch acquisition via the Kriging Believer heuristic.
+
+    Sequentially selects batch points by hallucinating each selected point
+    as having a target equal to the GP posterior mean, then refitting the GP
+    on the augmented dataset before selecting the next point.
+
+    Reference
+    ---------
+    Ginsbourger, D., Le Riche, R., & Carraro, L.
+    "Kriging Is Well-Suited to Parallelize Optimization."
+    Computational Intelligence in Expensive Optimization Problems,
+    Springer, 2010, pp. 131-162.
+    """
+
     def __init__(self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8) -> None:
         super().__init__(random_state)
         self.base_acquisition = base_acquisition
@@ -15,21 +29,9 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
 
     def base_acq(self, *args, **kwargs):
         return self.base_acquisition.base_acq(*args, **kwargs)
-    
+
     def clear_dummies(self):
         self.dummies = []
-
-    def _ensure_dummies_match(self) -> None:
-        if self.dummy_constraints:
-            if len(self.dummy_constraints) != len(self.dummy_targets):
-                msg = (
-                    "Number of dummy constraints " +
-                    f"{len(self.dummy_constraints)} doesn't match number of " +
-                    f" dummy targets {len(self.dummy_targets)}. This can " +
-                    "happen if constrained and unconstrained optimization is "+
-                    "mixed."
-                )
-                raise ValueError(msg)
 
     def _remove_expired_dummies(self, target_space: TargetSpace) -> None:
         dummies = []
@@ -38,7 +40,7 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
             if not close.all(axis=1).any():
                 dummies.append(dummy)
         self.dummies = dummies
-    
+
     def _create_dummy_target_space(self, gp, target_space: TargetSpace, fit_gp: bool=True) -> TargetSpace:
         # Check if any dummies have been evaluated and remove them
         self._remove_expired_dummies(target_space)
@@ -80,3 +82,9 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         self.dummies.append(x_max)
 
         return x_max
+
+    def get_acquisition_params(self):
+        return self.base_acquisition.get_acquisition_params()
+
+    def set_acquisition_params(self, **params):
+        self.base_acquisition.set_acquisition_params(**params)
