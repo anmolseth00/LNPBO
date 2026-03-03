@@ -1,0 +1,91 @@
+# ==========================
+# Python
+# ==========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# ==========================
+# Virtual environments
+# ==========================
+.venv/
+venv/
+env/
+ENV/
+
+# ==========================
+# IDE / Editor
+# ==========================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# ==========================
+# OS generated files
+# ==========================
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+
+# ==========================
+# Jupyter Notebook
+# ==========================
+.ipynb_checkpoints/
+
+# ==========================
+# Pipeline outputs (generated at runtime)
+# ==========================
+pipeline_output.csv
+pipeline_encodings.csv
+round_*_gp.pkl
+
+# ==========================
+# Lock / temp files
+# ==========================
+.~lock.*
+*.lock
+!uv.lock
+!poetry.lock
+
+# ==========================
+# Logs
+# ==========================
+*.log
+
+# ==========================
+# TensorBoard / training artifacts
+# ==========================
+events.out.tfevents.*
+
+# ==========================
+# Claude Code
+# ==========================
+.claude/
+
+# ==========================
+# NOTE: The following are intentionally NOT ignored:
+#   - examples/       (example notebooks, CSVs, and data)
+#   - data/           (LiON model checkpoints, templates, bridge code)
+#   - LNPBO.png       (repo diagram)
+#   - LICENSE, README.md
+#
+# If example round_*_gp.pkl or example *_encodings.csv files
+# should be kept in the repo, you can override with:
+#   !examples/**/round_*_gp.pkl
+#   !examples/**/*_encodings.csv
+# ==========================
