@@ -53,6 +53,8 @@ Desktop.ini
 pipeline_output.csv
 pipeline_encodings.csv
 round_*_gp.pkl
+benchmark_*.json
+benchmark_*.png
 
 # ==========================
 # Lock / temp files
