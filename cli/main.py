@@ -1,4 +1,5 @@
 import argparse
+import sys
 
 from .encode import add_encode_command
 from .suggest import add_suggest_command
@@ -12,7 +13,7 @@ def main():
         description="LNP Bayesian Optimization Toolkit",
     )
 
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers = parser.add_subparsers(dest="command")
 
     add_encode_command(subparsers)
     add_suggest_command(subparsers)
@@ -20,4 +21,9 @@ def main():
     add_checkpoint_command(subparsers)
 
     args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        sys.exit(1)
+
     args.func(args)
