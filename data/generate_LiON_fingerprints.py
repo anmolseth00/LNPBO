@@ -65,7 +65,6 @@ def lion_fingerprints(
 
         input_csv = tmpdir / "lion_input.csv"
         output_csv = tmpdir / "lion_output.csv"
-        #output_csv = MODULE_DIR / "LiON_for_LNPBO" / "lion_output.csv"
 
         df = pd.DataFrame({
             "IL_SMILES": smiles,
@@ -112,6 +111,7 @@ def lion_fingerprints(
     ]
 
     lion_features = lion_df[feature_cols].to_numpy()
-    lion_scaled = StandardScaler().fit_transform(lion_features)
+    lion_scaler = StandardScaler()
+    lion_scaled = lion_scaler.fit_transform(lion_features)
 
-    return lion_scaled
+    return lion_scaled, lion_scaler

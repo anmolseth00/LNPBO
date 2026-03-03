@@ -35,4 +35,4 @@ def morgan_fingerprints(list_of_smiles:list[str], radius:int=3, n_bits:int=1024)
     mfps = np.array([single_morgan_fingerprints(smiles, radius, n_bits) for smiles in tqdm(list_of_smiles)])
     mfps_scaler = StandardScaler()
     mfps_scaled = mfps_scaler.fit_transform(mfps)
-    return mfps_scaled
+    return mfps_scaled, mfps_scaler
