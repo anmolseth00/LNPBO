@@ -57,6 +57,86 @@ class FormulationSpace:
 
         self._validate_inputs()
 
+        # Build parameter objects for BO
+        self.parameters = self._build_parameters()
+
+    def _build_parameters(self):
+        """
+        Build a list of BayesParameter objects from the current space configuration.
+        Mirrors the logic in get_configs() but creates actual parameter objects.
+        """
+        params = []
+
+        if self._dataset is None or not self._dataset.metadata:
+            return params
+
+        metadata = self._dataset.metadata
+        encoders = self._dataset.encoders
+        df = self._dataset.df
+
+        # Component parameters
+        for role in self.ROLES:
+            if not metadata["variable_components"].get(role, False):
+                continue
+
+            pcs_dict = encoders[role]
+
+            columns = []
+            for encoder_name, n_pcs in pcs_dict.items():
+                columns += [
+                    f"{role}_{encoder_name}_pc{i}"
+                    for i in range(1, n_pcs + 1)
+                ]
+
+            if not columns:
+                continue
+
+            # Extract unique component PC values from the dataset
+            valid_cols = [c for c in columns if c in df.columns]
+            if not valid_cols:
+                continue
+
+            unique_vals = df[valid_cols].drop_duplicates().values
+            bounds = np.column_stack([
+                df[valid_cols].min().values,
+                df[valid_cols].max().values,
+            ])
+
+            params.append(ComponentParameter(
+                name=role,
+                bounds=bounds,
+                valid_options=unique_vals,
+            ))
+
+        # Mixture ratio parameters
+        columns_mixture = []
+        for role in self.ROLES:
+            if metadata["variable_molratios"].get(role, False):
+                columns_mixture.append(f"{role}_molratio")
+
+        if columns_mixture:
+            nr_components = len(columns_mixture)
+            mr_bounds = np.array([
+                [self.molratio_bounds[role][0], self.molratio_bounds[role][1]]
+                for role in self.ROLES
+                if metadata["variable_molratios"].get(role, False)
+            ])
+            params.append(MixtureRatiosParameter(
+                name="molratio",
+                nr_components=nr_components,
+                bounds=mr_bounds,
+            ))
+
+        # IL to mRNA mass ratio (discrete)
+        if metadata.get("variable_il_mrna", False):
+            domain = np.array(self.il_mrna_massratio_values)
+            params.append(DiscreteParameter(
+                name="IL_to_nucleicacid_massratio",
+                domain=domain,
+            ))
+
+        return params
+
     # Validation
     def _validate_inputs(self):
         if set(self.components.keys()) != set(self.ROLES):
@@ -143,39 +223,47 @@ class FormulationSpace:
         - Updates molratio bounds
         - Updates IL:mRNA values
         - Updates component PCs
+        - Rebuilds self.parameters
         """
         self._dataset = dataset
-        # df = dataset.df
-        # meta = dataset.metadata
+        df = dataset.df
+        meta = dataset.metadata
 
-        # # Update components
-        # for role in self.ROLES:
-        #     current_names = {c["name"] for c in self.components[role]}
-        #     # find new unique lipids
-        #     new_lipids = df[[f"{role}_name", f"{role}_SMILES"]].drop_duplicates()
-        #     for _, row in new_lipids.iterrows():
-        #         if row[f"{role}_name"] not in current_names:
-        #             self.components[role].append(
-        #                 {"name": row[f"{role}_name"], "smiles": row.get(f"{role}_SMILES")}
-        #             )
+        # Update components
+        for role in self.ROLES:
+            current_names = {c["name"] for c in self.components[role]}
+            # find new unique lipids
+            cols = [f"{role}_name"]
+            if f"{role}_SMILES" in df.columns:
+                cols.append(f"{role}_SMILES")
+            new_lipids = df[cols].drop_duplicates()
+            for _, row in new_lipids.iterrows():
+                if row[f"{role}_name"] not in current_names:
+                    rec = {"name": row[f"{role}_name"]}
+                    if f"{role}_SMILES" in row.index:
+                        rec["smiles"] = row[f"{role}_SMILES"]
+                    self.components[role].append(rec)
 
-        # # Update molratio bounds
-        # for role in self.ROLES:
-        #     col = f"{role}_molratio"
-        #     if meta["variable_molratios"].get(role, False):
-        #         self.molratio_bounds[role] = (df[col].min(), df[col].max())
-        #     else:
-        #         self.molratio_bounds[role] = (df[col].iloc[0], df[col].iloc[0])
-        #         self.fixed_values[col] = df[col].iloc[0]
+        # Update molratio bounds
+        for role in self.ROLES:
+            col = f"{role}_molratio"
+            if meta["variable_molratios"].get(role, False):
+                self.molratio_bounds[role] = (df[col].min(), df[col].max())
+            else:
+                self.molratio_bounds[role] = (df[col].iloc[0], df[col].iloc[0])
+                self.fixed_values[col] = df[col].iloc[0]
 
-        # # Update IL:mRNA massratio values
-        # self.il_mrna_massratio_values = sorted(df["IL_to_nucleicacid_massratio"].dropna().unique())
+        # Update IL:mRNA massratio values
+        self.il_mrna_massratio_values = sorted(df["IL_to_nucleicacid_massratio"].dropna().unique().tolist())
 
-        # # Update PCs if present
-        # for role in self.ROLES:
-        #     pcs_spec = meta.get("pcs", {}).get(role, {})
-        #     if pcs_spec:
-        #         self.component_pcs[role] = pcs_spec
+        # Update PCs if present
+        for role in self.ROLES:
+            pcs_spec = meta.get("pcs", {}).get(role, {})
+            if pcs_spec:
+                self.component_pcs[role] = pcs_spec
+
+        # Rebuild parameters
+        self.parameters = self._build_parameters()
 
     # -------------------------
     # BO-facing API
@@ -209,6 +297,9 @@ class FormulationSpace:
                     for i in range(1, n_pcs + 1)
                 ]
 
+            if not columns:
+                continue
+
             d["parameters"].append({
                 "name": component,
                 "type": "ComponentParameter",
@@ -235,8 +326,6 @@ class FormulationSpace:
                 "type": "DiscreteParameter",
                 "columns": ["IL_to_nucleicacid_massratio"],
             })
-        # print(encoders)
-        # print(d)
         return d
 
     def get_parameters(self):
@@ -277,15 +366,15 @@ class FormulationSpace:
         for p in self.parameters:
             if isinstance(p, ComponentParameter):
                 # Pick a random component row
-                idx = np.random.randint(len(p.valid_options))
-                sample[p.name] = p.valid_options[idx]  # np.array of all columns
+                idx = np.random.randint(len(p.unique_categories))
+                sample[p.name] = p.unique_categories[idx]  # np.array of all columns
 
             elif isinstance(p, DiscreteParameter):
                 sample[p.name] = random.choice(p.domain)
 
             elif isinstance(p, MixtureRatiosParameter):
                 # Sample random ratios summing to sum_to
-                raw = np.random.rand(p.nr_components)
+                raw = np.random.rand(len(p.domain))
                 raw /= raw.sum()  # normalize
                 raw *= p.sum_to
                 sample[p.name] = raw
