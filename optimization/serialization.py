@@ -1,6 +1,5 @@
 from __future__ import annotations
 import joblib
-import pickle
 
 
 def save_surrogate(
@@ -19,16 +18,14 @@ def save_surrogate(
         "columns": columns,
         "metadata": metadata,
     }
-    with open(path, "wb") as f:
-        pickle.dump(payload, f)
+    joblib.dump(payload, path)
 
 
 def load_surrogate(path: str):
     """
     Load GP surrogate and preprocessing artifacts.
     """
-    with open(path, "rb") as f:
-        payload = pickle.load(f)
+    payload = joblib.load(path)
 
     return (
         payload["gp_model"],
