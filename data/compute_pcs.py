@@ -1,7 +1,9 @@
 from __future__ import annotations
+
 import numpy as np
-from sklearn.decomposition import PCA
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.decomposition import PCA
+
 from .generate_morgan_fingerprints import morgan_fingerprints
 
 
@@ -65,9 +67,12 @@ def compute_pcs(
         fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles)
     elif feature_type == "mordred":
         from .generate_mordred_descriptors import mordred_descriptors
+
         fp_scaled, fp_scaler = mordred_descriptors(list_of_smiles)
     elif feature_type == "lion":
         from .generate_LiON_fingerprints import lion_fingerprints
+
+        assert experiment_values is not None
         fp_scaled, fp_scaler = lion_fingerprints(list_of_smiles, experiment_values)
     else:
         raise ValueError("Type of feature not found")

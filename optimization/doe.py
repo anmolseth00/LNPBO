@@ -1,17 +1,19 @@
 from __future__ import annotations
+
 import itertools
+
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple, Optional
-from ..space.formulation import FormulationSpace
+
 from ..data.dataset import Dataset
+from ..space.formulation import FormulationSpace
 
 
 def generate_initial_batch(
     space: FormulationSpace,
     n_samples: int = 24,
     method: str = "simplex_random",
-    seed: Optional[int] = None,
+    seed: int | None = None,
     levels: int = 3,
 ) -> Dataset:
     """
@@ -81,9 +83,7 @@ def generate_initial_batch(
 
         # Sample IL:mRNA mass ratio
         il_mrna_values = space.il_mrna_massratio_values
-        row["IL_to_nucleicacid_massratio"] = il_mrna_values[
-            rng.integers(len(il_mrna_values))
-        ]
+        row["IL_to_nucleicacid_massratio"] = il_mrna_values[rng.integers(len(il_mrna_values))]
 
         rows.append(row)
 
@@ -96,7 +96,7 @@ def generate_initial_batch(
     return Dataset(df, source="doe", name=f"doe_{method}_{n_samples}")
 
 
-def _normalize_to_target(x: Dict[str, float], target_sum: float) -> Dict[str, float]:
+def _normalize_to_target(x: dict[str, float], target_sum: float) -> dict[str, float]:
     """Normalize a point so its values sum to target_sum."""
     total = sum(x.values())
     if total <= 0:
@@ -106,12 +106,12 @@ def _normalize_to_target(x: Dict[str, float], target_sum: float) -> Dict[str, fl
 
 def _random_simplex_samples(
     n: int,
-    components: List[str],
-    bounds: Dict[str, Tuple[float, float]],
+    components: list[str],
+    bounds: dict[str, tuple[float, float]],
     rng: np.random.Generator,
     target_sum: float = 1.0,
     max_iterations: int = 10000,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Sample from the bounded simplex using Dirichlet + rejection.
 
     Samples fractions from Dirichlet(1,...,1) then scales to target_sum.
@@ -143,10 +143,10 @@ def _random_simplex_samples(
 
 
 def _extreme_vertices(
-    components: List[str],
-    bounds: Dict[str, Tuple[float, float]],
+    components: list[str],
+    bounds: dict[str, tuple[float, float]],
     target_sum: float = 1.0,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Generate extreme vertex designs on the bounded simplex."""
     vertices = []
 
@@ -162,13 +162,13 @@ def _extreme_vertices(
 
 
 def _centroid_axial(
-    components: List[str],
-    bounds: Dict[str, Tuple[float, float]],
+    components: list[str],
+    bounds: dict[str, tuple[float, float]],
     target_sum: float = 1.0,
     delta_frac: float = 0.05,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Generate centroid + axial design on the bounded simplex."""
-    center = {c: np.mean(bounds[c]) for c in components}
+    center = {c: float(np.mean(bounds[c])) for c in components}
     center = _normalize_to_target(center, target_sum)
 
     design = [center]
@@ -194,13 +194,13 @@ def _centroid_axial(
 
 def mixture_doe(
     n_samples: int,
-    components: List[str],
-    bounds: Dict[str, Tuple[float, float]],
+    components: list[str],
+    bounds: dict[str, tuple[float, float]],
     method: str = "simplex_random",
-    seed: Optional[int] = None,
+    seed: int | None = None,
     levels: int = 3,
-    target_sum: Optional[float] = None,
-) -> List[Dict[str, float]]:
+    target_sum: float | None = None,
+) -> list[dict[str, float]]:
     """
     Generate a mixture Design of Experiments.
 
@@ -223,7 +223,7 @@ def mixture_doe(
         the midpoint of bounds (works for both fractions and percentages).
     """
     if target_sum is None:
-        target_sum = sum(np.mean(bounds[c]) for c in components)
+        target_sum = float(sum(np.mean(bounds[c]) for c in components))
 
     rng = np.random.default_rng(seed)
 
@@ -248,16 +248,13 @@ def mixture_doe(
 
 
 def _full_factorial_mixture(
-    components: List[str],
-    bounds: Dict[str, Tuple[float, float]],
+    components: list[str],
+    bounds: dict[str, tuple[float, float]],
     levels: int,
     target_sum: float = 1.0,
-) -> List[Dict[str, float]]:
+) -> list[dict[str, float]]:
     """Full factorial design with simplex constraint."""
-    grids = {
-        c: np.linspace(bounds[c][0], bounds[c][1], levels)
-        for c in components
-    }
+    grids = {c: np.linspace(bounds[c][0], bounds[c][1], levels) for c in components}
 
     candidates = []
     for values in itertools.product(*grids.values()):

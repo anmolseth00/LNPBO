@@ -1,8 +1,8 @@
 import numpy as np
-from numpy.random import RandomState
 from bayes_opt.parameter import BayesParameter
-
+from numpy.random import RandomState
 from scipy.optimize import brentq
+
 
 class ComponentParameter(BayesParameter):
     def __init__(self, name: str, bounds, valid_options) -> None:
@@ -16,7 +16,7 @@ class ComponentParameter(BayesParameter):
     def is_continuous(self):
         return False
 
-    def random_sample(self, n_samples: int, random_state: RandomState):
+    def random_sample(self, n_samples: int, random_state: RandomState):  # type: ignore[override]
         idx = random_state.choice(len(self.unique_categories), size=n_samples)
         return self.unique_categories[idx]
 
@@ -24,13 +24,13 @@ class ComponentParameter(BayesParameter):
         return self.unique_categories[value]
 
     def to_param(self, value):
-        return np.argmin(np.mean((self.unique_categories-value)**2, axis=1))
+        return np.argmin(np.mean((self.unique_categories - value) ** 2, axis=1))
 
     def kernel_transform(self, value):
         value = np.atleast_2d(value)
         batch, dim = value.shape
         value = value.reshape((batch, 1, dim))
-        idx_closest = np.argmin(np.mean((self.unique_categories-value)**2, axis=-1), 1)
+        idx_closest = np.argmin(np.mean((self.unique_categories - value) ** 2, axis=-1), 1)
         res = self.unique_categories[idx_closest]
         return res
 
@@ -60,20 +60,20 @@ class DiscreteParameter(BayesParameter):
     def is_continuous(self):
         return False
 
-    def random_sample(self, n_samples: int, random_state: RandomState):
+    def random_sample(self, n_samples: int, random_state: RandomState):  # type: ignore[override]
         return random_state.choice(self.domain, size=n_samples)
 
     def to_float(self, value) -> np.ndarray:
         return value
 
     def to_param(self, value):
-        idx_closest = np.argmin((self.domain-value)**2)
+        idx_closest = np.argmin((self.domain - value) ** 2)
         return self.domain[idx_closest]
 
     def kernel_transform(self, value):
         shape = value.shape
         value = np.atleast_2d(value)
-        idx_closest = np.argmin((self.domain-value)**2, 1)
+        idx_closest = np.argmin((self.domain - value) ** 2, 1)
         res = self.domain[idx_closest]
         return res.reshape(shape)
 
@@ -84,7 +84,7 @@ class DiscreteParameter(BayesParameter):
                 return s[:str_len]
             return s[: str_len - 3] + "..."
         return s
-    
+
     @property
     def dim(self):
         return 1
@@ -95,7 +95,7 @@ def l1norm(x, axis=-1):
 
 
 class MixtureRatiosParameter(BayesParameter):
-    def __init__(self, name: str, nr_components, bounds=None, sum_to=1.) -> None:
+    def __init__(self, name: str, nr_components, bounds=None, sum_to=1.0) -> None:
         self.nr_components = nr_components
         self.domain = range(nr_components)
         self.sum_to = sum_to
@@ -107,40 +107,29 @@ class MixtureRatiosParameter(BayesParameter):
         super().__init__(name, bounds)
 
     def __repr__(self) -> str:
-        return f"MixtureRatiosParameter with {len(self.domain)} components"#)"
+        return f"MixtureRatiosParameter with {len(self.domain)} components"  # )"
 
     @property
     def is_continuous(self):
         # technically this is continuous, but we treat it as non-continuous to trigger DE instead of L-BFGS-B
         return False
 
-    def random_sample(self, n_samples: int, random_state: RandomState):
+    def random_sample(self, n_samples: int, random_state: RandomState):  # type: ignore[override]
         res = []
         while len(res) < n_samples:
             candidates = random_state.dirichlet(np.ones(len(self.domain))) * self.sum_to
             if np.all(candidates >= self.bounds[:, 0]) and np.all(candidates <= self.bounds[:, 1]):
                 res.append(candidates)
         return np.array(res[:n_samples])
-    
+
     def to_float(self, value) -> np.ndarray:
         return value
 
     def to_param(self, value):
-        return self._project_onto_bounded_simplex(
-            value, 
-            self.bounds[:, 0], 
-            self.bounds[:, 1], 
-            self.sum_to
-        )
+        return self._project_onto_bounded_simplex(value, self.bounds[:, 0], self.bounds[:, 1], self.sum_to)
 
-    def kernel_transform(self, value): 
-        return self._project_onto_bounded_simplex(
-            value, 
-            self.bounds[:, 0], 
-            self.bounds[:, 1], 
-            self.sum_to
-        )
-
+    def kernel_transform(self, value):
+        return self._project_onto_bounded_simplex(value, self.bounds[:, 0], self.bounds[:, 1], self.sum_to)
 
     def to_string(self, value, str_len):
         """Represent a parameter value as a string.
@@ -158,7 +147,7 @@ class MixtureRatiosParameter(BayesParameter):
         str
         """
         len_each = (str_len - 2) // len(self.domain)
-        str_ = '|'.join([f"{float(np.round(value[i], 4))}"[:len_each] for i in range(len(self.domain))])
+        str_ = "|".join([f"{float(np.round(value[i], 4))}"[:len_each] for i in range(len(self.domain))])
         return str_.ljust(str_len)
 
     @property
@@ -182,16 +171,15 @@ class MixtureRatiosParameter(BayesParameter):
         pp. 195-200.
         """
         original_shape = x.shape
-        
+
         # single vector?
         if x.ndim == 1:
-            if (np.all((x >= l) & (x <= u)) and 
-                np.abs(np.sum(x) - target_sum) < 1e-10):
+            if np.all((x >= l) & (x <= u)) and np.abs(np.sum(x) - target_sum) < 1e-10:
                 return x
             return self._project_single(x, l, u, target_sum)
 
         x_flat = x.reshape(-1, x.shape[-1])
-        
+
         # feasibility check
         within_bounds = np.all((x_flat >= l) & (x_flat <= u), axis=1)
         sums = np.sum(x_flat, axis=1)
@@ -214,11 +202,10 @@ class MixtureRatiosParameter(BayesParameter):
 
     def _project_single(self, x, l, u, target_sum):
         """Project a single vector onto bounded simplex"""
-        
+
         # solvability check
         if np.sum(l) > target_sum or np.sum(u) < target_sum:
-            raise ValueError(f"Infeasible bounds: sum(l)={np.sum(l)}, "
-                            f"sum(u)={np.sum(u)}, target={target_sum}")
+            raise ValueError(f"Infeasible bounds: sum(l)={np.sum(l)}, sum(u)={np.sum(u)}, target={target_sum}")
 
         y = np.clip(x, l, u)
 

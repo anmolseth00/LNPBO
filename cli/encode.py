@@ -7,41 +7,51 @@ def add_encode_command(subparsers):
         help="Encode raw formulation CSV into numeric features",
     )
 
-    parser.add_argument("--input", required=True,
-                        help="Path to raw LNPDB-format CSV")
-    parser.add_argument("--output", required=True,
-                        help="Path for encoded output CSV")
+    parser.add_argument("--input", required=True, help="Path to raw LNPDB-format CSV")
+    parser.add_argument("--output", required=True, help="Path for encoded output CSV")
 
     # IL encoding options
-    parser.add_argument("--IL-n-pcs-morgan", type=int, default=0,
-                        help="Number of Morgan fingerprint PCs for IL (default: 0)")
-    parser.add_argument("--IL-n-pcs-mordred", type=int, default=0,
-                        help="Number of Mordred descriptor PCs for IL (default: 0)")
-    parser.add_argument("--IL-n-pcs-lion", type=int, default=0,
-                        help="Number of LiON encoding PCs for IL (default: 0). "
-                             "Cannot be combined with Morgan/Mordred for IL.")
+    parser.add_argument(
+        "--IL-n-pcs-morgan", type=int, default=0, help="Number of Morgan fingerprint PCs for IL (default: 0)"
+    )
+    parser.add_argument(
+        "--IL-n-pcs-mordred", type=int, default=0, help="Number of Mordred descriptor PCs for IL (default: 0)"
+    )
+    parser.add_argument(
+        "--IL-n-pcs-lion",
+        type=int,
+        default=0,
+        help="Number of LiON encoding PCs for IL (default: 0). Cannot be combined with Morgan/Mordred for IL.",
+    )
 
     # HL encoding options
-    parser.add_argument("--HL-n-pcs-morgan", type=int, default=0,
-                        help="Number of Morgan fingerprint PCs for HL (default: 0)")
-    parser.add_argument("--HL-n-pcs-mordred", type=int, default=0,
-                        help="Number of Mordred descriptor PCs for HL (default: 0)")
+    parser.add_argument(
+        "--HL-n-pcs-morgan", type=int, default=0, help="Number of Morgan fingerprint PCs for HL (default: 0)"
+    )
+    parser.add_argument(
+        "--HL-n-pcs-mordred", type=int, default=0, help="Number of Mordred descriptor PCs for HL (default: 0)"
+    )
 
     # CHL encoding options
-    parser.add_argument("--CHL-n-pcs-morgan", type=int, default=0,
-                        help="Number of Morgan fingerprint PCs for CHL (default: 0)")
-    parser.add_argument("--CHL-n-pcs-mordred", type=int, default=0,
-                        help="Number of Mordred descriptor PCs for CHL (default: 0)")
+    parser.add_argument(
+        "--CHL-n-pcs-morgan", type=int, default=0, help="Number of Morgan fingerprint PCs for CHL (default: 0)"
+    )
+    parser.add_argument(
+        "--CHL-n-pcs-mordred", type=int, default=0, help="Number of Mordred descriptor PCs for CHL (default: 0)"
+    )
 
     # PEG encoding options
-    parser.add_argument("--PEG-n-pcs-morgan", type=int, default=0,
-                        help="Number of Morgan fingerprint PCs for PEG (default: 0)")
-    parser.add_argument("--PEG-n-pcs-mordred", type=int, default=0,
-                        help="Number of Mordred descriptor PCs for PEG (default: 0)")
+    parser.add_argument(
+        "--PEG-n-pcs-morgan", type=int, default=0, help="Number of Morgan fingerprint PCs for PEG (default: 0)"
+    )
+    parser.add_argument(
+        "--PEG-n-pcs-mordred", type=int, default=0, help="Number of Mordred descriptor PCs for PEG (default: 0)"
+    )
 
     # Output control
-    parser.add_argument("--only-encodings", action="store_true",
-                        help="Output only the encoding lookup tables, not the full dataset")
+    parser.add_argument(
+        "--only-encodings", action="store_true", help="Output only the encoding lookup tables, not the full dataset"
+    )
 
     parser.set_defaults(func=run_encode)
 

@@ -1,0 +1,22 @@
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E741",   # ambiguous variable name (l, u are standard in optimization math)
+    "E402",   # module-level import not at top (notebook cells, lazy imports)
+    "SIM108", # use ternary operator (readability preference)
+    "B905",   # zip() without strict= (internal data, guaranteed same-length)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["LNPBO"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ty.environment]
+python-version = "3.12"
+extra-paths = [".."]

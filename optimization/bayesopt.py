@@ -1,16 +1,18 @@
 from __future__ import annotations
-from bayes_opt import BayesianOptimization, acquisition
-from .acquisition import KrigingBeliever, LogExpectedImprovement, LocalPenalization
-from ..space.parameters import MixtureRatiosParameter, ComponentParameter, DiscreteParameter
-from ..space.formulation import FormulationSpace
-from .serialization import save_surrogate
-from ..utils.ordering import order_df_columns
 
 import warnings
-import pandas as pd
+
 import numpy as np
+import pandas as pd
+from bayes_opt import BayesianOptimization, acquisition
 from sklearn.preprocessing import MinMaxScaler
 from tqdm import tqdm
+
+from ..space.formulation import FormulationSpace
+from ..space.parameters import ComponentParameter, DiscreteParameter, MixtureRatiosParameter
+from ..utils.ordering import order_df_columns
+from .acquisition import KrigingBeliever, LocalPenalization, LogExpectedImprovement
+from .serialization import save_surrogate
 
 
 def perform_bayesian_optimization(
@@ -39,8 +41,8 @@ def perform_bayesian_optimization(
 
     # Collect all feature columns used by parameters
     all_feature_cols = []
-    for parameter in config['parameters']:
-        all_feature_cols.extend(parameter['columns'])
+    for parameter in config["parameters"]:
+        all_feature_cols.extend(parameter["columns"])
 
     # Drop rows with NaN in any feature column (e.g., lipids without SMILES encodings)
     feature_cols_present = [c for c in all_feature_cols if c in df.columns]
@@ -52,32 +54,34 @@ def perform_bayesian_optimization(
 
     # Define and scale columns
     to_scale = []
-    for parameter in config['parameters']:
-        if parameter['type'] != "MixtureRatiosParameter":
-            to_scale.extend(parameter['columns'])
+    for parameter in config["parameters"]:
+        if parameter["type"] != "MixtureRatiosParameter":
+            to_scale.extend(parameter["columns"])
 
     scaler = MinMaxScaler()
     df[to_scale] = scaler.fit_transform(df[to_scale])
 
     columns = []
     pbounds = {}
-    for parameter in config['parameters']:
+    for parameter in config["parameters"]:
         if parameter["type"] == "ComponentParameter":
-            p_stringified = df[parameter["columns"]].astype(str).agg('_'.join, axis=1)
+            p_stringified = df[parameter["columns"]].astype(str).agg("_".join, axis=1)
             encoded = pd.get_dummies(p_stringified)
-            valid_options = np.stack(encoded.columns.str.split('_').to_series().apply(lambda x: [float(i) for i in x]).values)
+            valid_options = np.stack(
+                encoded.columns.str.split("_").to_series().apply(lambda x: [float(i) for i in x]).values
+            )
             domain = np.stack([valid_options.min(axis=0), valid_options.max(axis=0)], axis=1)
             columns.append(parameter["columns"])
             pbounds[parameter["name"]] = ComponentParameter(parameter["name"], domain, valid_options)
-        elif parameter['type'] == "DiscreteParameter":
-            if len(parameter['columns']) > 1:
+        elif parameter["type"] == "DiscreteParameter":
+            if len(parameter["columns"]) > 1:
                 raise ValueError("DiscreteParameter with more than one column is not supported")
-            columns.append(parameter['columns'][0])
-            pbounds[parameter['name']] = DiscreteParameter(parameter['name'], np.unique(df[parameter['columns'][0]]))
-        elif parameter['type'] == "MixtureRatiosParameter":
-            columns_mixture = parameter['columns']
+            columns.append(parameter["columns"][0])
+            pbounds[parameter["name"]] = DiscreteParameter(parameter["name"], np.unique(df[parameter["columns"][0]]))
+        elif parameter["type"] == "MixtureRatiosParameter":
+            columns_mixture = parameter["columns"]
             columns.append(parameter["columns"])
-            bounds = np.array([[df[c].min(), df[c].max()] for c in parameter['columns']])
+            bounds = np.array([[df[c].min(), df[c].max()] for c in parameter["columns"]])
             # Use median sum across all rows (robust to outliers)
             row_sums = df[columns_mixture].sum(axis=1)
             sum_to = row_sums.median()
@@ -85,8 +89,8 @@ def perform_bayesian_optimization(
             sum_std = row_sums.std()
             if sum_std > 0.01 * sum_to:
                 print(f"Warning: molar ratio sums vary across rows (median={sum_to:.4f}, std={sum_std:.4f})")
-            pbounds[parameter['name']] = MixtureRatiosParameter(
-                parameter['name'],
+            pbounds[parameter["name"]] = MixtureRatiosParameter(
+                parameter["name"],
                 len(columns_mixture),
                 bounds=bounds,
                 sum_to=sum_to,
@@ -97,7 +101,7 @@ def perform_bayesian_optimization(
 
     BATCH_SEED = RANDOM_STATE_SEED + round_number
 
-    X_train, y_train = df[columns].values, df[config['target']].values
+    X_train, y_train = df[columns].values, df[config["target"]].values
 
     # Acquisition function
     if acq_type == "UCB":
@@ -149,10 +153,7 @@ def perform_bayesian_optimization(
             random_state=BATCH_SEED,
         )
     else:
-        raise ValueError(
-            f"Unknown acq_type '{acq_type}'. "
-            "Choose from: UCB, EI, LogEI, LP_UCB, LP_EI, LP_LogEI"
-        )
+        raise ValueError(f"Unknown acq_type '{acq_type}'. Choose from: UCB, EI, LogEI, LP_UCB, LP_EI, LP_LogEI")
 
     # Optimizer
     with warnings.catch_warnings():
@@ -172,18 +173,14 @@ def perform_bayesian_optimization(
         for x, y in zip(X_train, y_train):
             optimizer.register(x, y)
 
-    if acq_type in ("EI", "LogEI"):
-        acq.base_acquisition.y_max = np.max(y_train)
-    elif acq_type in ("LP_EI", "LP_LogEI"):
-        acq.base_acquisition.y_max = np.max(y_train)
+    if acq_type in ("EI", "LogEI") or acq_type in ("LP_EI", "LP_LogEI"):
+        acq.base_acquisition.y_max = np.max(y_train)  # type: ignore[assignment]
 
     # Batch generation
     batch = []
     for _ in tqdm(range(BATCH_SIZE), desc="Selecting LNP formulations", disable=(verbose == 0)):
         point = optimizer.suggest()
-        batch.append(
-            dict(zip(columns, optimizer.space.params_to_array(point)))
-        )
+        batch.append(dict(zip(columns, optimizer.space.params_to_array(point))))
 
     # Save surrogate
     if save_gp:

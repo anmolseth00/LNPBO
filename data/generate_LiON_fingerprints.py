@@ -1,24 +1,27 @@
 from __future__ import annotations
+
 import subprocess
-import pandas as pd
 import tempfile
 from pathlib import Path
+
+import pandas as pd
 from sklearn.preprocessing import StandardScaler
 
 MODULE_DIR = Path(__file__).resolve().parent
 DEFAULT_CHECKPOINT_DIR = MODULE_DIR / "LiON_for_LNPBO" / "trained_model_checkpoints"
 DEFAULT_FEATURES_CSV = MODULE_DIR / "LiON_for_LNPBO" / "template_extra_data.csv"
 
+
 def lion_fingerprints(
     smiles: list[str],
     experiment_values: list[float],
     checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR,
     features_csv: Path | str = DEFAULT_FEATURES_CSV,
-    conda_env: str = "lnp_ml"
+    conda_env: str = "lnp_ml",
 ):
     """
     Generate LiON fingerprints using Chemprop.
-    
+
     :param smiles: IL SMILES
     :type smiles: list[str]
     :param experiment_values: target values
@@ -51,9 +54,7 @@ def lion_fingerprints(
         elif len(features_df) == 1:
             features_df = pd.concat([features_df] * n_rows, ignore_index=True)
         else:
-            raise ValueError(
-                f"features.csv has {len(features_df)} rows, expected {n_rows}"
-            )
+            raise ValueError(f"features.csv has {len(features_df)} rows, expected {n_rows}")
 
         out = tmpdir / "lion_features.csv"
         features_df.to_csv(out, index=False)
@@ -66,10 +67,12 @@ def lion_fingerprints(
         input_csv = tmpdir / "lion_input.csv"
         output_csv = tmpdir / "lion_output.csv"
 
-        df = pd.DataFrame({
-            "IL_SMILES": smiles,
-            "Experiment_value": experiment_values,
-        })
+        df = pd.DataFrame(
+            {
+                "IL_SMILES": smiles,
+                "Experiment_value": experiment_values,
+            }
+        )
         df.to_csv(input_csv, index=False)
 
         features_tmp = _prepare_features_csv(
@@ -77,16 +80,22 @@ def lion_fingerprints(
             n_rows=len(smiles),
             tmpdir=tmpdir,
         )
-        
+
         cmd = [
-            "conda", "run", "-n", conda_env,
+            "conda",
+            "run",
+            "-n",
+            conda_env,
             "chemprop_fingerprint",
-            "--checkpoint_dir", str(checkpoint_dir),
-            "--test_path", str(input_csv),
-            "--features_path", str(features_tmp),
-            "--preds_path", str(output_csv),
+            "--checkpoint_dir",
+            str(checkpoint_dir),
+            "--test_path",
+            str(input_csv),
+            "--features_path",
+            str(features_tmp),
+            "--preds_path",
+            str(output_csv),
         ]
-        
 
         # Conda-run Chemprop fingerprint command
         try:
@@ -105,10 +114,7 @@ def lion_fingerprints(
         lion_df = pd.read_csv(output_csv)
 
     # Drop non-feature columns if present
-    feature_cols = [
-        c for c in lion_df.columns
-        if not c.startswith(("IL_SMILES", "Experiment_value"))
-    ]
+    feature_cols = [c for c in lion_df.columns if not c.startswith(("IL_SMILES", "Experiment_value"))]
 
     lion_features = lion_df[feature_cols].to_numpy()
     lion_scaler = StandardScaler()

@@ -22,16 +22,15 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Dict, List, Optional
 
 import pandas as pd
 
-from .dataset import Dataset, LNPDB_REQUIRED_COLUMNS
-
+from .dataset import LNPDB_REQUIRED_COLUMNS, Dataset
 
 # ---------------------------------------------------------------------------
 # Path resolution
 # ---------------------------------------------------------------------------
+
 
 def get_lnpdb_path() -> Path:
     """Return the root of the LNPDB repository.
@@ -84,19 +83,38 @@ def _lion_dir() -> Path:
 
 _LNPDB_CSV_USECOLS = [
     # Identifiers
-    "LNP_ID", "Experiment_ID", "Formulation_ID",
+    "LNP_ID",
+    "Experiment_ID",
+    "Formulation_ID",
     # Required by LNPBO
-    "IL_name", "IL_SMILES", "IL_to_nucleicacid_massratio", "IL_molratio",
-    "HL_name", "HL_SMILES", "HL_molratio",
-    "CHL_name", "CHL_SMILES", "CHL_molratio",
-    "PEG_name", "PEG_SMILES", "PEG_molratio",
+    "IL_name",
+    "IL_SMILES",
+    "IL_to_nucleicacid_massratio",
+    "IL_molratio",
+    "HL_name",
+    "HL_SMILES",
+    "HL_molratio",
+    "CHL_name",
+    "CHL_SMILES",
+    "CHL_molratio",
+    "PEG_name",
+    "PEG_SMILES",
+    "PEG_molratio",
     "Experiment_value",
     # Useful metadata
-    "Model_type", "Model_target", "Route_of_administration",
-    "Cargo", "Cargo_type", "Dose_ug_nucleicacid",
-    "Aqueous_buffer", "Dialysis_buffer", "Mixing_method",
-    "Experiment_batching", "Experiment_method",
-    "Publication_link", "Publication_PMID",
+    "Model_type",
+    "Model_target",
+    "Route_of_administration",
+    "Cargo",
+    "Cargo_type",
+    "Dose_ug_nucleicacid",
+    "Aqueous_buffer",
+    "Dialysis_buffer",
+    "Mixing_method",
+    "Experiment_batching",
+    "Experiment_method",
+    "Publication_link",
+    "Publication_PMID",
     "IL_head_name",
 ]
 
@@ -120,7 +138,7 @@ def _read_lnpdb_csv(path: Path) -> pd.DataFrame:
     return df
 
 
-def _peek_columns(path: Path) -> List[str]:
+def _peek_columns(path: Path) -> list[str]:
     """Read only the header of a CSV to discover column names."""
     return list(pd.read_csv(path, nrows=0).columns)
 
@@ -128,6 +146,7 @@ def _peek_columns(path: Path) -> List[str]:
 # ---------------------------------------------------------------------------
 # Public loaders
 # ---------------------------------------------------------------------------
+
 
 def load_lnpdb_full(
     drop_missing_values: bool = True,
@@ -163,9 +182,8 @@ def load_lnpdb_full(
 
     if drop_duplicates:
         from .dataset import columns_to_check_for_duplicates
-        df = df.drop_duplicates(subset=[
-            c for c in columns_to_check_for_duplicates if c in df.columns
-        ])
+
+        df = df.drop_duplicates(subset=[c for c in columns_to_check_for_duplicates if c in df.columns])
 
     df["Formulation_ID"] = range(1, len(df) + 1)
     df["Round"] = 0
@@ -175,7 +193,7 @@ def load_lnpdb_full(
 
 def load_lnpdb_lion_data(
     variant: str = "all",
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """Load the LiON-formatted data files from LNPDB.
 
     Parameters
@@ -197,27 +215,24 @@ def load_lnpdb_lion_data(
     lion = _lion_dir()
 
     files = {
-        "main":      lion / "all_data.csv",
-        "extended":  lion / "all_data_all.csv",
-        "extra_x":   lion / "all_data_extra_x.csv",
-        "metadata":  lion / "all_data_metadata.csv",
-        "weights":   lion / "all_data_weights.csv",
+        "main": lion / "all_data.csv",
+        "extended": lion / "all_data_all.csv",
+        "extra_x": lion / "all_data_extra_x.csv",
+        "metadata": lion / "all_data_metadata.csv",
+        "weights": lion / "all_data_weights.csv",
     }
 
     variant_map = {
-        "all":         list(files.keys()),
-        "all_ext":     ["extended"],
+        "all": list(files.keys()),
+        "all_ext": ["extended"],
         "all_extra_x": ["extra_x"],
-        "all_meta":    ["metadata"],
+        "all_meta": ["metadata"],
         "all_weights": ["weights"],
     }
 
     keys = variant_map.get(variant)
     if keys is None:
-        raise ValueError(
-            f"Unknown variant {variant!r}. "
-            f"Choose from: {list(variant_map.keys())}"
-        )
+        raise ValueError(f"Unknown variant {variant!r}. Choose from: {list(variant_map.keys())}")
 
     result = {}
     for key in keys:
@@ -232,9 +247,9 @@ def load_lnpdb_lion_data(
 
 def get_lnpdb_splits(
     split_type: str = "single",
-    heldout_name: Optional[str] = None,
-    cv_index: Optional[int] = None,
-) -> Dict[str, pd.DataFrame]:
+    heldout_name: str | None = None,
+    cv_index: int | None = None,
+) -> dict[str, pd.DataFrame]:
     """Load pre-computed train/val/test splits from LNPDB_for_LiON.
 
     Parameters
@@ -277,29 +292,29 @@ def get_lnpdb_splits(
 
     elif split_type == "heldout":
         if heldout_name is None:
-            raise ValueError(
-                "heldout_name is required. "
-                "Choose from: BL_2023, LM_2019, SL_2020, ZC_2023"
-            )
+            raise ValueError("heldout_name is required. Choose from: BL_2023, LM_2019, SL_2020, ZC_2023")
         if cv_index is None:
             raise ValueError("cv_index (0-4) is required for heldout splits")
 
         heldout_dir = lion / "heldout" / f"heldout_{heldout_name}"
         if not heldout_dir.is_dir():
-            raise FileNotFoundError(
-                f"Heldout directory not found: {heldout_dir}"
-            )
+            raise FileNotFoundError(f"Heldout directory not found: {heldout_dir}")
 
         cv_dir = heldout_dir / "cv_splits" / f"cv_{cv_index}"
         result = _load_split_dir(cv_dir, has_val=False)
 
         # Also load the heldout-level data
         for suffix in [
-            "heldout_data", "heldout_data_extra_x",
-            "heldout_data_metadata", "heldout_data_weights",
+            "heldout_data",
+            "heldout_data_extra_x",
+            "heldout_data_metadata",
+            "heldout_data_weights",
             "heldout_data_all",
-            "all_data", "all_data_all", "all_data_extra_x",
-            "all_data_metadata", "all_data_weights",
+            "all_data",
+            "all_data_all",
+            "all_data_extra_x",
+            "all_data_metadata",
+            "all_data_weights",
         ]:
             path = heldout_dir / f"{suffix}.csv"
             if path.exists():
@@ -313,16 +328,13 @@ def get_lnpdb_splits(
         return result
 
     else:
-        raise ValueError(
-            f"Unknown split_type {split_type!r}. "
-            "Choose from: single, cv_old, heldout"
-        )
+        raise ValueError(f"Unknown split_type {split_type!r}. Choose from: single, cv_old, heldout")
 
 
 def _load_split_dir(
     base: Path,
     has_val: bool = False,
-) -> Dict[str, pd.DataFrame]:
+) -> dict[str, pd.DataFrame]:
     """Load all CSV files from a split directory."""
     if not base.is_dir():
         raise FileNotFoundError(f"Split directory not found: {base}")
@@ -358,11 +370,12 @@ def _load_split_dir(
 # Dataset conversion helpers
 # ---------------------------------------------------------------------------
 
+
 def lion_split_to_dataset(
     split_type: str = "single",
     partition: str = "train",
-    heldout_name: Optional[str] = None,
-    cv_index: Optional[int] = None,
+    heldout_name: str | None = None,
+    cv_index: int | None = None,
 ) -> Dataset:
     """Load a LiON split partition and convert it to a LNPBO Dataset.
 
@@ -398,8 +411,7 @@ def lion_split_to_dataset(
 
     if partition not in splits:
         raise ValueError(
-            f"Partition {partition!r} not found. "
-            f"Available: {[k for k in splits if not k.startswith('_')]}"
+            f"Partition {partition!r} not found. Available: {[k for k in splits if not k.startswith('_')]}"
         )
 
     split_df = splits[partition].copy()  # IL_SMILES, Experiment_value
@@ -413,17 +425,14 @@ def lion_split_to_dataset(
         new_cols = [c for c in meta_df.columns if c not in split_df.columns]
         if new_cols:
             split_df = pd.concat(
-                [split_df.reset_index(drop=True),
-                 meta_df[new_cols].reset_index(drop=True)],
+                [split_df.reset_index(drop=True), meta_df[new_cols].reset_index(drop=True)],
                 axis=1,
             )
 
     # Load full LNPDB to join additional columns
     full_csv = _lion_dir() / "LNPDB.csv"
     if not full_csv.exists():
-        raise FileNotFoundError(
-            "LNPDB.csv needed to recover full columns for split data"
-        )
+        raise FileNotFoundError("LNPDB.csv needed to recover full columns for split data")
 
     full_df = _read_lnpdb_csv(full_csv)
 
@@ -491,7 +500,8 @@ def lion_split_to_dataset(
 # Discovery / listing
 # ---------------------------------------------------------------------------
 
-def list_available_datasets() -> Dict[str, object]:
+
+def list_available_datasets() -> dict[str, object]:
     """List all available LNPDB datasets and splits.
 
     Returns
@@ -511,7 +521,7 @@ def list_available_datasets() -> Dict[str, object]:
             }
     """
     lion = _lion_dir()
-    info: Dict[str, object] = {}
+    info: dict[str, object] = {}
 
     # Full database
     lnpdb_csv = lion / "LNPDB.csv"
@@ -559,7 +569,7 @@ def list_available_datasets() -> Dict[str, object]:
         for hdir in sorted(heldout_base.iterdir()):
             if hdir.is_dir() and hdir.name.startswith("heldout_"):
                 name = hdir.name.replace("heldout_", "")
-                hinfo: Dict[str, object] = {}
+                hinfo: dict[str, object] = {}
 
                 ad = hdir / "all_data.csv"
                 if ad.exists():
@@ -571,11 +581,13 @@ def list_available_datasets() -> Dict[str, object]:
 
                 cv_dir = hdir / "cv_splits"
                 if cv_dir.is_dir():
-                    available_folds = sorted([
-                        int(d.name.replace("cv_", ""))
-                        for d in cv_dir.iterdir()
-                        if d.is_dir() and d.name.startswith("cv_")
-                    ])
+                    available_folds = sorted(
+                        [
+                            int(d.name.replace("cv_", ""))
+                            for d in cv_dir.iterdir()
+                            if d.is_dir() and d.name.startswith("cv_")
+                        ]
+                    )
                     hinfo["cv_folds"] = available_folds
 
                 info["heldout"][name] = hinfo
@@ -585,13 +597,14 @@ def list_available_datasets() -> Dict[str, object]:
 
 def _count_csv_rows(path: Path) -> int:
     """Count data rows in a CSV (excluding header)."""
-    with open(path, "r") as f:
+    with open(path) as f:
         return sum(1 for _ in f) - 1
 
 
 # ---------------------------------------------------------------------------
 # Convenience: load from LNPDB.csv directly via Dataset.from_lnpdb_csv
 # ---------------------------------------------------------------------------
+
 
 def lnpdb_csv_path() -> str:
     """Return the path to LNPDB.csv as a string, suitable for

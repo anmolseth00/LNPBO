@@ -1,9 +1,11 @@
 from __future__ import annotations
-from tqdm import tqdm
+
 import numpy as np
-from rdkit import Chem
 from mordred import Calculator, descriptors
+from rdkit import Chem
 from sklearn.preprocessing import StandardScaler
+from tqdm import tqdm
+
 
 def single_mordred_descriptors(smiles, calc):
     """
@@ -17,11 +19,15 @@ def single_mordred_descriptors(smiles, calc):
     mol = Chem.MolFromSmiles(smiles)
     if mol is not None:
         result = calc(mol)
-        values = np.array([value if isinstance(value, (int, float, np.number)) else 0 for value in result.fill_missing(0)])
+        values = np.array(
+            [value if isinstance(value, (int, float, np.number)) else 0 for value in result.fill_missing(0)]
+        )
         return values
-    else: return np.zeros(len(calc.descriptors))
+    else:
+        return np.zeros(len(calc.descriptors))
 
-def mordred_descriptors(list_of_smiles:list[str]):
+
+def mordred_descriptors(list_of_smiles: list[str]):
     """
     Generate mordred descriptors for a list of molecules using SMILES
 

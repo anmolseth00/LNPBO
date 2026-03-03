@@ -1,11 +1,13 @@
 from __future__ import annotations
+
+import warnings
+from copy import deepcopy
+
+import numpy as np
 from bayes_opt import acquisition
 from bayes_opt.target_space import TargetSpace
-from copy import deepcopy
-import warnings
-import numpy as np
-from scipy.stats import norm
 from scipy.special import erfcx
+from scipy.stats import norm
 
 
 class KrigingBeliever(acquisition.AcquisitionFunction):
@@ -23,7 +25,9 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
     Springer, 2010, pp. 131-162.
     """
 
-    def __init__(self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8) -> None:
+    def __init__(
+        self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8
+    ) -> None:
         super().__init__(random_state)
         self.base_acquisition = base_acquisition
         self.dummies = []
@@ -44,7 +48,7 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
                 dummies.append(dummy)
         self.dummies = dummies
 
-    def _create_dummy_target_space(self, gp, target_space: TargetSpace, fit_gp: bool=True) -> TargetSpace:
+    def _create_dummy_target_space(self, gp, target_space: TargetSpace, fit_gp: bool = True) -> TargetSpace:
         # Check if any dummies have been evaluated and remove them
         self._remove_expired_dummies(target_space)
         if fit_gp:
@@ -55,7 +59,9 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         if self.dummies:
             dummy_targets = gp.predict(np.array(self.dummies).reshape((len(self.dummies), -1)))
             if dummy_target_space.constraint is not None:
-                dummy_constraints = target_space.constraint.approx(np.array(self.dummies).reshape((len(self.dummies), -1)))
+                dummy_constraints = target_space.constraint.approx(  # type: ignore[union-attr]
+                    np.array(self.dummies).reshape((len(self.dummies), -1))
+                )
             for idx, dummy in enumerate(self.dummies):
                 if dummy_target_space.constraint is not None:
                     dummy_target_space.register(dummy, dummy_targets[idx].squeeze(), dummy_constraints[idx].squeeze())
@@ -63,9 +69,13 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
                     dummy_target_space.register(dummy, dummy_targets[idx].squeeze())
         return dummy_target_space
 
-    def suggest(self, gp, target_space: TargetSpace, n_random=10_000, n_smart=10, fit_gp:bool=True, random_state=None) -> np.ndarray:
+    def suggest(
+        self, gp, target_space: TargetSpace, n_random=10_000, n_smart=10, fit_gp: bool = True, random_state=None
+    ) -> np.ndarray:
         if len(target_space) == 0:
-            raise ValueError("Cannot suggest a point without previous samples. Use target_space.random_sample() to generate a point.")
+            raise ValueError(
+                "Cannot suggest a point without previous samples. Use target_space.random_sample() to generate a point."
+            )
 
         # fit GP only if necessary
         # GP needs to be fitted to predict dummy targets
@@ -75,12 +85,7 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         dummy_gp = deepcopy(gp)
         # Always fit dummy GP!
         x_max = self.base_acquisition.suggest(
-            dummy_gp,
-            dummy_target_space,
-            n_random=n_random,
-            n_smart=n_smart,
-            fit_gp=True,
-            random_state=random_state
+            dummy_gp, dummy_target_space, n_random=n_random, n_smart=n_smart, fit_gp=True, random_state=random_state
         )
         self.dummies.append(x_max)
 
@@ -127,7 +132,7 @@ def _log_h_stable(z):
     mask3 = z <= -_INV_SQRT_EPS
     if np.any(mask3):
         z3 = z[mask3]
-        result[mask3] = -0.5 * z3 ** 2 - _LOG_2PI_HALF - 2.0 * np.log(-z3)
+        result[mask3] = -0.5 * z3**2 - _LOG_2PI_HALF - 2.0 * np.log(-z3)
 
     # Case 2: -1/sqrt(eps) < z <= -1 (intermediate, use erfcx + log1mexp)
     mask2 = ~mask1 & ~mask3
@@ -146,7 +151,7 @@ def _log_h_stable(z):
             np.log(-np.expm1(inner)),
             np.log1p(-np.exp(inner)),
         )
-        result[mask2] = -0.5 * z2 ** 2 - _LOG_2PI_HALF + log1mexp_val
+        result[mask2] = -0.5 * z2**2 - _LOG_2PI_HALF + log1mexp_val
 
     return result
 
@@ -188,8 +193,12 @@ class LogExpectedImprovement(acquisition.AcquisitionFunction):
             raise ValueError("Cannot suggest a point without previous samples.")
         self.y_max = target_space._target_max()
         return super().suggest(
-            gp, target_space, n_random=n_random, n_smart=n_smart,
-            fit_gp=fit_gp, random_state=random_state,
+            gp,
+            target_space,
+            n_random=n_random,
+            n_smart=n_smart,
+            fit_gp=fit_gp,
+            random_state=random_state,
         )
 
     def get_acquisition_params(self):
@@ -258,14 +267,17 @@ class LocalPenalization(acquisition.AcquisitionFunction):
             self._fit_gp(gp, target_space)
 
         # Set y_max for improvement-based acquisitions
-        if hasattr(self.base_acquisition, 'y_max'):
-            self.base_acquisition.y_max = target_space._target_max()
+        if hasattr(self.base_acquisition, "y_max"):
+            self.base_acquisition.y_max = target_space._target_max()  # type: ignore[assignment]
 
         self.i += 1
         acq = self._get_acq(gp=gp, constraint=target_space.constraint)
         x_max = self._acq_min(
-            acq, target_space, n_random=n_random, n_smart=n_smart,
-            random_state=np.random.RandomState(random_state) if isinstance(random_state, int) else random_state,
+            acq,
+            target_space,
+            n_random=n_random,
+            n_smart=n_smart,
+            random_state=np.random.RandomState(random_state) if isinstance(random_state, int) else random_state,  # type: ignore[arg-type]
         )
         self.pending.append(x_max.copy())
         return x_max
@@ -284,7 +296,8 @@ class LocalPenalization(acquisition.AcquisitionFunction):
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 mu_pending, sigma_pending = gp.predict(
-                    pending_arr.reshape(-1, dim), return_std=True,
+                    pending_arr.reshape(-1, dim),
+                    return_std=True,
                 )
             for j in range(len(pending)):
                 r_j = max(y_max - mu_pending[j], 1e-8)
@@ -330,9 +343,9 @@ class LocalPenalization(acquisition.AcquisitionFunction):
             lengthscales = None
             variance = 1.0
             for key, val in params.items():
-                if 'length_scale' in key and not key.endswith('_bounds'):
+                if "length_scale" in key and not key.endswith("_bounds"):
                     lengthscales = np.atleast_1d(val)
-                if 'constant_value' in key and not key.endswith('_bounds'):
+                if "constant_value" in key and not key.endswith("_bounds"):
                     variance = float(val)
             if lengthscales is not None:
                 return self.lipschitz_scale * np.sqrt(variance) / np.min(lengthscales)

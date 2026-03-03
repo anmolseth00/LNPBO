@@ -1,6 +1,6 @@
 from ..data.dataset import Dataset
-from ..space.formulation import FormulationSpace
 from ..optimization.optimizer import Optimizer
+from ..space.formulation import FormulationSpace
 
 
 def add_suggest_command(subparsers):
@@ -9,24 +9,24 @@ def add_suggest_command(subparsers):
         help="Suggest next batch of formulations",
     )
 
-    parser.add_argument("--dataset", required=True,
-                        help="Path to encoded dataset CSV (from 'encode' step)")
-    parser.add_argument("--batch-size", type=int, default=24,
-                        help="Number of formulations to suggest (default: 24)")
-    parser.add_argument("--acq-type", default="UCB",
-                        choices=["UCB", "EI", "LogEI", "LP_UCB", "LP_EI", "LP_LogEI"],
-                        help="Acquisition function type (default: UCB)")
-    parser.add_argument("--kappa", type=float, default=5.0,
-                        help="UCB exploration parameter (default: 5.0)")
-    parser.add_argument("--xi", type=float, default=0.01,
-                        help="EI/PI exploration parameter (default: 0.01)")
-    parser.add_argument("--seed", type=int, default=1,
-                        help="Random seed (default: 1)")
-    parser.add_argument("--output", required=True,
-                        help="Output CSV path for suggested formulations")
-    parser.add_argument("--reduction", default="pca",
-                        choices=["pca", "pls"],
-                        help="Dimensionality reduction: pca (default) or pls (target-aware)")
+    parser.add_argument("--dataset", required=True, help="Path to encoded dataset CSV (from 'encode' step)")
+    parser.add_argument("--batch-size", type=int, default=24, help="Number of formulations to suggest (default: 24)")
+    parser.add_argument(
+        "--acq-type",
+        default="UCB",
+        choices=["UCB", "EI", "LogEI", "LP_UCB", "LP_EI", "LP_LogEI"],
+        help="Acquisition function type (default: UCB)",
+    )
+    parser.add_argument("--kappa", type=float, default=5.0, help="UCB exploration parameter (default: 5.0)")
+    parser.add_argument("--xi", type=float, default=0.01, help="EI/PI exploration parameter (default: 0.01)")
+    parser.add_argument("--seed", type=int, default=1, help="Random seed (default: 1)")
+    parser.add_argument("--output", required=True, help="Output CSV path for suggested formulations")
+    parser.add_argument(
+        "--reduction",
+        default="pca",
+        choices=["pca", "pls"],
+        help="Dimensionality reduction: pca (default) or pls (target-aware)",
+    )
 
     parser.set_defaults(func=run_suggest)
 

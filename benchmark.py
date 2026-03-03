@@ -12,28 +12,27 @@ Workflow:
   4. Track metrics: best-so-far, top-K recall, AUC
 
 Strategies:
-  random            – uniform random sampling from discovery pool
-  lnpbo_ucb         – GP + Kriging Believer + UCB (current default)
-  lnpbo_ei          – GP + Kriging Believer + EI
-  lnpbo_logei       – GP + Kriging Believer + LogEI (log-space EI)
-  lnpbo_lp_ei       – GP + Local Penalization + EI
-  lnpbo_lp_logei    – GP + Local Penalization + LogEI
-  lnpbo_pls_logei   – PLS encoding + Kriging Believer + LogEI
-  lnpbo_pls_lp_logei – PLS encoding + Local Penalization + LogEI
+  random             - uniform random sampling from discovery pool
+  lnpbo_ucb          - GP + Kriging Believer + UCB (current default)
+  lnpbo_ei           - GP + Kriging Believer + EI
+  lnpbo_logei        - GP + Kriging Believer + LogEI (log-space EI)
+  lnpbo_lp_ei        - GP + Local Penalization + EI
+  lnpbo_lp_logei     - GP + Local Penalization + LogEI
+  lnpbo_pls_logei    - PLS encoding + Kriging Believer + LogEI
+  lnpbo_pls_lp_logei - PLS encoding + Local Penalization + LogEI
 
 Usage:
   python benchmark.py --strategies random,lnpbo_ucb --rounds 5 --batch-size 12 --seed 42
   python benchmark.py --strategies all --rounds 10 --seed 42 --n-seeds 500
 """
 
-import sys
 import argparse
-import time
 import json
+import sys
+import time
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from sklearn.neighbors import NearestNeighbors
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -67,6 +66,7 @@ PLS_STRATEGIES = {"lnpbo_pls_logei", "lnpbo_pls_lp_logei"}
 # Oracle: LNPDB as ground-truth lookup
 # ---------------------------------------------------------------------------
 
+
 class LNPDBOracle:
     """Wraps the full encoded LNPDB for oracle lookup."""
 
@@ -98,6 +98,7 @@ class LNPDBOracle:
 # Data preparation
 # ---------------------------------------------------------------------------
 
+
 def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca"):
     """Load LNPDB, encode, split into seed/oracle.
 
@@ -110,9 +111,8 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
     targets would be available. A future improvement would re-fit PLS each
     round using only the current training set's targets.
     """
-    from LNPBO.data.lnpdb_bridge import load_lnpdb_full
     from LNPBO.data.dataset import Dataset
-    from LNPBO.space.formulation import FormulationSpace
+    from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
     print(f"Loading LNPDB (reduction={reduction})...")
     dataset = load_lnpdb_full()
@@ -162,9 +162,8 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
         col = f"{role}_molratio"
         if col in encoded.df.columns and encoded.df[col].nunique() > 1:
             feature_cols.append(col)
-    if "IL_to_nucleicacid_massratio" in encoded.df.columns:
-        if encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
-            feature_cols.append("IL_to_nucleicacid_massratio")
+    if "IL_to_nucleicacid_massratio" in encoded.df.columns and encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
+        feature_cols.append("IL_to_nucleicacid_massratio")
 
     print(f"  Feature columns ({len(feature_cols)}): {feature_cols}")
 
@@ -204,6 +203,7 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
 # Strategy runners
 # ---------------------------------------------------------------------------
 
+
 def run_random(oracle_df, seed_idx, oracle_idx, batch_size, n_rounds, seed):
     """Random baseline: uniformly sample from oracle pool."""
     rng = np.random.RandomState(seed)
@@ -225,15 +225,22 @@ def run_random(oracle_df, seed_idx, oracle_idx, batch_size, n_rounds, seed):
 
 
 def run_bo_strategy(
-    encoded_dataset, encoded_df, feature_cols,
-    seed_idx, oracle_idx,
-    acq_type, batch_size, n_rounds, seed,
-    kappa=5.0, xi=0.01,
+    encoded_dataset,
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    acq_type,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    xi=0.01,
 ):
     """Run a BO strategy with oracle lookup."""
     from LNPBO.data.dataset import Dataset
-    from LNPBO.space.formulation import FormulationSpace
     from LNPBO.optimization.bayesopt import perform_bayesian_optimization
+    from LNPBO.space.formulation import FormulationSpace
 
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
@@ -250,7 +257,9 @@ def run_bo_strategy(
         train_df["Round"] = 0
 
         dataset = Dataset(
-            train_df, source="lnpdb", name="benchmark_train",
+            train_df,
+            source="lnpdb",
+            name="benchmark_train",
             metadata=encoded_dataset.metadata,
             encoders=encoded_dataset.encoders,
             fitted_transformers=encoded_dataset.fitted_transformers,
@@ -295,6 +304,7 @@ def run_bo_strategy(
 # ---------------------------------------------------------------------------
 # History / metrics tracking
 # ---------------------------------------------------------------------------
+
 
 def _init_history(df, seed_idx):
     seed_vals = df.loc[seed_idx, "Experiment_value"]
@@ -348,16 +358,18 @@ def compute_metrics(history, top_k_values, n_total):
 # Plotting
 # ---------------------------------------------------------------------------
 
+
 def plot_results(all_results, output_path="benchmark_results.png"):
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
     except ImportError:
         print("matplotlib not available, skipping plots")
         return
 
-    fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    _fig, axes = plt.subplots(1, 2, figsize=(14, 5))
 
     # Plot 1: Best-so-far traces
     ax1 = axes[0]
@@ -396,12 +408,13 @@ def plot_results(all_results, output_path="benchmark_results.png"):
 # Main
 # ---------------------------------------------------------------------------
 
+
 def main():
-    parser = argparse.ArgumentParser(
-        description="LNPBO Benchmark: Simulated closed-loop BO evaluation"
-    )
+    parser = argparse.ArgumentParser(description="LNPBO Benchmark: Simulated closed-loop BO evaluation")
     parser.add_argument(
-        "--strategies", type=str, default="random,lnpbo_ucb",
+        "--strategies",
+        type=str,
+        default="random,lnpbo_ucb",
         help=f"Comma-separated strategies to run (or 'all'). Options: {','.join(ALL_STRATEGIES)}",
     )
     parser.add_argument("--rounds", type=int, default=5, help="Number of BO rounds (default: 5)")
@@ -411,7 +424,12 @@ def main():
     parser.add_argument("--subset", type=int, default=None, help="Use a subset of LNPDB (for fast testing)")
     parser.add_argument("--kappa", type=float, default=5.0, help="UCB kappa (default: 5.0)")
     parser.add_argument("--xi", type=float, default=0.01, help="EI/LogEI xi (default: 0.01)")
-    parser.add_argument("--output", type=str, default="benchmark_results", help="Output prefix (default: benchmark_results)")
+    parser.add_argument(
+        "--output",
+        type=str,
+        default="benchmark_results",
+        help="Output prefix (default: benchmark_results)",
+    )
     parser.add_argument("--no-plot", action="store_true", help="Skip plotting")
     args = parser.parse_args()
 
@@ -434,23 +452,27 @@ def main():
 
     # Prepare data (PCA encoding for most strategies)
     pca_data = prepare_benchmark_data(
-        n_seed=args.n_seeds, random_seed=args.seed, subset=args.subset, reduction="pca",
+        n_seed=args.n_seeds,
+        random_seed=args.seed,
+        subset=args.subset,
+        reduction="pca",
     )
-    encoded_dataset, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = pca_data
-
     # Prepare PLS-encoded data if any PLS strategies requested
     pls_data = None
     if any(s in PLS_STRATEGIES for s in strategies):
         pls_data = prepare_benchmark_data(
-            n_seed=args.n_seeds, random_seed=args.seed, subset=args.subset, reduction="pls",
+            n_seed=args.n_seeds,
+            random_seed=args.seed,
+            subset=args.subset,
+            reduction="pls",
         )
 
     # Run strategies
     all_results = {}
     for strategy in strategies:
-        print(f"\n{'='*70}")
+        print(f"\n{'=' * 70}")
         print(f"Running: {strategy}")
-        print(f"{'='*70}")
+        print(f"{'=' * 70}")
         t0 = time.time()
 
         # Select PCA or PLS data for this strategy
@@ -461,17 +483,27 @@ def main():
 
         if strategy == "random":
             history = run_random(
-                s_df, s_seed, s_oracle,
-                batch_size=args.batch_size, n_rounds=args.rounds, seed=args.seed,
+                s_df,
+                s_seed,
+                s_oracle,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds,
+                seed=args.seed,
             )
         else:
             acq_type = STRATEGY_TO_ACQ[strategy]
             history = run_bo_strategy(
-                s_dataset, s_df, s_fcols,
-                s_seed, s_oracle,
+                s_dataset,
+                s_df,
+                s_fcols,
+                s_seed,
+                s_oracle,
                 acq_type=acq_type,
-                batch_size=args.batch_size, n_rounds=args.rounds, seed=args.seed,
-                kappa=args.kappa, xi=args.xi,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds,
+                seed=args.seed,
+                kappa=args.kappa,
+                xi=args.xi,
             )
 
         elapsed = time.time() - t0
@@ -489,18 +521,20 @@ def main():
         print(f"  Top-K recall: { {k: f'{v:.1%}' for k, v in metrics['top_k_recall'].items()} }")
 
     # Summary table
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print("SUMMARY")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     header = f"{'Strategy':<24} {'Final Best':>12} {'AUC':>10} {'Top-10':>8} {'Top-50':>8} {'Top-100':>8} {'Time':>8}"
     print(header)
     print("-" * len(header))
     for name, result in all_results.items():
         m = result["metrics"]
         r = m["top_k_recall"]
-        print(f"{name:<24} {m['final_best']:>12.4f} {m['auc']:>10.4f} "
-              f"{r.get(10, 0):>7.1%} {r.get(50, 0):>7.1%} {r.get(100, 0):>7.1%} "
-              f"{result['elapsed']:>7.1f}s")
+        print(
+            f"{name:<24} {m['final_best']:>12.4f} {m['auc']:>10.4f} "
+            f"{r.get(10, 0):>7.1%} {r.get(50, 0):>7.1%} {r.get(100, 0):>7.1%} "
+            f"{result['elapsed']:>7.1f}s"
+        )
 
     # Save results JSON
     json_path = f"{args.output}.json"

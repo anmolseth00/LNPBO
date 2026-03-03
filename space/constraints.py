@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 import numpy as np
+
 
 def validate_mixture(
     values,
@@ -18,7 +20,4 @@ def validate_mixture(
     if np.any(values > bounds[:, 1]):
         return False
 
-    if not np.isclose(values.sum(), target_sum, atol=atol):
-        return False
-
-    return True
+    return np.isclose(values.sum(), target_sum, atol=atol)

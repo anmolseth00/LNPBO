@@ -1,16 +1,15 @@
 from __future__ import annotations
-from typing import Dict, List, Tuple, Optional
-import random
-import numpy as np
-import pandas as pd
 
+import random
+
+import numpy as np
+
+from ..data.dataset import Dataset
 from .parameters import (
     ComponentParameter,
     DiscreteParameter,
     MixtureRatiosParameter,
 )
-from ..utils.ordering import order_df_columns
-from ..data.dataset import Dataset
 
 
 class FormulationSpace:
@@ -23,20 +22,18 @@ class FormulationSpace:
 
     def __init__(
         self,
-        components: Dict[str, List[Dict]],
-        molratio_bounds: Dict[str, Tuple[float, float]],
-        il_mrna_massratio_values: List[float],
-
+        components: dict[str, list[dict]],
+        molratio_bounds: dict[str, tuple[float, float]],
+        il_mrna_massratio_values: list[float],
         target: str = "Experiment_value",
-        dataset = None,
-        component_pcs: Dict[str, Dict[str, int]] | None = None,
-        fixed_values: Dict[str, float] | None = None,
-
+        dataset=None,
+        component_pcs: dict[str, dict[str, int]] | None = None,
+        fixed_values: dict[str, float] | None = None,
         normalize_molratios: bool = True,
-        random_seed: Optional[int] = None,
-        name = "screen"
+        random_seed: int | None = None,
+        name="screen",
     ):
-        self._dataset = dataset
+        self._dataset: Dataset | None = dataset
         self.name = name
 
         self.components = components
@@ -74,6 +71,9 @@ class FormulationSpace:
         encoders = self._dataset.encoders
         df = self._dataset.df
 
+        if not encoders:
+            return params
+
         # Component parameters
         for role in self.ROLES:
             if not metadata["variable_components"].get(role, False):
@@ -83,10 +83,7 @@ class FormulationSpace:
 
             columns = []
             for encoder_name, n_pcs in pcs_dict.items():
-                columns += [
-                    f"{role}_{encoder_name}_pc{i}"
-                    for i in range(1, n_pcs + 1)
-                ]
+                columns += [f"{role}_{encoder_name}_pc{i}" for i in range(1, n_pcs + 1)]
 
             if not columns:
                 continue
@@ -97,16 +94,20 @@ class FormulationSpace:
                 continue
 
             unique_vals = df[valid_cols].drop_duplicates().values
-            bounds = np.column_stack([
-                df[valid_cols].min().values,
-                df[valid_cols].max().values,
-            ])
+            bounds = np.column_stack(
+                [
+                    df[valid_cols].min().values,
+                    df[valid_cols].max().values,
+                ]
+            )
 
-            params.append(ComponentParameter(
-                name=role,
-                bounds=bounds,
-                valid_options=unique_vals,
-            ))
+            params.append(
+                ComponentParameter(
+                    name=role,
+                    bounds=bounds,
+                    valid_options=unique_vals,
+                )
+            )
 
         # Mixture ratio parameters
         columns_mixture = []
@@ -116,24 +117,30 @@ class FormulationSpace:
 
         if columns_mixture:
             nr_components = len(columns_mixture)
-            mr_bounds = np.array([
-                [self.molratio_bounds[role][0], self.molratio_bounds[role][1]]
-                for role in self.ROLES
-                if metadata["variable_molratios"].get(role, False)
-            ])
-            params.append(MixtureRatiosParameter(
-                name="molratio",
-                nr_components=nr_components,
-                bounds=mr_bounds,
-            ))
+            mr_bounds = np.array(
+                [
+                    [self.molratio_bounds[role][0], self.molratio_bounds[role][1]]
+                    for role in self.ROLES
+                    if metadata["variable_molratios"].get(role, False)
+                ]
+            )
+            params.append(
+                MixtureRatiosParameter(
+                    name="molratio",
+                    nr_components=nr_components,
+                    bounds=mr_bounds,
+                )
+            )
 
         # IL to mRNA mass ratio (discrete)
         if metadata.get("variable_il_mrna", False):
             domain = np.array(self.il_mrna_massratio_values)
-            params.append(DiscreteParameter(
-                name="IL_to_nucleicacid_massratio",
-                domain=domain,
-            ))
+            params.append(
+                DiscreteParameter(
+                    name="IL_to_nucleicacid_massratio",
+                    domain=domain,
+                )
+            )
 
         return params
 
@@ -149,8 +156,8 @@ class FormulationSpace:
     def from_dataset(
         cls,
         dataset: Dataset,
-        molratio_bounds_override: Dict[str, Tuple[float, float]] | None = None,
-    ) -> "FormulationSpace":
+        molratio_bounds_override: dict[str, tuple[float, float]] | None = None,
+    ) -> FormulationSpace:
 
         df = dataset.df
         meta = dataset.metadata
@@ -159,11 +166,7 @@ class FormulationSpace:
             raise ValueError("Dataset must be encoded before FormulationSpace.")
 
         # Structural PCs
-        component_pcs = {
-            role: meta["pcs"].get(role, {})
-            for role in cls.ROLES
-            if meta["variable_components"].get(role)
-        }
+        component_pcs = {role: meta["pcs"].get(role, {}) for role in cls.ROLES if meta["variable_components"].get(role)}
 
         # Molratio bounds
         molratio_bounds = {}
@@ -193,17 +196,16 @@ class FormulationSpace:
             return (
                 df[cols]
                 .drop_duplicates()
-                .rename(columns={
-                    f"{role}_name": "name",
-                    f"{role}_SMILES": "smiles",
-                })
+                .rename(
+                    columns={
+                        f"{role}_name": "name",
+                        f"{role}_SMILES": "smiles",
+                    }
+                )
                 .to_dict("records")
             )
 
-        components = {
-            role: component_records(role)
-            for role in cls.ROLES
-        }
+        components = {role: component_records(role) for role in cls.ROLES}
 
         return cls(
             components=components,
@@ -215,7 +217,7 @@ class FormulationSpace:
             dataset=dataset,
             name=dataset.name,
         )
-    
+
     def update(self, dataset: Dataset):
         """
         Update the internal formulation space from a Dataset.
@@ -279,12 +281,13 @@ class FormulationSpace:
             "parameters": [],
         }
 
+        assert self._dataset is not None
         metadata = self._dataset.metadata
         encoders = self._dataset.encoders
+        assert encoders is not None
 
         # Component parameters
         for component in metadata["variable_components"]:
-
             if not metadata["variable_components"][component]:
                 continue
 
@@ -292,19 +295,18 @@ class FormulationSpace:
 
             columns = []
             for encoder_name, n_pcs in pcs_dict.items():
-                columns += [
-                    f"{component}_{encoder_name}_pc{i}"
-                    for i in range(1, n_pcs + 1)
-                ]
+                columns += [f"{component}_{encoder_name}_pc{i}" for i in range(1, n_pcs + 1)]
 
             if not columns:
                 continue
 
-            d["parameters"].append({
-                "name": component,
-                "type": "ComponentParameter",
-                "columns": columns,
-            })
+            d["parameters"].append(
+                {
+                    "name": component,
+                    "type": "ComponentParameter",
+                    "columns": columns,
+                }
+            )
 
         # Mixture ratio parameters
         columns_mixture = []
@@ -321,11 +323,13 @@ class FormulationSpace:
 
         # IL to mRNA mass ratio
         if metadata.get("variable_il_mrna", False):
-            d["parameters"].append({
-                "name": "IL_to_nucleicacid_massratio",
-                "type": "DiscreteParameter",
-                "columns": ["IL_to_nucleicacid_massratio"],
-            })
+            d["parameters"].append(
+                {
+                    "name": "IL_to_nucleicacid_massratio",
+                    "type": "DiscreteParameter",
+                    "columns": ["IL_to_nucleicacid_massratio"],
+                }
+            )
         return d
 
     def get_parameters(self):
@@ -339,7 +343,6 @@ class FormulationSpace:
 
     def new_round(self):
         self._round_counter += 1
-
 
     # Sampling (still symmetric)
     def sample_random(self, n: int):

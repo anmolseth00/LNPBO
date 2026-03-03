@@ -1,13 +1,14 @@
 from __future__ import annotations
-from typing import Optional
+
 import numpy as np
 import pandas as pd
-from ..space.formulation import FormulationSpace
-from ..data.dataset import Dataset
-from .doe import mixture_doe
-from .bayesopt import perform_bayesian_optimization
 from sklearn.metrics import pairwise_distances
-from ..space.parameters import ComponentParameter
+
+from ..data.dataset import Dataset
+from ..space.formulation import FormulationSpace
+from .bayesopt import perform_bayesian_optimization
+from .doe import mixture_doe
+
 
 class Optimizer:
     """
@@ -35,15 +36,12 @@ class Optimizer:
 
         np.random.seed(random_seed)
 
-    def suggest(
-        self,
-        output_csv: Optional[str] = None
-    ) -> pd.DataFrame:
+    def suggest(self, output_csv: str | None = None) -> pd.DataFrame:
         """
         Suggest a batch of new formulations.
 
         Returns a DataFrame of suggested formulations. Optionally writes CSV.
-        
+
         :param self: Optimizer object
         :param output_csv: suggestion save path
         :type output_csv: Optional[str]
@@ -51,6 +49,7 @@ class Optimizer:
         :rtype: DataFrame
         """
         dataset = self.space._dataset
+        assert dataset is not None
 
         round_number = dataset.max_round() + 1
 
@@ -91,10 +90,7 @@ class Optimizer:
             configs = space.get_configs()
 
             # Locate ComponentParameter for this role
-            comp_params = [
-                p for p in configs["parameters"]
-                if p["type"] == "ComponentParameter" and p["name"] == role
-            ]
+            comp_params = [p for p in configs["parameters"] if p["type"] == "ComponentParameter" and p["name"] == role]
 
             name_col = f"{role}_name"
             smiles_col = f"{role}_SMILES"
@@ -110,16 +106,11 @@ class Optimizer:
             p = comp_params[0]
             feature_cols = p["columns"]
 
-            ref_cols = feature_cols + [name_col]
+            ref_cols = [*feature_cols, name_col]
             if smiles_col in dataset.df.columns:
                 ref_cols.append(smiles_col)
 
-            ref = (
-                dataset.df[ref_cols]
-                .dropna()
-                .drop_duplicates(subset=feature_cols)
-                .reset_index(drop=True)
-            )
+            ref = dataset.df[ref_cols].dropna().drop_duplicates(subset=feature_cols).reset_index(drop=True)
 
             X_ref = ref[feature_cols].to_numpy()
             names = ref[f"{role}_name"].tolist()
@@ -136,7 +127,6 @@ class Optimizer:
             df_new[name_col] = decoded.iloc[:, 0]
             df_new[smiles_col] = decoded.iloc[:, 1]
             return df_new
-
 
         for role in ["IL", "HL", "CHL", "PEG"]:
             df_batch = decode_component(df_batch, role, self.space)
@@ -158,14 +148,10 @@ class Optimizer:
 
         start_id = int(df_old["Formulation_ID"].max()) if df_old["Formulation_ID"].notna().any() else 0
 
-        df_batch["Formulation_ID"] = np.arange(
-            start_id + 1, start_id + 1 + len(df_batch)
-        )
+        df_batch["Formulation_ID"] = np.arange(start_id + 1, start_id + 1 + len(df_batch))
 
         df_batch["Round"] = (
-            int(df_old["Round"].max()) + 1
-            if "Round" in df_old.columns and df_old["Round"].notna().any()
-            else 1
+            int(df_old["Round"].max()) + 1 if "Round" in df_old.columns and df_old["Round"].notna().any() else 1
         )
 
         df_batch["Experiment_value"] = np.nan
@@ -208,10 +194,9 @@ class Optimizer:
         # Encoding columns grouped by role
         for role in ["IL", "HL", "CHL", "PEG"]:
             enc_cols = [
-                c for c in df_final.columns
-                if c.startswith(f"{role}_mfp_")
-                or c.startswith(f"{role}_mordred_")
-                or c.startswith(f"{role}_lion_")
+                c
+                for c in df_final.columns
+                if c.startswith(f"{role}_mfp_") or c.startswith(f"{role}_mordred_") or c.startswith(f"{role}_lion_")
             ]
             ordered_cols += sorted(enc_cols)
 
@@ -220,7 +205,6 @@ class Optimizer:
         ordered_cols += remaining
 
         df_final = df_final[ordered_cols]
-
 
         # -------------------------------------------------
         # Write CSV
@@ -247,17 +231,13 @@ class Optimizer:
         latest_round = df["Round"].max()
 
         # Select completed rows from that round
-        df_new = df[
-            (df["Round"] == latest_round)
-            & df["Experiment_value"].notna()
-        ].copy()
+        df_new = df[(df["Round"] == latest_round) & df["Experiment_value"].notna()].copy()
 
         if df_new.empty:
-            raise ValueError(
-                f"No completed rows found for latest round ({latest_round})."
-            )
+            raise ValueError(f"No completed rows found for latest round ({latest_round}).")
 
         # Append to dataset
+        assert self.space._dataset is not None
         updated_dataset = self.space._dataset.append_suggestions(df_new)
 
         # Update formulation space
@@ -277,4 +257,3 @@ class Optimizer:
             "alpha": self.alpha,
             "current_round": self.space._round_counter if hasattr(self.space, "_round_counter") else None,
         }
-    

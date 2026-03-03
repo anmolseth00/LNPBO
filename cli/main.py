@@ -1,10 +1,10 @@
 import argparse
 import sys
 
-from .encode import add_encode_command
-from .suggest import add_suggest_command
-from .register import add_register_command
 from .checkpoint import add_checkpoint_command
+from .encode import add_encode_command
+from .register import add_register_command
+from .suggest import add_suggest_command
 
 
 def main():
