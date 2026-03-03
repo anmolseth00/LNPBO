@@ -18,7 +18,7 @@ class Optimizer:
     def __init__(
         self,
         space: FormulationSpace,
-        type: str = "ucb",
+        type: str = "UCB",
         kappa: float = 5.0,
         xi: float = 0.01,
         alpha: float = 1e-6,
@@ -65,6 +65,7 @@ class Optimizer:
                     n_samples=self.batch_size,
                     components=["IL", "HL", "CHL", "PEG"],
                     bounds=self.space.molratio_bounds,
+                    seed=self.random_seed,
                 )
             )
         else:
@@ -88,24 +89,25 @@ class Optimizer:
             Falls back to fixed component name when not variable.
             """
             configs = space.get_configs()
+
             # Locate ComponentParameter for this role
-            #comp_params = [
-            #    p for p in self.space.get_parameters()
-            #    if isinstance(p, ComponentParameter) and p.name == role
-            #]
+            comp_params = [
+                p for p in configs["parameters"]
+                if p["type"] == "ComponentParameter" and p["name"] == role
+            ]
 
             name_col = f"{role}_name"
             smiles_col = f"{role}_SMILES"
 
-            # Fixed component → copy name
-            #if not comp_params:
-            #    df_new[name_col] = dataset.df[name_col].iloc[0]
-            #    if smiles_col in dataset.df.columns:
-            #        df_new[smiles_col] = dataset.df[smiles_col].iloc[0]
-            #    return df_new
+            # Fixed component -> copy name
+            if not comp_params:
+                df_new[name_col] = dataset.df[name_col].iloc[0]
+                if smiles_col in dataset.df.columns:
+                    df_new[smiles_col] = dataset.df[smiles_col].iloc[0]
+                return df_new
 
-            # Variable component → decode
-            p = configs["parameters"][0]
+            # Variable component -> decode
+            p = comp_params[0]
             feature_cols = p["columns"]
 
             ref_cols = feature_cols + [name_col]
@@ -204,18 +206,18 @@ class Optimizer:
         ordered_cols += ["Experiment_value"]
 
         # Encoding columns grouped by role
-        # for role in ["IL", "HL", "CHL", "PEG"]:
-        #     enc_cols = [
-        #         c for c in df_final.columns
-        #         if c.startswith(f"{role}_mfp_")
-        #         or c.startswith(f"{role}_mordred_")
-        #         or c.startswith(f"{role}_lion_")
-        #     ]
-        #     ordered_cols += sorted(enc_cols)
+        for role in ["IL", "HL", "CHL", "PEG"]:
+            enc_cols = [
+                c for c in df_final.columns
+                if c.startswith(f"{role}_mfp_")
+                or c.startswith(f"{role}_mordred_")
+                or c.startswith(f"{role}_lion_")
+            ]
+            ordered_cols += sorted(enc_cols)
 
         # Append any remaining columns safely
-        # remaining = [c for c in df_final.columns if c not in ordered_cols]
-        # ordered_cols += remaining
+        remaining = [c for c in df_final.columns if c not in ordered_cols]
+        ordered_cols += remaining
 
         df_final = df_final[ordered_cols]
 

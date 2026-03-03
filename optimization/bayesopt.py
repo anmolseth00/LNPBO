@@ -1,11 +1,12 @@
 from __future__ import annotations
 from bayes_opt import BayesianOptimization, acquisition
-from .acquisition import KrigingBeliever
+from .acquisition import KrigingBeliever, LogExpectedImprovement, LocalPenalization
 from ..space.parameters import MixtureRatiosParameter, ComponentParameter, DiscreteParameter
 from ..space.formulation import FormulationSpace
 from .serialization import save_surrogate
 from ..utils.ordering import order_df_columns
 
+import warnings
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
@@ -22,6 +23,8 @@ def perform_bayesian_optimization(
     KAPPA: float = 5.0,
     XI: float = 0.01,
     ALPHA: float = 1e-6,
+    verbose: int = 2,
+    save_gp: bool = True,
 ):
     """
     Perform Bayesian Optimization over LNP formulation space.
@@ -33,6 +36,19 @@ def perform_bayesian_optimization(
     config = formulation_space.get_configs()
 
     df = data.copy()
+
+    # Collect all feature columns used by parameters
+    all_feature_cols = []
+    for parameter in config['parameters']:
+        all_feature_cols.extend(parameter['columns'])
+
+    # Drop rows with NaN in any feature column (e.g., lipids without SMILES encodings)
+    feature_cols_present = [c for c in all_feature_cols if c in df.columns]
+    n_before = len(df)
+    df = df.dropna(subset=feature_cols_present).reset_index(drop=True)
+    n_dropped = n_before - len(df)
+    if n_dropped > 0:
+        print(f"Dropped {n_dropped} rows with missing feature values ({len(df)} remaining)")
 
     # Define and scale columns
     to_scale = []
@@ -62,11 +78,18 @@ def perform_bayesian_optimization(
             columns_mixture = parameter['columns']
             columns.append(parameter["columns"])
             bounds = np.array([[df[c].min(), df[c].max()] for c in parameter['columns']])
+            # Use median sum across all rows (robust to outliers)
+            row_sums = df[columns_mixture].sum(axis=1)
+            sum_to = row_sums.median()
+            # Validate: warn if rows have inconsistent sums
+            sum_std = row_sums.std()
+            if sum_std > 0.01 * sum_to:
+                print(f"Warning: molar ratio sums vary across rows (median={sum_to:.4f}, std={sum_std:.4f})")
             pbounds[parameter['name']] = MixtureRatiosParameter(
                 parameter['name'],
                 len(columns_mixture),
                 bounds=bounds,
-                sum_to=df[columns_mixture].iloc[0].sum() #(1)
+                sum_to=sum_to,
             )
 
     pbounds = {k: v for k, v in sorted(pbounds.items(), key=lambda x: x[0])}
@@ -93,43 +116,84 @@ def perform_bayesian_optimization(
             ),
             random_state=BATCH_SEED,
         )
+    elif acq_type == "LogEI":
+        acq = KrigingBeliever(
+            LogExpectedImprovement(
+                xi=XI,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+        )
+    elif acq_type == "LP_UCB":
+        acq = LocalPenalization(
+            acquisition.UpperConfidenceBound(
+                kappa=KAPPA,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+        )
+    elif acq_type == "LP_EI":
+        acq = LocalPenalization(
+            acquisition.ExpectedImprovement(
+                xi=XI,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+        )
+    elif acq_type == "LP_LogEI":
+        acq = LocalPenalization(
+            LogExpectedImprovement(
+                xi=XI,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+        )
     else:
-        raise ValueError("Acquisition function type must be 'UCB' or 'EI'")
+        raise ValueError(
+            f"Unknown acq_type '{acq_type}'. "
+            "Choose from: UCB, EI, LogEI, LP_UCB, LP_EI, LP_LogEI"
+        )
 
     # Optimizer
-    optimizer = BayesianOptimization(
-        f=None,
-        pbounds=pbounds,
-        acquisition_function=acq,
-        verbose=2,
-        random_state=BATCH_SEED,
-        allow_duplicate_points=False,
-    )
+    with warnings.catch_warnings():
+        if verbose == 0:
+            warnings.simplefilter("ignore")
+        optimizer = BayesianOptimization(
+            f=None,
+            pbounds=pbounds,
+            acquisition_function=acq,
+            verbose=verbose,
+            random_state=BATCH_SEED,
+            allow_duplicate_points=True,
+        )
 
-    optimizer.set_gp_params(alpha=ALPHA, n_restarts_optimizer=20)
+        optimizer.set_gp_params(alpha=ALPHA, n_restarts_optimizer=20)
 
-    for x, y in zip(X_train, y_train):
-        optimizer.register(x, y)
+        for x, y in zip(X_train, y_train):
+            optimizer.register(x, y)
 
-    if acq_type == "EI":
+    if acq_type in ("EI", "LogEI"):
+        acq.base_acquisition.y_max = np.max(y_train)
+    elif acq_type in ("LP_EI", "LP_LogEI"):
         acq.base_acquisition.y_max = np.max(y_train)
 
     # Batch generation
     batch = []
-    for _ in tqdm(range(BATCH_SIZE), desc="Selecting LNP formulations"):
+    for _ in tqdm(range(BATCH_SIZE), desc="Selecting LNP formulations", disable=(verbose == 0)):
         point = optimizer.suggest()
         batch.append(
             dict(zip(columns, optimizer.space.params_to_array(point)))
         )
 
     # Save surrogate
-    save_surrogate(
-        f"round_{round_number}_gp.pkl",
-        gp_model=optimizer._gp,
-        scaler=scaler,
-        columns=columns,
-        metadata={"round": round_number},
-    )
+    if save_gp:
+        save_surrogate(
+            f"round_{round_number}_gp.pkl",
+            gp_model=optimizer._gp,
+            scaler=scaler,
+            columns=columns,
+            metadata={"round": round_number},
+        )
 
     # Post-processing (inverse scaling + fixed values)
     df_batch = pd.DataFrame(batch)
