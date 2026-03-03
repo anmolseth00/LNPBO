@@ -1,0 +1,24 @@
+# LNPBO - Bayesian Optimization for LNP Formulation Design
+# Python >= 3.12
+#
+# Install: uv venv --python 3.12 && source .venv/bin/activate && uv pip install -r requirements.txt
+
+# Core optimization
+bayesian-optimization==3.2.0
+scikit-learn==1.8.0
+scipy==1.17.1
+
+# Data
+numpy==2.4.2
+pandas==3.0.1
+joblib==1.5.3
+
+# Molecular encoding
+rdkit==2025.09.6
+# mordred==1.2.0 requires numpy<2; imported lazily only when feature_type="mordred"
+
+# Visualization
+matplotlib==3.10.8
+
+# UI
+tqdm==4.67.3
