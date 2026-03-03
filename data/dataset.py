@@ -45,12 +45,13 @@ class Dataset:
     - append-only workflow
     """
 
-    def __init__(self, df: pd.DataFrame, source: str = "lnpdb", metadata: dict|None = None, name = "screen", encoders = None):
+    def __init__(self, df: pd.DataFrame, source: str = "lnpdb", metadata: dict|None = None, name = "screen", encoders = None, fitted_transformers = None):
         self.df = df.copy()
         self.source = source
         self.metadata = metadata or {}
         self.name = name
         self.encoders = encoders
+        self.fitted_transformers = fitted_transformers or {}
 
     @classmethod
     def from_lnpdb_csv(cls, path: str) -> "Dataset":
@@ -69,17 +70,30 @@ class Dataset:
                 "All required columns must be fully filled."
             )
         
-        feature_cols = [
-            c for c in df.columns
-            if c not in {"Experiment_value", "Formulation_ID", "Round"}
-        ]
-
-        if df.duplicated(subset=feature_cols).any():
-            raise ValueError(
-                "Duplicate formulations with conflicting targets detected."
+        if df.duplicated(subset=columns_to_check_for_duplicates).any():
+            n_before = len(df)
+            # Average Experiment_value for duplicate formulations instead of arbitrary first-row selection
+            non_dup_cols = [c for c in df.columns if c not in ["Experiment_value"]]
+            group_cols = [c for c in columns_to_check_for_duplicates if c in df.columns]
+            df = df.groupby(group_cols, as_index=False).agg(
+                {c: "first" for c in non_dup_cols if c not in group_cols} | {"Experiment_value": "mean"}
             )
-        
-        df = df.drop_duplicates(subset=columns_to_check_for_duplicates)
+            print(f"Averaged {n_before - len(df)} duplicate formulations ({len(df)} remaining)")
+
+        # Data quality warnings
+        ev = df["Experiment_value"]
+        ev_mean, ev_std = ev.mean(), ev.std()
+        n_outliers = ((ev - ev_mean).abs() > 5 * ev_std).sum()
+        if n_outliers > 0:
+            print(f"Warning: {n_outliers} rows have Experiment_value > 5 std from mean")
+
+        # Check molar ratio sums
+        ratio_cols = [c for c in columns_to_check_for_duplicates if c.endswith("_molratio")]
+        if ratio_cols:
+            ratio_sums = df[ratio_cols].sum(axis=1)
+            bad_sums = ((ratio_sums - ratio_sums.median()).abs() > 0.01).sum()
+            if bad_sums > 0:
+                print(f"Warning: {bad_sums} rows have molar ratio sums deviating from median ({ratio_sums.median():.4f})")
 
         df["Formulation_ID"] = range(1, len(df) + 1)
         df["Round"] = 0
@@ -99,6 +113,7 @@ class Dataset:
         PEG_n_pcs_mordred: int = 0,
         encoding_csv_path: Optional[str] = None,
         only_encodings: bool = False,
+        reduction: str = "pca",
     ) -> "Dataset":
 
         df = self.df.copy()
@@ -125,6 +140,7 @@ class Dataset:
             "variable_molratios": variable_molratios,
             "variable_il_mrna": is_variable("IL_to_nucleicacid_massratio"),
             "pcs": {"IL": {}, "HL": {}, "CHL": {}, "PEG": {}},
+            "reduction": reduction,
         }
 
         # Prevent mixed IL encoding strategies
@@ -134,6 +150,14 @@ class Dataset:
             )
 
         def unique_lipids(role: str) -> pd.DataFrame:
+            smiles_col = f"{role}_SMILES"
+            name_col = f"{role}_name"
+            if smiles_col in df.columns:
+                n_missing = df[smiles_col].isna().sum()
+                if n_missing > 0:
+                    missing_names = df.loc[df[smiles_col].isna(), name_col].unique()
+                    print(f"Warning: {n_missing} {role} rows missing SMILES "
+                          f"({len(missing_names)} unique lipids: {list(missing_names)[:5]}{'...' if len(missing_names) > 5 else ''})")
             return (
                 df[[f"{role}_name", f"{role}_SMILES"]]
                 .dropna()
@@ -146,52 +170,61 @@ class Dataset:
                 .reset_index(drop=True)
             )
 
-        def il_average_experiment_values(df: pd.DataFrame) -> dict[str, float]:
-            il_means = (
+        def average_experiment_values(role: str) -> dict[str, float]:
+            name_col = f"{role}_name"
+            return (
                 df.dropna(subset=["Experiment_value"])
-                .groupby("IL_name")["Experiment_value"]
+                .groupby(name_col)["Experiment_value"]
                 .mean()
+                .to_dict()
             )
-            return il_means.to_dict()
+
+        fitted_transformers = {}
 
         def encode_lipid_table(lipid_df: pd.DataFrame, role: str, pcs_spec: dict):
 
             blocks = []
             smiles = lipid_df["SMILES"].tolist()
 
-            il_exp_map = None
-            if role == "IL" and pcs_spec.get("lion", 0) > 0:
-                il_exp_map = il_average_experiment_values(df)
-                if not il_exp_map:
-                    raise ValueError("LiON encoding requires Experiment_value data.")
+            # Per-lipid average target values (needed for LiON and PLS)
+            exp_map = None
+            needs_targets = (
+                pcs_spec.get("lion", 0) > 0
+                or reduction == "pls"
+            )
+            if needs_targets:
+                exp_map = average_experiment_values(role)
+                if not exp_map:
+                    raise ValueError(
+                        f"Target values required for {role} encoding "
+                        f"(reduction={reduction!r}) but none available."
+                    )
 
             for enc_type, n in pcs_spec.items():
                 if n <= 0:
                     continue
 
-                if enc_type == "lion":
-                    exp_vals = [
-                        il_exp_map.get(name)
-                        for name in lipid_df["lipid_name"]
-                    ]
-
+                exp_vals = None
+                if enc_type == "lion" or reduction == "pls":
+                    exp_vals = [exp_map.get(name) for name in lipid_df["lipid_name"]]
                     if any(v is None for v in exp_vals):
                         raise ValueError(
-                            "Missing Experiment_value for IL required for LiON encoding."
+                            f"Missing Experiment_value for {role} lipid(s) "
+                            f"required for {enc_type}/{reduction} encoding."
                         )
 
-                    _, _, pc_list = compute_pcs(
-                        smiles,
-                        feature_type="lion",
-                        n_components=n,
-                        experiment_values=exp_vals,
-                    )
-                else:
-                    _, _, pc_list = compute_pcs(
-                        smiles,
-                        feature_type=enc_type,
-                        n_components=n,
-                    )
+                _, _, pc_list, reducer_obj, scaler_obj = compute_pcs(
+                    smiles,
+                    feature_type=enc_type,
+                    n_components=n,
+                    experiment_values=exp_vals,
+                    reduction=reduction,
+                )
+
+                fitted_transformers[f"{role}_{enc_type}"] = {
+                    "reducer": reducer_obj,
+                    "scaler": scaler_obj,
+                }
 
                 cols = [
                     f"{role}_{enc_type}_pc{i+1}"
@@ -271,12 +304,13 @@ class Dataset:
                     index=False
                 )
 
-        return Dataset(df, source=self.source, metadata=metadata, name=self.name, encoders=encoders)
+        return Dataset(df, source=self.source, metadata=metadata, name=self.name, encoders=encoders, fitted_transformers=fitted_transformers)
     
     def load_encodings(self, encoding_csv_path: str) -> Dataset:
         enc = pd.read_csv(encoding_csv_path)
+        assert len(self.df) == len(enc), f"Row count mismatch: dataset has {len(self.df)} rows but encodings have {len(enc)} rows"
         df = pd.concat([self.df.reset_index(drop=True), enc], axis=1)
-        return Dataset(df, source=self.source, metadata=self.metadata, name=self.name, encoders=self.encoders)
+        return Dataset(df, source=self.source, metadata=self.metadata, name=self.name, encoders=self.encoders, fitted_transformers=self.fitted_transformers)
 
 
     @classmethod
@@ -388,6 +422,11 @@ class Dataset:
                 .set_index(name_col)
             )
 
+            # Drop any columns from df_new that overlap with lookup to prevent _x/_y suffixes
+            overlap_cols = [c for c in df_new.columns if c in lookup.columns]
+            if overlap_cols:
+                df_new = df_new.drop(columns=overlap_cols)
+
             # Merge encodings into df_new
             df_new = df_new.merge(
                 lookup,
@@ -424,6 +463,7 @@ class Dataset:
             metadata=self.metadata,
             name=self.name,
             encoders=self.encoders,
+            fitted_transformers=self.fitted_transformers,
         )
 
     def to_csv(self, path: str):
