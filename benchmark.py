@@ -28,11 +28,14 @@ Usage:
 
 import argparse
 import json
+import os
 import sys
 import time
+import warnings
 from pathlib import Path
 
 import numpy as np
+from scipy.stats import norm as _norm
 from sklearn.neighbors import NearestNeighbors
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -47,6 +50,10 @@ ALL_STRATEGIES = [
     "lnpbo_lp_logei",
     "lnpbo_pls_logei",
     "lnpbo_pls_lp_logei",
+    "discrete_gp_ucb",
+    "discrete_rf_ucb",
+    "discrete_rf_ts",
+    "discrete_xgb_greedy",
 ]
 
 STRATEGY_TO_ACQ = {
@@ -60,6 +67,41 @@ STRATEGY_TO_ACQ = {
 }
 
 PLS_STRATEGIES = {"lnpbo_pls_logei", "lnpbo_pls_lp_logei"}
+
+DISCRETE_STRATEGIES = {"discrete_gp_ucb", "discrete_rf_ucb", "discrete_rf_ts", "discrete_xgb_greedy"}
+
+
+# ---------------------------------------------------------------------------
+# Target normalization
+# ---------------------------------------------------------------------------
+
+
+def _copula_transform(values):
+    """Rank-based copula transform to standard normal.
+
+    Maps targets through their empirical CDF, then applies the inverse
+    normal CDF (probit). This removes outlier effects and gives the GP
+    a well-behaved target distribution.
+    """
+    import pandas as pd
+
+    n = len(values)
+    ranks = pd.Series(values).rank(method="average")
+    u = (ranks - 0.5) / n
+    return _norm.ppf(u)
+
+
+def _normalize_targets(df, method):
+    """Apply target normalization to a dataframe in-place."""
+    if method == "none":
+        return
+    col = "Experiment_value"
+    if method == "copula":
+        df[col] = _copula_transform(df[col].values)
+    elif method == "zscore":
+        mu, sigma = df[col].mean(), df[col].std()
+        if sigma > 0:
+            df[col] = (df[col] - mu) / sigma
 
 
 # ---------------------------------------------------------------------------
@@ -236,6 +278,7 @@ def run_bo_strategy(
     seed,
     kappa=5.0,
     xi=0.01,
+    normalize="copula",
 ):
     """Run a BO strategy with oracle lookup."""
     from LNPBO.data.dataset import Dataset
@@ -251,10 +294,13 @@ def run_bo_strategy(
         if len(pool_idx) < batch_size:
             break
 
-        # Build dataset from current training data
+        # Build dataset from current training data (original values)
         train_df = encoded_df.loc[training_idx].copy().reset_index(drop=True)
         train_df["Formulation_ID"] = range(1, len(train_df) + 1)
         train_df["Round"] = 0
+
+        # Normalize targets for the GP (metrics still use original values)
+        _normalize_targets(train_df, normalize)
 
         dataset = Dataset(
             train_df,
@@ -268,20 +314,31 @@ def run_bo_strategy(
         space = FormulationSpace.from_dataset(dataset)
 
         try:
-            suggestions = perform_bayesian_optimization(
-                data=dataset.df,
-                formulation_space=space,
-                round_number=r,
-                acq_type=acq_type,
-                BATCH_SIZE=batch_size,
-                RANDOM_STATE_SEED=seed,
-                KAPPA=kappa,
-                XI=xi,
-                verbose=0,
-                save_gp=False,
-            )
+            _devnull = open(os.devnull, "w")
+            _saved_stdout = sys.stdout
+            sys.stdout = _devnull
+            try:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    suggestions = perform_bayesian_optimization(
+                        data=dataset.df,
+                        formulation_space=space,
+                        round_number=r,
+                        acq_type=acq_type,
+                        BATCH_SIZE=batch_size,
+                        RANDOM_STATE_SEED=seed,
+                        KAPPA=kappa,
+                        XI=xi,
+                        verbose=0,
+                        save_gp=False,
+                    )
+            finally:
+                sys.stdout = _saved_stdout
+                _devnull.close()
         except Exception as e:
-            print(f"  Round {r}: BO failed ({e}), skipping")
+            print(f"  Round {r}: BO failed ({e})", flush=True)
+            import traceback
+            traceback.print_exc()
             break
 
         # Match suggestions to nearest oracle formulations
@@ -298,7 +355,103 @@ def run_bo_strategy(
         training_idx.extend(unique_matched)
         _update_history(history, encoded_df, training_idx, unique_matched, r)
 
+        batch_best = encoded_df.loc[unique_matched, "Experiment_value"].max()
+        cum_best = history["best_so_far"][-1]
+        print(f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(unique_matched)}", flush=True)
+
     return history
+
+
+def run_discrete_strategy(
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    strategy,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    normalize="copula",
+):
+    """Run a discrete candidate pool strategy.
+
+    Instead of optimizing an acquisition function in continuous space and
+    NN-matching, directly score all remaining candidates and pick the top batch.
+    """
+    from sklearn.gaussian_process import GaussianProcessRegressor
+    from sklearn.preprocessing import MinMaxScaler
+
+    training_idx = list(seed_idx)
+    pool_idx = list(oracle_idx)
+    history = _init_history(encoded_df, training_idx)
+
+    for r in range(n_rounds):
+        if len(pool_idx) < batch_size:
+            break
+
+        X_train = encoded_df.loc[training_idx, feature_cols].values
+        y_train = encoded_df.loc[training_idx, "Experiment_value"].values
+        X_pool = encoded_df.loc[pool_idx, feature_cols].values
+
+        scaler = MinMaxScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        X_pool_s = scaler.transform(X_pool)
+
+        if strategy == "discrete_gp_ucb":
+            y_fit = _copula_transform(y_train) if normalize == "copula" else y_train.copy()
+            if normalize == "zscore":
+                mu, sigma = y_fit.mean(), y_fit.std()
+                if sigma > 0:
+                    y_fit = (y_fit - mu) / sigma
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                gp = GaussianProcessRegressor(alpha=1e-6, n_restarts_optimizer=10, random_state=seed)
+                gp.fit(X_train_s, y_fit)
+                mu_pool, sigma_pool = gp.predict(X_pool_s, return_std=True)
+            scores = mu_pool + kappa * sigma_pool
+
+        elif strategy == "discrete_rf_ucb":
+            from sklearn.ensemble import RandomForestRegressor
+            rf = RandomForestRegressor(n_estimators=200, random_state=seed, n_jobs=-1)
+            rf.fit(X_train_s, y_train)
+            tree_preds = np.array([t.predict(X_pool_s) for t in rf.estimators_])
+            mu_pool = tree_preds.mean(axis=0)
+            sigma_pool = tree_preds.std(axis=0)
+            scores = mu_pool + kappa * sigma_pool
+
+        elif strategy == "discrete_rf_ts":
+            from sklearn.ensemble import RandomForestRegressor
+            rf = RandomForestRegressor(n_estimators=200, random_state=seed, n_jobs=-1)
+            rf.fit(X_train_s, y_train)
+            rng = np.random.RandomState(seed + r)
+            tree_idx = rng.randint(0, len(rf.estimators_))
+            scores = rf.estimators_[tree_idx].predict(X_pool_s)
+
+        elif strategy == "discrete_xgb_greedy":
+            from xgboost import XGBRegressor
+            xgb = XGBRegressor(n_estimators=200, random_state=seed, n_jobs=-1, verbosity=0)
+            xgb.fit(X_train_s, y_train)
+            scores = xgb.predict(X_pool_s)
+
+        else:
+            raise ValueError(f"Unknown discrete strategy: {strategy}")
+
+        top_k = np.argsort(scores)[-batch_size:][::-1]
+        batch_idx = [pool_idx[i] for i in top_k]
+
+        for idx in batch_idx:
+            pool_idx.remove(idx)
+        training_idx.extend(batch_idx)
+        _update_history(history, encoded_df, training_idx, batch_idx, r)
+
+        batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
+        cum_best = history["best_so_far"][-1]
+        print(f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}", flush=True)
+
+    return history
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -359,7 +512,38 @@ def compute_metrics(history, top_k_values, n_total):
 # ---------------------------------------------------------------------------
 
 
-def plot_results(all_results, output_path="benchmark_results.png"):
+STRATEGY_DISPLAY = {
+    "random": "Random",
+    "lnpbo_ucb": "GP + KB (UCB)",
+    "lnpbo_ei": "GP + KB (EI)",
+    "lnpbo_logei": "GP + KB (LogEI)",
+    "lnpbo_lp_ei": "GP + LP (EI)",
+    "lnpbo_lp_logei": "GP + LP (LogEI)",
+    "lnpbo_pls_logei": "GP + KB (PLS+LogEI)",
+    "lnpbo_pls_lp_logei": "GP + LP (PLS+LogEI)",
+    "discrete_gp_ucb": "Discrete GP-UCB",
+    "discrete_rf_ucb": "Discrete RF-UCB",
+    "discrete_rf_ts": "Discrete RF-TS",
+    "discrete_xgb_greedy": "Discrete XGB",
+}
+
+STRATEGY_COLORS = {
+    "random": "#999999",
+    "lnpbo_ucb": "#1f77b4",
+    "lnpbo_ei": "#ff7f0e",
+    "lnpbo_logei": "#2ca02c",
+    "lnpbo_lp_ei": "#d62728",
+    "lnpbo_lp_logei": "#9467bd",
+    "lnpbo_pls_logei": "#8c564b",
+    "lnpbo_pls_lp_logei": "#e377c2",
+    "discrete_gp_ucb": "#17becf",
+    "discrete_rf_ucb": "#bcbd22",
+    "discrete_rf_ts": "#7f7f7f",
+    "discrete_xgb_greedy": "#e41a1c",
+}
+
+
+def plot_results(all_results, output_path="benchmark_output.png"):
     try:
         import matplotlib
 
@@ -369,38 +553,59 @@ def plot_results(all_results, output_path="benchmark_results.png"):
         print("matplotlib not available, skipping plots")
         return
 
-    _fig, axes = plt.subplots(1, 2, figsize=(14, 5))
+    plt.rcParams.update(
+        {
+            "font.family": "sans-serif",
+            "font.size": 10,
+            "axes.linewidth": 0.8,
+            "xtick.major.width": 0.8,
+            "ytick.major.width": 0.8,
+            "xtick.direction": "in",
+            "ytick.direction": "in",
+            "xtick.major.pad": 4,
+            "ytick.major.pad": 4,
+        }
+    )
 
-    # Plot 1: Best-so-far traces
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
+
+    # Panel A: Incumbent trace
     ax1 = axes[0]
     for name, result in all_results.items():
         bsf = result["history"]["best_so_far"]
         n_eval = result["history"]["n_evaluated"]
-        ax1.plot(n_eval, bsf, "o-", label=name, markersize=3)
+        label = STRATEGY_DISPLAY.get(name, name)
+        color = STRATEGY_COLORS.get(name)
+        style = "--" if name == "random" else "-"
+        ax1.plot(n_eval, bsf, style, label=label, color=color, linewidth=1.5, markersize=0)
     ax1.set_xlabel("Formulations evaluated")
-    ax1.set_ylabel("Best Experiment_value found")
-    ax1.set_title("Incumbent Trace")
-    ax1.legend(fontsize=8)
-    ax1.grid(True, alpha=0.3)
+    ax1.set_ylabel("Best value found")
+    ax1.legend(fontsize=7.5, frameon=True, fancybox=False, edgecolor="#cccccc", loc="lower right")
+    ax1.grid(True, alpha=0.15, linewidth=0.5)
+    ax1.text(-0.12, 1.05, "A", transform=ax1.transAxes, fontsize=14, fontweight="bold", va="top")
 
-    # Plot 2: Top-K recall
+    # Panel B: Top-K recall grouped bar chart
     ax2 = axes[1]
     k_values = sorted(next(iter(all_results.values()))["metrics"]["top_k_recall"].keys())
     x = np.arange(len(k_values))
-    width = 0.8 / len(all_results)
+    n_strats = len(all_results)
+    width = 0.8 / n_strats
     for i, (name, result) in enumerate(all_results.items()):
         recalls = [result["metrics"]["top_k_recall"][k] for k in k_values]
-        ax2.bar(x + i * width, recalls, width, label=name)
-    ax2.set_xlabel("K")
-    ax2.set_ylabel("Top-K Recall")
-    ax2.set_title("Top-K Recall")
-    ax2.set_xticks(x + width * (len(all_results) - 1) / 2)
+        label = STRATEGY_DISPLAY.get(name, name)
+        color = STRATEGY_COLORS.get(name)
+        ax2.bar(x + i * width, recalls, width, label=label, color=color, edgecolor="white", linewidth=0.3)
+    ax2.set_xlabel("K (top-K formulations)")
+    ax2.set_ylabel("Recall")
+    ax2.set_xticks(x + width * (n_strats - 1) / 2)
     ax2.set_xticklabels([str(k) for k in k_values])
-    ax2.legend(fontsize=8)
-    ax2.grid(True, alpha=0.3, axis="y")
+    ax2.set_ylim(0, 1.0)
+    ax2.legend(fontsize=7.5, frameon=True, fancybox=False, edgecolor="#cccccc")
+    ax2.grid(True, alpha=0.15, linewidth=0.5, axis="y")
+    ax2.text(-0.12, 1.05, "B", transform=ax2.transAxes, fontsize=14, fontweight="bold", va="top")
 
-    plt.tight_layout()
-    plt.savefig(output_path, dpi=150)
+    fig.tight_layout(w_pad=3)
+    fig.savefig(output_path, dpi=300, bbox_inches="tight")
     print(f"Plot saved to {output_path}")
 
 
@@ -417,18 +622,25 @@ def main():
         default="random,lnpbo_ucb",
         help=f"Comma-separated strategies to run (or 'all'). Options: {','.join(ALL_STRATEGIES)}",
     )
-    parser.add_argument("--rounds", type=int, default=5, help="Number of BO rounds (default: 5)")
+    parser.add_argument("--rounds", type=int, default=15, help="Number of BO rounds (default: 15)")
     parser.add_argument("--batch-size", type=int, default=12, help="Batch size per round (default: 12)")
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
-    parser.add_argument("--n-seeds", type=int, default=500, help="Size of initial seed pool (default: 500)")
+    parser.add_argument("--n-seeds", type=int, default=50, help="Size of initial seed pool (default: 50)")
     parser.add_argument("--subset", type=int, default=None, help="Use a subset of LNPDB (for fast testing)")
     parser.add_argument("--kappa", type=float, default=5.0, help="UCB kappa (default: 5.0)")
     parser.add_argument("--xi", type=float, default=0.01, help="EI/LogEI xi (default: 0.01)")
     parser.add_argument(
+        "--normalize",
+        type=str,
+        default="copula",
+        choices=["none", "zscore", "copula"],
+        help="Target normalization for GP (default: copula)",
+    )
+    parser.add_argument(
         "--output",
         type=str,
-        default="benchmark_results",
-        help="Output prefix (default: benchmark_results)",
+        default="benchmark_output",
+        help="Output prefix (default: benchmark_output)",
     )
     parser.add_argument("--no-plot", action="store_true", help="Skip plotting")
     args = parser.parse_args()
@@ -448,6 +660,7 @@ def main():
     print(f"Strategies: {strategies}")
     print(f"Rounds: {args.rounds}, Batch size: {args.batch_size}")
     print(f"Seed pool: {args.n_seeds}, Random seed: {args.seed}")
+    print(f"Target normalization: {args.normalize}")
     print()
 
     # Prepare data (PCA encoding for most strategies)
@@ -490,6 +703,19 @@ def main():
                 n_rounds=args.rounds,
                 seed=args.seed,
             )
+        elif strategy in DISCRETE_STRATEGIES:
+            history = run_discrete_strategy(
+                s_df,
+                s_fcols,
+                s_seed,
+                s_oracle,
+                strategy=strategy,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds,
+                seed=args.seed,
+                kappa=args.kappa,
+                normalize=args.normalize,
+            )
         else:
             acq_type = STRATEGY_TO_ACQ[strategy]
             history = run_bo_strategy(
@@ -504,6 +730,7 @@ def main():
                 seed=args.seed,
                 kappa=args.kappa,
                 xi=args.xi,
+                normalize=args.normalize,
             )
 
         elapsed = time.time() - t0
@@ -536,14 +763,28 @@ def main():
             f"{result['elapsed']:>7.1f}s"
         )
 
-    # Save results JSON
+    # Save results JSON with full config for reproducibility
     json_path = f"{args.output}.json"
-    serializable = {}
+    serializable = {
+        "config": {
+            "strategies": strategies,
+            "rounds": args.rounds,
+            "batch_size": args.batch_size,
+            "seed": args.seed,
+            "n_seeds": args.n_seeds,
+            "subset": args.subset,
+            "kappa": args.kappa,
+            "xi": args.xi,
+            "normalize": args.normalize,
+        },
+        "results": {},
+    }
     for name, result in all_results.items():
-        serializable[name] = {
+        serializable["results"][name] = {
             "metrics": result["metrics"],
             "elapsed": result["elapsed"],
             "best_so_far": result["history"]["best_so_far"],
+            "round_best": result["history"]["round_best"],
             "n_evaluated": result["history"]["n_evaluated"],
         }
     with open(json_path, "w") as f:
