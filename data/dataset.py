@@ -137,12 +137,16 @@ class Dataset:
         IL_n_pcs_morgan: int = 0,
         IL_n_pcs_mordred: int = 0,
         IL_n_pcs_lion: int = 0,
+        IL_n_pcs_unimol: int = 0,
         HL_n_pcs_morgan: int = 0,
         HL_n_pcs_mordred: int = 0,
+        HL_n_pcs_unimol: int = 0,
         CHL_n_pcs_morgan: int = 0,
         CHL_n_pcs_mordred: int = 0,
+        CHL_n_pcs_unimol: int = 0,
         PEG_n_pcs_morgan: int = 0,
         PEG_n_pcs_mordred: int = 0,
+        PEG_n_pcs_unimol: int = 0,
         encoding_csv_path: str | None = None,
         only_encodings: bool = False,
         reduction: str = "pca",
@@ -249,6 +253,7 @@ class Dataset:
                     n_components=n,
                     experiment_values=exp_vals,
                     reduction=reduction,
+                    cache_name=role,
                 )
 
                 fitted_transformers[f"{role}_{enc_type}"] = {
@@ -266,10 +271,10 @@ class Dataset:
             return pd.concat([lipid_df.reset_index(drop=True), *blocks], axis=1)
 
         encoders = {
-            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion},
-            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred},
-            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred},
-            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred},
+            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol},
+            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol},
+            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol},
+            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol},
         }
 
         encoding_tables = []
@@ -323,6 +328,7 @@ class Dataset:
                         if c.startswith(f"{role}_mfp_")
                         or c.startswith(f"{role}_mordred_")
                         or c.startswith(f"{role}_lion_")
+                        or c.startswith(f"{role}_unimol_")
                     ]
                     encoding_cols.extend(sorted(role_cols))
 
@@ -437,7 +443,7 @@ class Dataset:
             encoding_cols = [
                 c
                 for c in self.df.columns
-                if c.startswith(f"{role}_mfp_") or c.startswith(f"{role}_mordred_") or c.startswith(f"{role}_lion_")
+                if c.startswith(f"{role}_mfp_") or c.startswith(f"{role}_mordred_") or c.startswith(f"{role}_lion_") or c.startswith(f"{role}_unimol_")
             ]
 
             if not encoding_cols:

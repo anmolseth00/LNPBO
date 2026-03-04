@@ -141,7 +141,7 @@ class LNPDBOracle:
 # ---------------------------------------------------------------------------
 
 
-def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca"):
+def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp"):
     """Load LNPDB, encode, split into seed/oracle.
 
     Note on PLS target leakage: When reduction="pls", the PLS projection is
@@ -156,7 +156,7 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
-    print(f"Loading LNPDB (reduction={reduction})...")
+    print(f"Loading LNPDB (reduction={reduction}, features={feature_type})...")
     dataset = load_lnpdb_full()
     df = dataset.df
 
@@ -187,18 +187,22 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
 
     print(f"  Encoding PCs: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
 
+    # Route to correct encoder parameter based on feature_type
+    encode_kwargs = {}
+    param_suffix = {"mfp": "morgan", "mordred": "mordred", "unimol": "unimol"}[feature_type]
+    for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
+        encode_kwargs[f"{role}_n_pcs_{param_suffix}"] = n
+
     encoded = dataset.encode_dataset(
-        IL_n_pcs_morgan=il_pcs,
-        HL_n_pcs_morgan=hl_pcs,
-        CHL_n_pcs_morgan=chl_pcs,
-        PEG_n_pcs_morgan=peg_pcs,
+        **encode_kwargs,
         reduction=reduction,
     )
 
     # Identify feature columns (PCs + molar ratios + mass ratio)
     feature_cols = []
+    pc_prefix = {"mfp": "mfp_pc", "mordred": "mordred_pc", "unimol": "unimol_pc"}[feature_type]
     for role in ["IL", "HL", "CHL", "PEG"]:
-        role_cols = [c for c in encoded.df.columns if c.startswith(f"{role}_mfp_pc")]
+        role_cols = [c for c in encoded.df.columns if c.startswith(f"{role}_{pc_prefix}")]
         feature_cols.extend(sorted(role_cols))
     for role in ["IL", "HL", "CHL", "PEG"]:
         col = f"{role}_molratio"
@@ -643,6 +647,13 @@ def main():
         help="Output prefix (default: benchmark_output)",
     )
     parser.add_argument("--no-plot", action="store_true", help="Skip plotting")
+    parser.add_argument(
+        "--feature-type",
+        type=str,
+        default="mfp",
+        choices=["mfp", "mordred", "unimol"],
+        help="Molecular feature type (default: mfp)",
+    )
     args = parser.parse_args()
 
     # Parse strategies
@@ -669,6 +680,7 @@ def main():
         random_seed=args.seed,
         subset=args.subset,
         reduction="pca",
+        feature_type=args.feature_type,
     )
     # Prepare PLS-encoded data if any PLS strategies requested
     pls_data = None
@@ -678,6 +690,7 @@ def main():
             random_seed=args.seed,
             subset=args.subset,
             reduction="pls",
+            feature_type=args.feature_type,
         )
 
     # Run strategies

@@ -13,6 +13,7 @@ def compute_pcs(
     experiment_values: list[float] | None = None,
     n_components: int = 50,
     reduction: str = "pca",
+    cache_name: str = "default",
 ):
     """Compute reduced-dimensionality representations of molecular fingerprints.
 
@@ -74,6 +75,10 @@ def compute_pcs(
 
         assert experiment_values is not None
         fp_scaled, fp_scaler = lion_fingerprints(list_of_smiles, experiment_values)
+    elif feature_type == "unimol":
+        from .generate_unimol_embeddings import unimol_embeddings
+
+        fp_scaled, fp_scaler = unimol_embeddings(list_of_smiles, cache_name=cache_name)
     else:
         raise ValueError("Type of feature not found")
 

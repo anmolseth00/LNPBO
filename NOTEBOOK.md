@@ -102,11 +102,23 @@ The bottleneck is surrogate model quality, not acquisition function choice. With
 - **COMET (Nature Nanotechnology)**: Purpose-built for LNP design. Uses Uni-Mol 3D molecular embeddings, Gaussian composition encoding, multi-component attention. Achieves Spearman 0.873 on LANCE dataset. Code at github.com/alvinchangw/COMET.
 - Acquisition function improvements (LogEI, LP) provide marginal gains in standard benchmarks but are irrelevant when the surrogate is non-predictive.
 
-## 5. Next Steps
+## 5. COMET / Uni-Mol Integration
 
-Primary bottleneck: surrogate quality. Priority is improving feature representations.
+**Fine-tuning COMET locally assessed as infeasible.** COMET depends on Uni-Core, a CUDA-only Linux distributed PyTorch framework from DP Technology. No macOS/ARM wheels exist, and the training pipeline hardcodes CUDA. Would require cloud GPU + significant porting effort.
 
-Options (ordered by expected impact):
-1. **Fine-tune COMET on LNPDB** (Option B): Leverage pre-trained Uni-Mol embeddings with COMET architecture, fine-tune on our 19,800 formulations.
-2. **Use COMET as feature extractor** (Option A): Extract Uni-Mol embeddings from COMET, use as drop-in replacement for Morgan FP PCs in existing GP/RF/XGB surrogates.
-3. Run full-scale discrete benchmark with more rounds and seeds to establish baseline performance metrics.
+**Uni-Mol as feature extractor implemented.** The `unimol-tools` package (pip-installable, CPU-compatible, Python 3.12) provides the same frozen 512-dim molecular embeddings that COMET uses internally.
+
+Integration:
+- `data/generate_unimol_embeddings.py`: Extracts 512-dim Uni-Mol CLS representations per SMILES, with disk caching (~0.5s/molecule on CPU, ~100 min for 12,291 unique IL SMILES, one-time cost).
+- `data/compute_pcs.py`: Added `feature_type="unimol"` branch.
+- `data/dataset.py`: Added `*_n_pcs_unimol` parameters to `encode_dataset()`.
+- `benchmark.py`: Added `--feature-type` CLI arg (`mfp`, `mordred`, `unimol`).
+
+Limitation vs. full COMET: We lose the LNP transformer encoder that models lipid-lipid composition interactions. Our pipeline treats each lipid's embedding independently and relies on the surrogate (GP/RF/XGB) to learn interactions from concatenated features.
+
+## 6. Next Steps
+
+1. Complete Uni-Mol embedding pre-computation (IL cache in progress).
+2. Train RF/XGB surrogates on Uni-Mol embeddings vs. Morgan FPs (same 5-seed protocol).
+3. Run discrete BO benchmark with Uni-Mol features.
+4. If Uni-Mol shows significant improvement, consider cloud GPU for full COMET fine-tuning.
