@@ -75,6 +75,19 @@ benchmark_*.png
 events.out.tfevents.*
 
 # ==========================
+# Large model binaries (tracked via results JSON instead)
+# ==========================
+*.pt
+*.joblib
+models/runs/*/model.json
+*.npy
+
+# ==========================
+# Symlinks to external repos
+# ==========================
+data/LNPDB_repo
+
+# ==========================
 # Claude Code
 # ==========================
 .claude/
