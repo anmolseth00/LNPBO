@@ -1,0 +1,39 @@
+{
+  "test_rmse": 0.8084529809461186,
+  "test_mae": 0.5905729532241821,
+  "test_r2": 0.3553260564804077,
+  "best_epoch": 88,
+  "best_val_rmse": 0.7495737056386009,
+  "n_train": 15086,
+  "n_val": 1885,
+  "n_test": 1887,
+  "n_params": 1570201,
+  "args": {
+    "data_path": null,
+    "components": [
+      "IL",
+      "HL",
+      "CHL",
+      "PEG"
+    ],
+    "split": "scaffold",
+    "split_seed": 42,
+    "hidden_size": 300,
+    "depth": 3,
+    "ffn_hidden_size": 300,
+    "ffn_num_layers": 2,
+    "dropout": 0.15,
+    "epochs": 100,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip": 1.0,
+    "patience": 15,
+    "warmup_frac": 0.06,
+    "num_workers": 0,
+    "save_dir": "models/runs/mpnn_multicomp_v2",
+    "no_plots": false,
+    "no_categorical": false,
+    "seed": 42
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "test_rmse": 0.8312667414764796,
+  "test_mae": 0.6075636744499207,
+  "test_r2": 0.31842851638793945,
+  "best_iteration": 455,
+  "n_train": 15086,
+  "n_val": 1885,
+  "n_test": 1887,
+  "n_features": 1098,
+  "train_time_s": 2.931605100631714,
+  "args": {
+    "data_path": null,
+    "components": [
+      "IL"
+    ],
+    "split": "scaffold",
+    "split_seed": 42,
+    "fp_bits": 1024,
+    "fp_radius": 2,
+    "no_categorical": false,
+    "no_fingerprint": false,
+    "n_estimators": 1000,
+    "max_depth": 8,
+    "learning_rate": 0.05,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "early_stopping": 50,
+    "save_dir": "models/runs/xgb_baseline",
+    "seed": 42
+  }
+}

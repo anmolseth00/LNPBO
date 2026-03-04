@@ -1,0 +1,36 @@
+{
+  "test_rmse": 0.8397128690714052,
+  "test_mae": 0.6164082288742065,
+  "test_r2": 0.304507851600647,
+  "best_epoch": 91,
+  "best_val_rmse": 0.7832944060521445,
+  "n_train": 15086,
+  "n_val": 1885,
+  "n_test": 1887,
+  "n_params": 464401,
+  "args": {
+    "data_path": null,
+    "components": [
+      "IL"
+    ],
+    "split": "scaffold",
+    "split_seed": 42,
+    "hidden_size": 300,
+    "depth": 3,
+    "ffn_hidden_size": 300,
+    "ffn_num_layers": 2,
+    "dropout": 0.15,
+    "epochs": 100,
+    "batch_size": 64,
+    "lr": 0.001,
+    "weight_decay": 0.0001,
+    "grad_clip": 1.0,
+    "patience": 15,
+    "warmup_frac": 0.06,
+    "num_workers": 0,
+    "save_dir": "models/runs/il_cat_dropout",
+    "no_plots": false,
+    "no_categorical": false,
+    "seed": 42
+  }
+}
