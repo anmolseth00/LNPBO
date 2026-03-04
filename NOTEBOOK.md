@@ -116,9 +116,22 @@ Integration:
 
 Limitation vs. full COMET: We lose the LNP transformer encoder that models lipid-lipid composition interactions. Our pipeline treats each lipid's embedding independently and relies on the surrogate (GP/RF/XGB) to learn interactions from concatenated features.
 
+### 5a. Uni-Mol vs Morgan FP Benchmark (5 seeds)
+
+Config: 100 seed formulations, 15 rounds, batch=12, copula normalization, subset=5000.
+
+| Strategy | Feature | Top-10 | Top-50 | Top-100 |
+|----------|---------|--------|--------|---------|
+| RF-TS | Uni-Mol | **18.0 +/- 18.3%** | 10.4 +/- 5.9% | 8.6 +/- 3.9% |
+| RF-TS | Morgan FP | 8.0 +/- 7.5% | 13.2 +/- 10.7% | 13.2 +/- 7.7% |
+| XGB | Uni-Mol | 8.0 +/- 9.8% | 8.4 +/- 9.1% | 10.2 +/- 8.5% |
+| XGB | Morgan FP | 6.0 +/- 8.0% | 8.4 +/- 7.5% | 11.0 +/- 6.5% |
+
+Uni-Mol RF-TS achieves 2x higher top-10 recall (18% vs 8%), suggesting the 3D-aware embeddings better discriminate the very best formulations. However, Morgan FP RF-TS has higher top-50/100 recall. High variance across seeds means the differences are not statistically significant with 5 seeds. XGB shows no clear winner between feature types.
+
 ## 6. Next Steps
 
-1. Complete Uni-Mol embedding pre-computation (IL cache in progress).
-2. Train RF/XGB surrogates on Uni-Mol embeddings vs. Morgan FPs (same 5-seed protocol).
-3. Run discrete BO benchmark with Uni-Mol features.
-4. If Uni-Mol shows significant improvement, consider cloud GPU for full COMET fine-tuning.
+1. Run more seeds (20+) to establish statistical significance of Uni-Mol advantage.
+2. Try Uni-Mol embeddings without PCA reduction (use all 512 dims directly).
+3. Combine Morgan FP + Uni-Mol features (concatenated).
+4. If Uni-Mol advantage confirmed, consider cloud GPU for full COMET fine-tuning.
