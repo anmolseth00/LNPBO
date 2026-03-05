@@ -1,8 +1,8 @@
 # LNPBO: Bayesian Optimization for LNP Formulation Design
 
-**Top result: LANTERN + PLS + XGBoost discrete greedy -- 59.6% top-50 recall at n_seed=1000, subset=5000 (2.3x vs random).** Count-based Morgan FP (2048-bit) + RDKit 2D descriptors, PLS-reduced to 5 components per lipid role, scored by XGBoost greedy mean prediction over a discrete candidate pool.
+**Top result: LANTERN + PLS + XGBoost discrete greedy -- 26.4% top-50 recall at n_seed=1000 (3.0x vs random).** Count-based Morgan FP (2048-bit) + RDKit 2D descriptors, PLS-reduced to 5 components per lipid role, scored by XGBoost greedy mean prediction over a discrete candidate pool. PLS is re-fit each round using only observed training targets (no leakage from the oracle).
 
-We started with GP-based continuous Bayesian optimization (UCB, EI, LogEI) using binary Morgan fingerprints, and found that GPs fail catastrophically at small sample sizes -- Spearman correlation ~0.04 at n=100, worse than random selection. We pivoted to discrete candidate pool scoring with tree-based surrogates, which eliminated the continuous-to-discrete nearest-neighbor matching confound. In parallel, we tested foundation model embeddings (Uni-Mol, the same 3D molecular encoder used by COMET) but found they underperformed simple count-based fingerprints at small n due to the curse of dimensionality. LANTERN features (count Morgan FP + RDKit descriptors, PLS-reduced) emerged as the best representation, and XGBoost greedy scoring as the best surrogate, giving 2-4x improvement over random selection across all seed pool sizes.
+We started with GP-based continuous Bayesian optimization (UCB, EI, LogEI) using binary Morgan fingerprints, and found that GPs fail catastrophically at small sample sizes -- Spearman correlation ~0.04 at n=100, worse than random selection. We pivoted to discrete candidate pool scoring with tree-based surrogates, which eliminated the continuous-to-discrete nearest-neighbor matching confound. In parallel, we tested foundation model embeddings (Uni-Mol, the same 3D molecular encoder used by COMET) but found they underperformed simple count-based fingerprints at small n due to the curse of dimensionality. LANTERN features (count Morgan FP + RDKit descriptors, PLS-reduced) emerged as the best representation, and XGBoost greedy scoring as the best surrogate, giving 2-3x improvement over random selection across all seed pool sizes.
 
 ## 1. Problem Statement
 
@@ -94,7 +94,7 @@ Scoring the candidate pool directly with ML models eliminates the NN-matching co
 | RF-TS | 28.0% | 43.2% |
 | **XGBoost** | **37.8%** | **50.2%** |
 
-XGBoost greedy scoring is the best surrogate at all seed pool sizes. RF-TS excels at top-10 recall (needle-in-haystack), XGB at broad coverage (top-50/100).
+These numbers use LANTERN PCA (unsupervised reduction). XGBoost greedy scoring is the best surrogate at all seed pool sizes. RF-TS excels at top-10 recall (needle-in-haystack), XGB at broad coverage (top-50/100). See Section 5a for prospective PLS results.
 
 ### 4c. Standalone Model Training (seed 42, scaffold split)
 
@@ -112,23 +112,28 @@ The trained XGBoost model is saved at `models/runs/xgb_tuned/model.json`. Infere
 
 ## 5. Dimensionality Reduction
 
-**PLS leakage caveat:** In the benchmark, PLS is fit on full-dataset targets (including oracle values the optimizer has not yet observed). This is target leakage -- the benchmark PLS numbers overstate the benefit of PLS vs PCA. The live pipeline avoids this: PLS is fit only on observed training targets, and `Dataset.refit_pls()` re-fits PLS each round using only training-set targets. The 59.6% headline number below uses benchmark (leaked) PLS. The true prospective PLS benefit is smaller but still positive.
+### 5a. PCA vs PLS (LANTERN features)
 
-### 5a. PCA vs PLS (LANTERN features, 10 seeds)
+PLS (supervised, target-aware; Wold et al. 2001; Geladi & Kowalski 1986) outperforms PCA (unsupervised) when fit properly. However, naive benchmarking overstates the benefit: fitting PLS on full-dataset targets (including oracle values) is target leakage. The live pipeline avoids this via `Dataset.refit_pls()`, which re-fits PLS each round using only observed training targets.
 
-| n_seed | PCA Top-50 | PLS Top-50* | Improvement |
-|--------|-----------|-------------|-------------|
-| 200 | 24.2% | 34.8%* | +44% |
-| 500 | 37.8% | 40.8%* | +8% |
-| 1000 | 50.2% | **59.6%*** | +19% |
+**Prospective PLS results (5 seeds, no leakage):**
 
-*PLS numbers use benchmark PLS (fit on full-dataset targets). Prospective PLS (fit only on training targets each round) will show smaller but still positive improvement over PCA. See caveat above.
+| n_seed | Surrogate | Top-10 | Top-50 | Top-100 | vs Random |
+|--------|-----------|--------|--------|---------|-----------|
+| 500 | XGB Greedy | 22.0% | 18.0% | 14.8% | 2.4x |
+| 500 | XGB-UCB | 20.0% | 15.6% | 13.4% | 2.1x |
+| 500 | Random | 8.0% | 7.6% | 7.6% | 1.0x |
+| 1000 | XGB Greedy | 30.0% | **26.4%** | 21.6% | 3.0x |
+| 1000 | XGB-UCB | 28.0% | 26.0% | 22.0% | 3.0x |
+| 1000 | Random | 10.0% | 8.8% | 8.8% | 1.0x |
 
-PLS (supervised, target-aware; Wold et al. 2001; Geladi & Kowalski 1986) consistently outperforms PCA (unsupervised). Biggest lift at small sample sizes. PCA component count (5-50) has negligible effect; supervised reduction is the bigger lever.
+For comparison, leaked PLS (fit on full-dataset targets) showed 59.6% top-50 at n=1000 -- dramatically inflated. Prospective PLS at 26.4% still represents a 3.0x improvement over random and remains the recommended reduction method, since PCA achieves similar recall only with larger seed pools.
 
 ## 6. Scaling Analysis
 
 ### 6a. Seed Pool Size (LANTERN PCA, subset=5000, 10 seeds)
+
+Note: These use PCA (unsupervised reduction) on a 5,000-formulation subset. The higher top-50 recall vs Section 5a reflects the smaller pool (top-50 out of 5,000 is easier than out of ~19,800) and PCA's lack of target leakage concerns. For prospective PLS results on the full pool, see Section 5a.
 
 | n_seed | Random Top-50 | XGB Top-50 | BO/Random |
 |--------|--------------|-----------|-----------|
@@ -150,13 +155,13 @@ BO's relative advantage increases on larger pools. LANTERN features at n_seed=20
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Features | `lantern` (count MFP 2048-bit + RDKit 2D) | 2x better than binary MFP |
-| Reduction | `pls` (5 components) | +19% vs PCA at n_seed=1000 |
+| Reduction | `pls` (5 components, re-fit each round) | Supervised reduction, no leakage |
 | Surrogate | XGBoost greedy (n_estimators=200) | Best broad coverage |
 | Strategy | Discrete pool scoring | Eliminates NN-matching noise |
 | Batch size | 12 | Standard experimental plate |
 | Seed pool | 500+ formulations | BO non-predictive below ~200 |
 
-**Best result:** 59.6% top-50 recall at n_seed=1000, subset=5000 (2.3x vs random). PLS numbers include benchmark target leakage (see Section 5 caveat).
+**Best result:** 26.4% top-50 recall at n_seed=1000 (3.0x vs random), prospective PLS with no target leakage.
 
 ## 8. Pipeline Integration
 
@@ -180,9 +185,9 @@ python -m benchmarks.runner --strategies discrete_xgb_greedy,random --rounds 15 
 
 Approaches not yet tried that could improve the pipeline:
 
-### 9a. Calibrated Uncertainty (MAPIE / Conformal Prediction)
+### 9a. Calibrated Uncertainty (Implemented)
 
-XGBoost greedy scoring uses raw mean predictions with no uncertainty quantification. Wrapping the surrogate with MAPIE conformal prediction intervals (Romano et al., NeurIPS 2019) would yield calibrated prediction intervals, enabling principled exploration-exploitation tradeoffs via UCB-style acquisition on the discrete pool. NGBoost (Duan et al., ICML 2020) is an alternative that directly outputs distributional predictions. This is a drop-in improvement to `optimization/discrete.py`.
+XGB-UCB wraps XGBoost with MAPIE conformal prediction (CV+ method, Barber et al., AoS 2021) to produce calibrated prediction intervals. The `xgb_ucb` surrogate in `optimization/discrete.py` uses `CrossConformalRegressor` at 68% confidence (1-sigma equivalent) and scores candidates as `mean + kappa * half_width`. In benchmarks (Section 5a), XGB-UCB performs comparably to greedy (26.0% vs 26.4% top-50 at n=1000) -- the additional exploration does not help at these sample sizes, possibly because the pool is large enough that greedy exploitation is already effective.
 
 ### 9b. Uncertainty Sampling (Active Learning)
 
