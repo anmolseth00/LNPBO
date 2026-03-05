@@ -38,6 +38,7 @@ def unimol_embeddings(
     list_of_smiles: list[str],
     batch_size: int = 256,
     cache_name: str = "default",
+    scaler=None,
 ) -> tuple[np.ndarray, StandardScaler]:
     """Extract Uni-Mol CLS embeddings for a list of SMILES.
 
@@ -78,9 +79,11 @@ def unimol_embeddings(
         print(f"  All {len(unique_smiles)} SMILES found in cache ({cache_name})")
 
     embeddings = np.array([cache.get(s, np.zeros(EMBED_DIM)) for s in list_of_smiles])
-    scaler = StandardScaler()
-    embeddings_scaled = scaler.fit_transform(embeddings)
-    return embeddings_scaled, scaler
+    if scaler is not None:
+        return scaler.transform(embeddings), scaler
+    new_scaler = StandardScaler()
+    embeddings_scaled = new_scaler.fit_transform(embeddings)
+    return embeddings_scaled, new_scaler
 
 
 if __name__ == "__main__":

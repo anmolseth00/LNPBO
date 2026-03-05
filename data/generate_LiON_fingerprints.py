@@ -19,19 +19,13 @@ def lion_fingerprints(
     features_csv: Path | str = DEFAULT_FEATURES_CSV,
     conda_env: str = "lnp_ml",
 ):
-    """
-    Generate LiON fingerprints using Chemprop.
+    """Generate LiON fingerprints using Chemprop.
 
-    :param smiles: IL SMILES
-    :type smiles: list[str]
-    :param experiment_values: target values
-    :type experiment_values: list[float]
-    :param checkpoint_dir: directory of model
-    :type checkpoint_dir: str
-    :param features_csv: LNP standard features
-    :type features_csv: str
-    :param conda_env: conda environment name
-    :type conda_env: str
+    Extracts penultimate-layer embeddings from a trained LiON D-MPNN model.
+
+    Reference: Witten et al., "AI-guided design of lipid nanoparticles for
+    pulmonary gene therapy," Nature Biotechnology, 43(11), 1790-1799 (2025).
+    DOI: 10.1038/s41587-024-02490-y
     """
 
     if len(smiles) != len(experiment_values):
