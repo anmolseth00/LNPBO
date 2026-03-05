@@ -93,6 +93,12 @@ data/LNPDB_repo
 .claude/
 
 # ==========================
+# Benchmark package (not ignored -- replaces benchmark.py)
+# ==========================
+!benchmarks/
+!benchmarks/**
+
+# ==========================
 # NOTE: The following are intentionally NOT ignored:
 #   - examples/       (example notebooks, CSVs, and data)
 #   - data/           (LiON model checkpoints, templates, bridge code)
