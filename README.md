@@ -39,10 +39,13 @@ ____
 
 To set up LNPBO locally, follow these steps.
 
-We will first install this repository.
+We will first install this repository and its data dependency, [LNPDB](https://github.com/evancollins1/LNPDB) (~19,800 LNP formulations):
 
 ```
 git clone https://github.com/evancollins1/LNPBO.git
+git clone https://github.com/evancollins1/LNPDB.git
+cd LNPBO
+ln -s ../../LNPDB data/LNPDB_repo
 ```
 
 We will next create the conda environment `lnpbo`.
@@ -228,11 +231,17 @@ round1_suggestions = optimizer.suggest(
 )
 ```
 
-If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. To do this, run the following, where in this example the scientist has saved these round 1 results in `example2_round1_w_results.csv`. The new suggested LNPs for round 2 are included in the outputted `example2_round2.csv`. Note that you can also adjust the optimizer at this point too (e.g., change kappa value or batch size).
+If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. To do this, reload the updated CSV (with results filled in), re-encode, rebuild the space, and re-initialize the optimizer:
 
 ```
-# Wrap into Dataset
-encoded_dataset = optimizer.update("example2_round1_w_results.csv")
+# Load updated dataset with round 1 results
+dataset = Dataset.from_lnpdb_csv("example2_round1_w_results.csv")
+encoded_dataset = dataset.encode_dataset(
+    HL_n_pcs_morgan=5,
+    encoding_csv_path="example2_encodings_r2.csv",
+)
+space = FormulationSpace.from_dataset(encoded_dataset)
+optimizer = Optimizer(space=space, type="UCB", kappa=5.0, random_seed=42, batch_size=24)
 
 # Suggest round 2
 round2_suggestions = optimizer.suggest(output_csv="example2_round2.csv")
