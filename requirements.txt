@@ -13,6 +13,9 @@ numpy==2.4.2
 pandas==3.0.1
 joblib==1.5.3
 
+# Surrogate models
+xgboost==3.2.0
+
 # Molecular encoding
 rdkit==2025.09.6
 # mordred==1.2.0 requires numpy<2; imported lazily only when feature_type="mordred"
@@ -25,4 +28,3 @@ tqdm==4.67.3
 
 # Dev tools
 ruff==0.15.4
-ty==0.0.20
