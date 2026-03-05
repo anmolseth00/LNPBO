@@ -292,10 +292,18 @@ class FormulationSpace:
                 continue
 
             pcs_dict = encoders[component]
+            df_cols = set(self._dataset.df.columns)
 
             columns = []
             for encoder_name, n_pcs in pcs_dict.items():
-                columns += [f"{component}_{encoder_name}_pc{i}" for i in range(1, n_pcs + 1)]
+                # Use actual columns present in df (n_components may have been
+                # clamped by compute_pcs when data is smaller than requested)
+                enc_cols = [
+                    f"{component}_{encoder_name}_pc{i}"
+                    for i in range(1, n_pcs + 1)
+                    if f"{component}_{encoder_name}_pc{i}" in df_cols
+                ]
+                columns += enc_cols
 
             if not columns:
                 continue
@@ -308,18 +316,19 @@ class FormulationSpace:
                 }
             )
 
-        # Mixture ratio parameters
+        # Mixture ratio parameters (only if at least one ratio varies)
         columns_mixture = []
         for molratio, is_var in metadata["variable_molratios"].items():
             if is_var:
                 molratio = molratio + "_molratio"
                 columns_mixture.append(molratio)
-        param_dict = {
-            "name": "molratio",
-            "type": "MixtureRatiosParameter",
-            "columns": columns_mixture,
-        }
-        d["parameters"].append(param_dict)
+        if columns_mixture:
+            param_dict = {
+                "name": "molratio",
+                "type": "MixtureRatiosParameter",
+                "columns": columns_mixture,
+            }
+            d["parameters"].append(param_dict)
 
         # IL to mRNA mass ratio
         if metadata.get("variable_il_mrna", False):

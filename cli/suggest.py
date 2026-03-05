@@ -65,6 +65,7 @@ def run_suggest(args):
             pool_dataset = Dataset(pool_df, source="lnpdb", name="candidate_pool")
             pool_encoded = pool_dataset.encode_dataset(
                 **encode_kwargs,
+                reduction=args.reduction,
                 fitted_transformers_in=encoded.fitted_transformers,
             )
             candidate_pool = pool_encoded.df
