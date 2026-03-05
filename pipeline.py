@@ -62,7 +62,7 @@ def main():
         "--surrogate",
         type=str,
         default="xgb",
-        choices=["gp", "xgb", "rf_ucb", "rf_ts", "gp_ucb"],
+        choices=["gp", "xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"],
         help="Surrogate model (default: xgb). 'gp' uses continuous BO; others use discrete pool scoring.",
     )
     parser.add_argument(

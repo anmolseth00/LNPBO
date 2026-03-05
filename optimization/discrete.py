@@ -26,8 +26,9 @@ def score_candidate_pool(
     y_train : array of shape (n_train,)
     X_pool : array of shape (n_pool, n_features)
     surrogate : str
-        "xgb" (greedy mean), "rf_ucb" (mean + kappa*std),
-        "rf_ts" (Thompson sampling), "gp_ucb" (GP mean + kappa*sigma).
+        "xgb" (greedy mean), "xgb_ucb" (XGB + MAPIE conformal UCB),
+        "rf_ucb" (mean + kappa*std), "rf_ts" (Thompson sampling),
+        "gp_ucb" (GP mean + kappa*sigma).
     batch_size : int
         Number of top candidates to return.
     kappa : float
@@ -51,6 +52,24 @@ def score_candidate_pool(
         model = XGBRegressor(n_estimators=200, random_state=random_seed, n_jobs=-1, verbosity=0)
         model.fit(X_train_s, y_train)
         scores = model.predict(X_pool_s)
+
+    elif surrogate == "xgb_ucb":
+        from mapie.regression import CrossConformalRegressor
+        from xgboost import XGBRegressor
+
+        base = XGBRegressor(n_estimators=200, random_state=random_seed, n_jobs=-1, verbosity=0)
+        # confidence_level=0.68 gives ~1-sigma equivalent intervals
+        # method="plus" uses CV+ for tighter bounds (Barber et al., AoS 2021)
+        n_cv = min(5, len(X_train_s))
+        mapie = CrossConformalRegressor(
+            base, method="plus", cv=n_cv, confidence_level=0.68,
+            random_state=random_seed, n_jobs=-1,
+        )
+        mapie.fit_conformalize(X_train_s, y_train)
+        y_pred, y_intervals = mapie.predict_interval(X_pool_s)
+        # y_intervals shape: (n_samples, 2, 1) for single confidence level
+        half_width = (y_intervals[:, 1, 0] - y_intervals[:, 0, 0]) / 2
+        scores = y_pred + kappa * half_width
 
     elif surrogate == "rf_ucb":
         from sklearn.ensemble import RandomForestRegressor
@@ -82,7 +101,7 @@ def score_candidate_pool(
         scores = mu + kappa * sigma
 
     else:
-        raise ValueError(f"Unknown surrogate: {surrogate!r}. Use 'xgb', 'rf_ucb', 'rf_ts', or 'gp_ucb'.")
+        raise ValueError(f"Unknown surrogate: {surrogate!r}. Use 'xgb', 'xgb_ucb', 'rf_ucb', 'rf_ts', or 'gp_ucb'.")
 
     top_indices = np.argsort(scores)[-batch_size:][::-1]
     return top_indices, scores

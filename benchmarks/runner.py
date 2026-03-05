@@ -42,6 +42,7 @@ STRATEGY_CONFIGS = {
     "discrete_rf_ucb": {"type": "discrete", "surrogate": "rf_ucb"},
     "discrete_rf_ts": {"type": "discrete", "surrogate": "rf_ts"},
     "discrete_xgb_greedy": {"type": "discrete", "surrogate": "xgb"},
+    "discrete_xgb_ucb": {"type": "discrete", "surrogate": "xgb_ucb"},
 }
 
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
@@ -61,6 +62,7 @@ STRATEGY_DISPLAY = {
     "discrete_rf_ucb": "Discrete RF-UCB",
     "discrete_rf_ts": "Discrete RF-TS",
     "discrete_xgb_greedy": "Discrete XGB",
+    "discrete_xgb_ucb": "Discrete XGB-UCB (MAPIE)",
 }
 
 STRATEGY_COLORS = {
@@ -76,6 +78,7 @@ STRATEGY_COLORS = {
     "discrete_rf_ucb": "#bcbd22",
     "discrete_rf_ts": "#7f7f7f",
     "discrete_xgb_greedy": "#e41a1c",
+    "discrete_xgb_ucb": "#ff6600",
 }
 
 

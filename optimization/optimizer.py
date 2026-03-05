@@ -9,7 +9,7 @@ from ..space.formulation import FormulationSpace
 from .bayesopt import perform_bayesian_optimization
 from .doe import mixture_doe
 
-DISCRETE_SURROGATES = {"xgb", "rf_ucb", "rf_ts", "gp_ucb"}
+DISCRETE_SURROGATES = {"xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"}
 ENC_PREFIXES = ["mfp_pc", "mordred_pc", "unimol_pc", "lion_pc", "count_mfp_pc", "rdkit_pc"]
 
 
@@ -83,6 +83,20 @@ class Optimizer:
         missing = [c for c in feature_cols if c not in pool_df.columns]
         if missing:
             raise ValueError(f"Candidate pool missing feature columns: {missing}")
+
+        # Deduplicate pool by composition to avoid suggesting the same formulation twice.
+        # Use lipid names + ratios (what the scientist actually makes), not feature vectors.
+        composition_cols = [c for c in [
+            "IL_name", "HL_name", "CHL_name", "PEG_name",
+            "IL_molratio", "HL_molratio", "CHL_molratio", "PEG_molratio",
+            "IL_to_nucleicacid_massratio",
+        ] if c in pool_df.columns]
+        if composition_cols:
+            n_before = len(pool_df)
+            pool_df = pool_df.drop_duplicates(subset=composition_cols).reset_index(drop=True)
+            n_deduped = n_before - len(pool_df)
+            if n_deduped > 0:
+                print(f"  Deduplicated pool: {n_before:,} -> {len(pool_df):,} ({n_deduped:,} duplicates removed)")
 
         X_train = dataset.df[feature_cols].values
         y_train = dataset.df["Experiment_value"].values

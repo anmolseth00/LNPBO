@@ -30,7 +30,7 @@ def add_suggest_command(subparsers):
     parser.add_argument(
         "--surrogate",
         default="xgb",
-        choices=["gp", "xgb", "rf_ucb", "rf_ts", "gp_ucb"],
+        choices=["gp", "xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"],
         help="Surrogate model (default: xgb). 'gp' uses continuous BO; others use discrete pool scoring.",
     )
     parser.add_argument(
