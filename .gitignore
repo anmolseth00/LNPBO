@@ -96,7 +96,7 @@ data/LNPDB_repo
 # Benchmark package (not ignored -- replaces benchmark.py)
 # ==========================
 !benchmarks/
-!benchmarks/**
+!benchmarks/*.py
 
 # ==========================
 # NOTE: The following are intentionally NOT ignored:
