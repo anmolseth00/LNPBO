@@ -19,31 +19,26 @@ LNPDB_REQUIRED_COLUMNS = [
     "Experiment_value",
 ]
 
-INGREDIENT_COLUMNS = [
-    "IL_name",
-    "IL_SMILES",
-    "IL_to_nucleicacid_massratio",
-    "IL_molratio",
-    "IL_to_nucleicacid_upper",
-    "IL_to_nucleicacid_lower",
-    "IL_upper",
-    "IL_lower",
-    "HL_name",
-    "HL_SMILES",
-    "HL_molratio",
-    "HL_upper",
-    "HL_lower",
-    "CHL_name",
-    "CHL_SMILES",
-    "CHL_molratio",
-    "CHL_upper",
-    "CHL_lower",
-    "PEG_name",
-    "PEG_SMILES",
-    "PEG_molratio",
-    "PEG_upper",
-    "PEG_lower",
-]
+_FEATURE_TYPE_SUFFIX = {
+    "mfp": ["morgan"],
+    "count_mfp": ["count_mfp"],
+    "rdkit": ["rdkit"],
+    "lantern": ["count_mfp", "rdkit"],
+}
+
+
+def encode_kwargs_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
+    """Map feature type name to encode_dataset() keyword arguments."""
+    suffixes = _FEATURE_TYPE_SUFFIX.get(feature_type)
+    if suffixes is None:
+        raise ValueError(f"Unknown feature type: {feature_type!r}")
+    kwargs = {}
+    for role in ["IL", "HL", "CHL", "PEG"]:
+        n = il_pcs if role == "IL" else other_pcs
+        for s in suffixes:
+            kwargs[f"{role}_n_pcs_{s}"] = n
+    return kwargs
+
 
 columns_to_check_for_duplicates = [
     "IL_name",
@@ -76,6 +71,7 @@ class Dataset:
         name="screen",
         encoders=None,
         fitted_transformers=None,
+        raw_fingerprints=None,
     ):
         self.df = df.copy()
         self.source = source
@@ -83,6 +79,7 @@ class Dataset:
         self.name = name
         self.encoders = encoders
         self.fitted_transformers = fitted_transformers or {}
+        self.raw_fingerprints = raw_fingerprints or {}
 
     @classmethod
     def from_lnpdb_csv(cls, path: str) -> Dataset:
@@ -138,18 +135,27 @@ class Dataset:
         IL_n_pcs_mordred: int = 0,
         IL_n_pcs_lion: int = 0,
         IL_n_pcs_unimol: int = 0,
+        IL_n_pcs_count_mfp: int = 0,
+        IL_n_pcs_rdkit: int = 0,
         HL_n_pcs_morgan: int = 0,
         HL_n_pcs_mordred: int = 0,
         HL_n_pcs_unimol: int = 0,
+        HL_n_pcs_count_mfp: int = 0,
+        HL_n_pcs_rdkit: int = 0,
         CHL_n_pcs_morgan: int = 0,
         CHL_n_pcs_mordred: int = 0,
         CHL_n_pcs_unimol: int = 0,
+        CHL_n_pcs_count_mfp: int = 0,
+        CHL_n_pcs_rdkit: int = 0,
         PEG_n_pcs_morgan: int = 0,
         PEG_n_pcs_mordred: int = 0,
         PEG_n_pcs_unimol: int = 0,
+        PEG_n_pcs_count_mfp: int = 0,
+        PEG_n_pcs_rdkit: int = 0,
         encoding_csv_path: str | None = None,
         only_encodings: bool = False,
         reduction: str = "pca",
+        fitted_transformers_in: dict | None = None,
     ) -> Dataset:
 
         df = self.df.copy()
@@ -214,16 +220,23 @@ class Dataset:
             return df.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean().to_dict()
 
         fitted_transformers = {}
+        raw_fingerprints = {}
 
         def encode_lipid_table(lipid_df: pd.DataFrame, role: str, pcs_spec: dict):
 
             blocks = []
             smiles = lipid_df["SMILES"].tolist()
 
-            # Per-lipid average target values (needed for LiON and PLS)
+            # Per-lipid average target values (needed for LiON and PLS fitting)
             exp_map = None
             needs_targets = pcs_spec.get("lion", 0) > 0 or reduction == "pls"
-            if needs_targets:
+            # Skip target computation when all encoders have pre-fitted reducers
+            # (transform-only mode for pool encoding — targets not needed)
+            has_all_fitted = fitted_transformers_in is not None and all(
+                f"{role}_{et}" in fitted_transformers_in
+                for et, n in pcs_spec.items() if n > 0
+            )
+            if needs_targets and not has_all_fitted:
                 exp_map = average_experiment_values(role)
                 if not exp_map:
                     raise ValueError(
@@ -234,8 +247,11 @@ class Dataset:
                 if n <= 0:
                     continue
 
+                # Reuse pre-fitted transformers if available (for consistent pool encoding)
+                existing = fitted_transformers_in.get(f"{role}_{enc_type}") if fitted_transformers_in else None
+
                 exp_vals = None
-                if enc_type == "lion" or reduction == "pls":
+                if (enc_type == "lion" or reduction == "pls") and existing is None:
                     assert exp_map is not None
                     exp_vals = []
                     for name in lipid_df["lipid_name"]:
@@ -247,13 +263,15 @@ class Dataset:
                             )
                         exp_vals.append(float(v))
 
-                _, _, pc_list, reducer_obj, scaler_obj = compute_pcs(
+                pc_matrix, reducer_obj, scaler_obj, fp_scaled = compute_pcs(
                     smiles,
                     feature_type=enc_type,
                     n_components=n,
                     experiment_values=exp_vals,
                     reduction=reduction,
                     cache_name=role,
+                    fitted_reducer=existing["reducer"] if existing else None,
+                    fitted_scaler=existing["scaler"] if existing else None,
                 )
 
                 fitted_transformers[f"{role}_{enc_type}"] = {
@@ -261,9 +279,17 @@ class Dataset:
                     "scaler": scaler_obj,
                 }
 
-                cols = [f"{role}_{enc_type}_pc{i + 1}" for i in range(pc_list.shape[1])]
+                if reduction == "pls" and fp_scaled is not None:
+                    raw_fingerprints[f"{role}_{enc_type}"] = {
+                        "fp_scaled": fp_scaled,
+                        "smiles": smiles,
+                        "lipid_names": lipid_df["lipid_name"].tolist(),
+                        "n_components": n,
+                    }
 
-                blocks.append(pd.DataFrame(pc_list, columns=cols))
+                cols = [f"{role}_{enc_type}_pc{i + 1}" for i in range(pc_matrix.shape[1])]
+
+                blocks.append(pd.DataFrame(pc_matrix, columns=cols))
 
             if not blocks:
                 return None
@@ -271,10 +297,10 @@ class Dataset:
             return pd.concat([lipid_df.reset_index(drop=True), *blocks], axis=1)
 
         encoders = {
-            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol},
-            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol},
-            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol},
-            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol},
+            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol, "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit},
+            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp, "rdkit": HL_n_pcs_rdkit},
+            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp, "rdkit": CHL_n_pcs_rdkit},
+            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp, "rdkit": PEG_n_pcs_rdkit},
         }
 
         encoding_tables = []
@@ -321,14 +347,11 @@ class Dataset:
                 ]
 
                 encoding_cols = []
+                enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_"]
                 for role in ["IL", "HL", "CHL", "PEG"]:
                     role_cols = [
-                        c
-                        for c in df.columns
-                        if c.startswith(f"{role}_mfp_")
-                        or c.startswith(f"{role}_mordred_")
-                        or c.startswith(f"{role}_lion_")
-                        or c.startswith(f"{role}_unimol_")
+                        c for c in df.columns
+                        if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)
                     ]
                     encoding_cols.extend(sorted(role_cols))
 
@@ -344,71 +367,11 @@ class Dataset:
             name=self.name,
             encoders=encoders,
             fitted_transformers=fitted_transformers,
+            raw_fingerprints=raw_fingerprints,
         )
-
-    def load_encodings(self, encoding_csv_path: str) -> Dataset:
-        enc = pd.read_csv(encoding_csv_path)
-        assert len(self.df) == len(enc), (
-            f"Row count mismatch: dataset has {len(self.df)} rows but encodings have {len(enc)} rows"
-        )
-        df = pd.concat([self.df.reset_index(drop=True), enc], axis=1)
-        return Dataset(
-            df,
-            source=self.source,
-            metadata=self.metadata,
-            name=self.name,
-            encoders=self.encoders,
-            fitted_transformers=self.fitted_transformers,
-        )
-
-    @classmethod
-    def from_ingredient_library(cls, path: str) -> Dataset:
-        """
-        Ingredient-only input (no Experiment_value).
-        Intended ONLY for DoE initialization.
-        """
-        df = pd.read_csv(path)
-
-        # copy only user-defined DOE options
-        present = [c for c in INGREDIENT_COLUMNS if c in df.columns]
-        df = df[present].copy()
-
-        df["Experiment_value"] = pd.NA
-        df["Round"] = 0
-        df["Formulation_ID"] = -1  # assigned later
-
-        return cls(df, source="ingredients")
-
-    @classmethod
-    def from_doe_options(cls, path: str) -> dict[str, dict]:
-        df = pd.read_csv(path)
-
-        options = {}
-        for _, row in df.iterrows():
-            role = row["role"]
-            options[role] = {
-                "names": row["names"].split(";") if pd.notna(row["names"]) else None,
-                "ratios": ([float(x) for x in row["ratios"].split(";")] if pd.notna(row["ratios"]) else None),
-                "bounds": ((row["ratio_lower"], row["ratio_upper"]) if pd.notna(row["ratio_lower"]) else None),
-            }
-        return options
-
-    def validate_schema(self, strict: bool = True):
-        missing = set(LNPDB_REQUIRED_COLUMNS) - set(self.df.columns)
-        if missing and strict:
-            raise ValueError(f"Dataset missing required columns: {missing}")
-        return True
-
-    def _ensure_df(self, x, prefix):
-        if isinstance(x, pd.DataFrame):
-            return x.add_prefix(prefix)
-        return pd.DataFrame(x, columns=[f"{prefix}pc{i + 1}" for i in range(x.shape[1])])
 
     def max_round(self) -> int:
         return int(self.df["Round"].max()) if len(self.df) else 0
-
-    def next_formulation_id(self) -> int:
-        return int(self.df["Formulation_ID"].max()) + 1 if len(self.df) else 0
 
     def append_suggestions(self, df_new: pd.DataFrame) -> Dataset:
         """
@@ -440,10 +403,10 @@ class Dataset:
             name_col = f"{role}_name"
 
             # Find encoding columns for this role
+            enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_"]
             encoding_cols = [
-                c
-                for c in self.df.columns
-                if c.startswith(f"{role}_mfp_") or c.startswith(f"{role}_mordred_") or c.startswith(f"{role}_lion_") or c.startswith(f"{role}_unimol_")
+                c for c in self.df.columns
+                if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)
             ]
 
             if not encoding_cols:
@@ -491,7 +454,72 @@ class Dataset:
             name=self.name,
             encoders=self.encoders,
             fitted_transformers=self.fitted_transformers,
+            raw_fingerprints=self.raw_fingerprints,
         )
+
+    def refit_pls(self, training_indices: list[int]) -> None:
+        """Re-fit PLS using only training-set targets (prospective PLS).
+
+        Computes per-lipid average Experiment_value from training rows only,
+        re-fits PLSRegression on stored raw fingerprints, and updates PC
+        columns in self.df in-place.
+
+        This avoids target leakage: PLS is fit on observed targets only,
+        not on the full oracle dataset.
+        """
+        import numpy as np
+        from sklearn.cross_decomposition import PLSRegression
+
+        if not self.raw_fingerprints:
+            return
+
+        train_df = self.df.loc[training_indices]
+
+        for key, raw_data in self.raw_fingerprints.items():
+            role, enc_type = key.split("_", 1)
+            name_col = f"{role}_name"
+            lipid_names = raw_data["lipid_names"]
+            fp_scaled = raw_data["fp_scaled"]
+            n_components = raw_data["n_components"]
+
+            # Compute per-lipid average target from training data only
+            train_means = train_df.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean()
+
+            exp_vals = []
+            for name in lipid_names:
+                v = train_means.get(name)
+                if v is None:
+                    exp_vals.append(0.0)
+                else:
+                    exp_vals.append(float(v))
+
+            y = np.asarray(exp_vals, dtype=float)
+            max_components = min(fp_scaled.shape[0], fp_scaled.shape[1])
+            max_components = max(max_components - 1, 1)
+            n_comp = min(n_components, max_components)
+
+            reducer = PLSRegression(n_components=n_comp, scale=False)
+            try:
+                reducer.fit(fp_scaled, y)
+                pc_matrix = reducer.transform(fp_scaled)
+            except (ValueError, np.linalg.LinAlgError):
+                # PLS can fail with degenerate features (e.g., 3 unique PEG SMILES);
+                # skip re-fitting for this role and keep existing PC values
+                continue
+
+            # Update fitted_transformers
+            if key in self.fitted_transformers:
+                self.fitted_transformers[key]["reducer"] = reducer
+
+            # Build lipid_name -> PC row lookup
+            pc_lookup = {name: row for name, row in zip(lipid_names, pc_matrix)}
+            cols = [f"{role}_{enc_type}_pc{i + 1}" for i in range(pc_matrix.shape[1])]
+
+            # Update PC columns in self.df
+            for col_idx, col_name in enumerate(cols):
+                self.df[col_name] = self.df[name_col].map(
+                    {name: pc_lookup[name][col_idx] for name in pc_lookup}
+                )
 
     def to_csv(self, path: str):
         self.df.to_csv(path, index=False)
