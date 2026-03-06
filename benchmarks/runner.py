@@ -146,7 +146,7 @@ class LNPDBOracle:
 # ---------------------------------------------------------------------------
 
 
-def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None):
+def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False):
     """Load LNPDB, encode, split into seed/oracle."""
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
@@ -226,6 +226,13 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
             feature_cols.append(col)
     if "IL_to_nucleicacid_massratio" in encoded.df.columns and encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
         feature_cols.append("IL_to_nucleicacid_massratio")
+
+    if context_features:
+        from LNPBO.data.context import encode_context
+
+        encoded.df, ctx_cols, _ = encode_context(encoded.df)
+        feature_cols.extend(ctx_cols)
+        print(f"  Context features ({len(ctx_cols)}): {ctx_cols[:5]}{'...' if len(ctx_cols) > 5 else ''}")
 
     print(f"  Feature columns ({len(feature_cols)}): {feature_cols}")
 
@@ -443,6 +450,11 @@ def main():
         choices=["pca", "pls", "none"],
         help="Dimensionality reduction method (default: pca)",
     )
+    parser.add_argument(
+        "--context-features",
+        action="store_true",
+        help="Include one-hot experimental context (cell type, target, RoA, etc.)",
+    )
     args = parser.parse_args()
 
     # Parse strategies
@@ -469,6 +481,7 @@ def main():
     print(f"Rounds: {args.rounds}, Batch size: {args.batch_size}")
     print(f"Seed pool: {args.n_seeds}, Random seed: {args.seed}")
     print(f"Target normalization: {args.normalize}")
+    print(f"Context features: {args.context_features}")
     print()
 
     # Prepare data
@@ -479,6 +492,7 @@ def main():
         reduction=args.reduction,
         feature_type=args.feature_type,
         n_pcs=args.n_pcs,
+        context_features=args.context_features,
     )
     pls_data = None
     if any(s in PLS_STRATEGIES for s in strategies):
@@ -489,6 +503,7 @@ def main():
             reduction="pls",
             feature_type=args.feature_type,
             n_pcs=args.n_pcs,
+            context_features=args.context_features,
         )
 
     # Run strategies
@@ -570,6 +585,7 @@ def main():
             "feature_type": args.feature_type,
             "n_pcs": args.n_pcs,
             "reduction": args.reduction,
+            "context_features": args.context_features,
         },
         "results": {},
     }

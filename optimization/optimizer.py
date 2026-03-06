@@ -11,6 +11,7 @@ from .doe import mixture_doe
 
 DISCRETE_SURROGATES = {"xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"}
 ENC_PREFIXES = ["mfp_pc", "mordred_pc", "unimol_pc", "lion_pc", "count_mfp_pc", "rdkit_pc"]
+CTX_PREFIX = "ctx_"
 
 
 class Optimizer:
@@ -30,6 +31,7 @@ class Optimizer:
         batch_size: int = 24,
         surrogate: str = "gp",
         candidate_pool: pd.DataFrame | None = None,
+        context_features: bool = False,
     ):
         self.space = space
         self.type = type
@@ -40,6 +42,7 @@ class Optimizer:
         self.batch_size = batch_size
         self.surrogate = surrogate
         self.candidate_pool = candidate_pool
+        self.context_features = context_features
 
     def suggest(self, output_csv: str | None = None) -> pd.DataFrame:
         if self.surrogate != "gp":
@@ -70,6 +73,14 @@ class Optimizer:
         if "IL_to_nucleicacid_massratio" in dataset.df.columns and dataset.df["IL_to_nucleicacid_massratio"].nunique() > 1:
             feature_cols.append("IL_to_nucleicacid_massratio")
 
+        # Add one-hot encoded experimental context features
+        ctx_levels = None
+        if self.context_features:
+            from ..data.context import encode_context
+
+            dataset.df, ctx_cols, ctx_levels = encode_context(dataset.df)
+            feature_cols.extend(ctx_cols)
+
         # Exclude already-evaluated Formulation_IDs from pool
         evaluated_ids = set(dataset.df["Formulation_ID"].dropna().astype(int))
         pool_df = self.candidate_pool[
@@ -78,6 +89,12 @@ class Optimizer:
 
         if pool_df.empty:
             raise ValueError("No candidates remaining in pool after excluding evaluated formulations.")
+
+        # Encode context on pool using same levels as training data
+        if self.context_features and ctx_levels is not None:
+            from ..data.context import encode_context
+
+            pool_df, _, _ = encode_context(pool_df, levels=ctx_levels)
 
         # Ensure feature columns exist in pool
         missing = [c for c in feature_cols if c not in pool_df.columns]

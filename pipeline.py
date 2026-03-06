@@ -79,6 +79,11 @@ def main():
     parser.add_argument(
         "--il-pcs-morgan", type=int, default=5, help="Number of Morgan fingerprint PCs for IL (default: 5)"
     )
+    parser.add_argument(
+        "--context-features",
+        action="store_true",
+        help="Include one-hot experimental context (cell type, target, RoA, etc.)",
+    )
 
     args = parser.parse_args()
 
@@ -232,6 +237,7 @@ def main():
         random_seed=args.seed,
         surrogate=args.surrogate,
         candidate_pool=candidate_pool,
+        context_features=args.context_features,
     )
 
     print(f"  Suggesting {args.batch_size} formulations...")
