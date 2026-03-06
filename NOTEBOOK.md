@@ -181,27 +181,85 @@ Benchmark:
 python -m benchmarks.runner --strategies discrete_xgb_greedy,random --rounds 15 --n-seeds 500 --feature-type lantern --reduction pls
 ```
 
-## 9. Next Steps
+## 9. SHAP Feature Attribution Analysis
+
+### 9a. Experimental Context Features
+
+LNPDB formulations span diverse experimental conditions: cell types (HeLa, HepG2, primary hepatocytes, ...), targets (in vitro, liver, spleen, ...), routes of administration (IV, IM, ...), cargo types (mRNA, siRNA, DNA barcode, ...), and measurement methods (luminescence, diameter, zeta potential). We added one-hot encoding of 6 context columns (`data/context.py`) and measured their contribution via SHAP TreeExplainer on the full LNPDB dataset.
+
+### 9b. Setup
+
+- **Data**: 14,310 valid formulations (from 16,787 after NaN removal)
+- **Features**: LANTERN (count MFP + RDKit, PLS-reduced to 5 PCs per role) + one-hot context (45 binary columns)
+- **Split**: Murcko scaffold split on IL SMILES (80/20 train/test) — no structural leakage
+- **Model**: XGBoost (500 trees, depth=8, lr=0.05)
+- **Script**: `scripts/shap_analysis.py`
+
+### 9c. Results
+
+| Metric | With Context | Without Context |
+|--------|-------------|-----------------|
+| Test R² | **0.878** | 0.813 |
+| Test RMSE | 1.70 | 2.11 |
+| Train R² | 0.983 | 0.984 |
+| Features | 78 (33 mol + 45 ctx) | 33 |
+
+SHAP attribution (with-context model):
+
+| Feature Group | SHAP % | Description |
+|---------------|--------|-------------|
+| IL fingerprint (MFP + RDKit PCs) | 55.5% | Ionizable lipid molecular structure |
+| Molar ratios | 10.9% | Component molar percentages |
+| Context: Experiment_method | 9.9% | Measurement type (luminescence vs diameter vs zeta) |
+| Context: Cargo_type | 7.7% | Payload (mRNA, siRNA, DNA barcode) |
+| HL fingerprint | 5.6% | Helper lipid structure |
+| Context: Model_type | 3.0% | Cell type |
+| Mass ratio | 2.8% | Lipid-to-nucleic-acid ratio |
+| Context: Model_target | 2.1% | Target organ/system |
+| PEG + CHL fingerprint | 1.5% | Minimal signal (few unique molecules) |
+| Context: Route_of_administration | 0.2% | IV, IM, etc. |
+
+**Molecular: 76.5% / Context: 23.5%**
+
+### 9d. Interpretation
+
+1. **IL molecular structure dominates** (55.5%). The PLS-compressed Morgan FP + RDKit descriptors capture the primary structure-activity relationship for transfection.
+
+2. **Context adds real signal** (+6.6 pp in R²). The model legitimately benefits from knowing experimental conditions — different cell types and cargo types shift the response distribution.
+
+3. **Top context feature is `Experiment_method__diameter`** (SHAP 0.175). Diameter/zeta measurements are on fundamentally different scales than transfection luminescence. This is arguably a data cleaning issue: these 10 rows measure physical properties, not transfection. Future work could filter to luminescence-only or treat measurement type as a separate task.
+
+4. **DNA barcode cargo** (SHAP 0.101) is the second-largest context feature. Barcoded library screens produce different value distributions than single-formulation assays.
+
+5. **The honest R² is 0.878** (scaffold split, corrected data). Previous results showing R²>0.98 were artifacts of a many-to-many merge bug in `encode_dataset()` that inflated the dataset from 16,787 to ~43,000 rows with structural duplicates leaking across train/test.
+
+### 9e. Bug Fix: encode_dataset Many-to-Many Merge
+
+`data/dataset.py` line 319 previously merged encoding tables on `{role}_name` alone. Since 299 IL names in LNPDB map to multiple SMILES, this caused many-to-many row expansion (16,787 → 43,368). Fixed by merging on `(name, SMILES)` pairs with a row count assertion. All results in this section use the corrected pipeline.
+
+## 10. Next Steps
 
 Approaches not yet tried that could improve the pipeline:
 
-### 9a. Calibrated Uncertainty (Implemented)
+### 10a. Calibrated Uncertainty (Implemented)
 
 XGB-UCB wraps XGBoost with MAPIE conformal prediction (CV+ method, Barber et al., AoS 2021) to produce calibrated prediction intervals. The `xgb_ucb` surrogate in `optimization/discrete.py` uses `CrossConformalRegressor` at 68% confidence (1-sigma equivalent) and scores candidates as `mean + kappa * half_width`. In benchmarks (Section 5a), XGB-UCB performs comparably to greedy (26.0% vs 26.4% top-50 at n=1000) -- the additional exploration does not help at these sample sizes, possibly because the pool is large enough that greedy exploitation is already effective.
 
-### 9b. Uncertainty Sampling (Active Learning)
+### 10b. Uncertainty Sampling (Active Learning)
 
 In the n<200 regime where surrogates are non-predictive, BO's exploitation focus fails. Switching to active learning-style uncertainty sampling -- selecting formulations where the model is most uncertain -- could improve sample efficiency in early rounds. This is complementary to BO: use AL for exploration when the surrogate is weak, transition to BO exploitation as the model improves. Pool-based AL (Settles, 2009) is directly applicable to the discrete candidate pool setup.
 
-### 9c. Generative Molecular Design (AGILE-style)
+### 10c. Generative Molecular Design (AGILE-style)
 
-The current pipeline selects from a fixed candidate pool of known formulations. AGILE (Xu et al., Nature Biotechnology 2024) demonstrated GNN-guided generative design of novel ionizable lipid structures -- designing new molecules rather than just optimizing ratios of existing ones. Integrating a generative component (variational autoencoder or reinforcement learning on molecular graphs) could expand the search space beyond LNPDB's existing lipid library. This is the largest potential upside but also the biggest engineering undertaking.
+The current pipeline selects from a fixed candidate pool of known formulations. AGILE (Xu et al., Nat Commun 2024; DOI: 10.1038/s41467-024-50619-z) demonstrated GNN-guided design of novel ionizable lipid structures -- designing new molecules rather than just optimizing ratios of existing ones. Integrating a generative component (variational autoencoder or reinforcement learning on molecular graphs) could expand the search space beyond LNPDB's existing lipid library. This is the largest potential upside but also the biggest engineering undertaking.
 
-### 9d. Mixed-Variable Bayesian Optimization
+AGILE-lite (local) is now implemented via `propose-ils`: SELFIES mutations around known ILs, LANTERN+PLS encoding fit on training data only, MAPIE uncertainty, LCB ranking (mean - std), MaxMin diversity selection, and nearest-neighbor anchors for each proposal.
+
+### 10d. Mixed-Variable Bayesian Optimization
 
 The current pipeline treats lipid identity as a discrete choice and molar ratios as continuous, but optimizes them separately (discrete pool scoring ignores ratio optimization). CoCaBO (Ru et al., NeurIPS 2020) and CASMOPOLITAN (Wan et al., JMLR 2021) handle mixed categorical-continuous spaces in a unified acquisition function, which could jointly optimize lipid selection and molar ratios in a single BO loop.
 
-### 9e. What Was Not Tried
+### 10e. What Was Not Tried
 
 | Approach | Why Not | Status |
 |----------|---------|--------|
