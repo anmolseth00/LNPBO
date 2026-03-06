@@ -316,12 +316,30 @@ class Dataset:
                 encoding_tables.append(enc_df)
                 metadata["pcs"][role] = pcs_spec
 
-                df = df.merge(
-                    enc_df.drop(columns=["SMILES", "lipid_type"]),
-                    left_on=f"{role}_name",
-                    right_on="lipid_name",
-                    how="left",
-                ).drop(columns=["lipid_name"])
+                # Merge on (name, SMILES) to prevent many-to-many expansion
+                # when the same lipid name maps to multiple SMILES.
+                smiles_col = f"{role}_SMILES"
+                merge_right = enc_df.drop(columns=["lipid_type"])
+                if smiles_col in df.columns:
+                    n_before = len(df)
+                    df = df.merge(
+                        merge_right,
+                        left_on=[f"{role}_name", smiles_col],
+                        right_on=["lipid_name", "SMILES"],
+                        how="left",
+                    ).drop(columns=["lipid_name", "SMILES"])
+                    if len(df) != n_before:
+                        raise RuntimeError(
+                            f"Merge on ({role}_name, {smiles_col}) changed row count: "
+                            f"{n_before} -> {len(df)}. Data has duplicate (name, SMILES) pairs."
+                        )
+                else:
+                    df = df.merge(
+                        merge_right.drop(columns=["SMILES"]),
+                        left_on=f"{role}_name",
+                        right_on="lipid_name",
+                        how="left",
+                    ).drop(columns=["lipid_name"])
 
         # Save
         if encoding_csv_path:
