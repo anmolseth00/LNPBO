@@ -44,6 +44,8 @@ packages = [
     "LNPBO.benchmarks",
     "LNPBO.models",
     "LNPBO.generative",
+    "LNPBO.diagnostics",
+    "LNPBO.scripts",
 ]
 
 [tool.ruff]
@@ -73,7 +75,6 @@ extra-paths = ["..", "models"]
 # Third-party libraries without complete type stubs (rdkit, gpytorch, xgboost)
 unresolved-attribute = "warn"
 possibly-missing-attribute = "ignore"
-# models/ files use sys.path.insert for local imports that ty can't resolve
 unresolved-import = "warn"
 # gpytorch Tensor properties, torch.autograd.grad, numpy overloads
 call-non-callable = "warn"
