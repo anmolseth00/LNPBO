@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import numpy as np
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA
@@ -97,7 +95,7 @@ def compute_pcs(
             try:
                 reducer.fit(fp_scaled, y)
                 pc_matrix = reducer.transform(fp_scaled)
-            except (ValueError, np.linalg.LinAlgError):
+            except ValueError, np.linalg.LinAlgError:
                 # PLS can fail with very few samples or degenerate features;
                 # fall back to PCA silently
                 reducer = PCA(n_components=n_components, random_state=42)

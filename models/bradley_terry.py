@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Bradley-Terry pairwise preference model using an MLP utility."""
 
-from __future__ import annotations
 
 import json
 import sys

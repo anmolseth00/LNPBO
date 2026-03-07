@@ -5,7 +5,6 @@ Tests whether experimental context (Experiment_method, Experiment_batching)
 improves cross-study R² when scoped to a single cell type and cargo.
 """
 
-from __future__ import annotations
 
 import json
 import sys

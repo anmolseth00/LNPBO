@@ -31,7 +31,10 @@ import numpy as np
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LNPBO: Bayesian Optimization Pipeline for LNP Design")
+    parser = argparse.ArgumentParser(
+        description="LNPBO: Bayesian Optimization Pipeline for LNP Design",
+        suggest_on_error=True,
+    )
     parser.add_argument(
         "--subset", type=int, default=None, help="Use a random subset of N rows from LNPDB (for fast iteration)"
     )

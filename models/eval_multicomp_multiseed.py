@@ -9,7 +9,6 @@ For each seed:
 
 Saves per-seed and summary results to models/runs/multicomp_multiseed_results.json
 """
-from __future__ import annotations
 
 import json
 import sys

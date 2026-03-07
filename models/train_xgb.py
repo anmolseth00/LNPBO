@@ -9,7 +9,6 @@ Usage:
     python models/train_xgb.py --fp-bits 2048 --fp-radius 3
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -50,7 +49,7 @@ def compute_morgan_fingerprints(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train XGBoost baseline on LNPDB")
+    parser = argparse.ArgumentParser(description="Train XGBoost baseline on LNPDB", suggest_on_error=True)
 
     parser.add_argument("--data-path", type=str, default=None)
     parser.add_argument("--components", nargs="+", default=["IL"],

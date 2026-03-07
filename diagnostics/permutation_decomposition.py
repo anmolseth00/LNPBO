@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Permutation decomposition: chemistry vs study identity."""
 
-from __future__ import annotations
 
 import json
 import sys

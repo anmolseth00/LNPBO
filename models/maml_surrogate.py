@@ -12,7 +12,6 @@ Reference: Finn et al. "Model-Agnostic Meta-Learning for Fast Adaptation
 of Deep Networks", ICML 2017.
 """
 
-from __future__ import annotations
 
 import copy
 import json

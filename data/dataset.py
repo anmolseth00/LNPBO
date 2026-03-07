@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 
 import pandas as pd
@@ -564,7 +562,7 @@ class Dataset:
             try:
                 reducer.fit(fp_train, y)
                 pc_matrix = reducer.transform(fp_scaled)
-            except (ValueError, np.linalg.LinAlgError):
+            except ValueError, np.linalg.LinAlgError:
                 # PLS can fail with degenerate features (e.g., 3 unique PEG SMILES);
                 # skip re-fitting for this role and keep existing PC values
                 continue

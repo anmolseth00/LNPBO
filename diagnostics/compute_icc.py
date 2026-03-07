@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Compute ICC using a random-intercepts REML model."""
 
-from __future__ import annotations
 
 import json
 import sys

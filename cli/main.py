@@ -12,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(
         prog="lnpbo",
         description="LNP Bayesian Optimization Toolkit",
+        suggest_on_error=True,
     )
 
     subparsers = parser.add_subparsers(dest="command")

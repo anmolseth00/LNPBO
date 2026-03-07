@@ -6,7 +6,6 @@ These are critical covariates: the same formulation can have very different
 Experiment_value depending on the assay system.
 """
 
-from __future__ import annotations
 
 import pandas as pd
 

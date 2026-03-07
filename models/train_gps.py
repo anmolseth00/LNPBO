@@ -9,7 +9,6 @@ Usage:
     python models/train_gps.py --components IL HL CHL PEG --depth 4
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -39,7 +38,7 @@ from data import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train GPS-MPNN on LNPDB")
+    parser = argparse.ArgumentParser(description="Train GPS-MPNN on LNPDB", suggest_on_error=True)
 
     parser.add_argument("--data-path", type=str, default=None)
     parser.add_argument("--components", nargs="+", default=["IL"],

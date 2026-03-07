@@ -9,7 +9,6 @@ Usage:
     python models/tune_xgb.py --n-trials 200
 """
 
-from __future__ import annotations
 
 import json
 import sys

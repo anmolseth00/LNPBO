@@ -18,7 +18,6 @@ Data layout in LNPDB repo (data/LNPDB_for_LiON/):
     heldout/heldout_{name}/    -- heldout datasets with 5-fold CV each
 """
 
-from __future__ import annotations
 
 import os
 from pathlib import Path

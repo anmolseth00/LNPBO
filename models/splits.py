@@ -1,6 +1,5 @@
 """Train/val/test splitting utilities (scaffold-based and random)."""
 
-from __future__ import annotations
 
 import numpy as np
 

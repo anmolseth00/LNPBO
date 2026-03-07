@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """GP surrogate with study-level random effect (marginalized as noise)."""
 
-from __future__ import annotations
 
 import json
 import sys

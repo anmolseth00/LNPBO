@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """GP-based discrete BO benchmark using BoTorch acquisitions."""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -94,7 +93,7 @@ def run_gp_discrete(
 
 
 def main():
-    parser = argparse.ArgumentParser(description="GP-based BO benchmark (discrete pool)")
+    parser = argparse.ArgumentParser(description="GP-based BO benchmark (discrete pool)", suggest_on_error=True)
     parser.add_argument("--acq", type=str, default="qei", choices=["qei", "qucb"], help="Acquisition")
     parser.add_argument("--beta", type=float, default=2.0, help="Beta for qUCB")
     parser.add_argument("--rounds", type=int, default=15)

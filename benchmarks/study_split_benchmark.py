@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Study-level holdout benchmark: train BO on 80% of studies, evaluate on 20%."""
 
-from __future__ import annotations
 
 import json
 import sys

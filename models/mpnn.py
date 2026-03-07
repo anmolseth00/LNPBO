@@ -9,7 +9,6 @@ Multi-component support: independent MPNN encoders per lipid role (IL, HL, CHL, 
 concatenated with tabular features before the FFN.
 """
 
-from __future__ import annotations
 
 import torch
 import torch.nn as nn

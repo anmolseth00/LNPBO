@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Partial R^2 decomposition: study vs chemistry."""
 
-from __future__ import annotations
 
 import json
 import sys

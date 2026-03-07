@@ -11,7 +11,6 @@ Evaluation:
   - Feature importance (XGBoost gain-based) on the context-conditioned model
 """
 
-from __future__ import annotations
 
 import json
 import sys

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Run LNPBO benchmark within each assay_type stratum."""
 
-from __future__ import annotations
 
 import json
 import sys

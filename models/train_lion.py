@@ -14,7 +14,6 @@ Usage:
 Baseline to beat: Chemprop v1.7, RMSE=0.995 (single IL encoder + extra features)
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -46,7 +45,7 @@ from data import (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train D-MPNN on LNPDB")
+    parser = argparse.ArgumentParser(description="Train D-MPNN on LNPDB", suggest_on_error=True)
 
     # Data
     parser.add_argument("--data-path", type=str, default=None,

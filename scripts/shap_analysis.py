@@ -80,7 +80,7 @@ def categorize_features(feature_cols):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SHAP analysis of LNPBO XGBoost surrogate")
+    parser = argparse.ArgumentParser(description="SHAP analysis of LNPBO XGBoost surrogate", suggest_on_error=True)
     parser.add_argument("--subset", type=int, default=None, help="Use N-row subset")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no-context", action="store_true", help="Exclude context features")

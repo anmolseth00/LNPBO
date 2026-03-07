@@ -474,7 +474,10 @@ def plot_results(all_results, output_path="benchmark_output.png"):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="LNPBO Benchmark: Simulated closed-loop BO evaluation")
+    parser = argparse.ArgumentParser(
+        description="LNPBO Benchmark: Simulated closed-loop BO evaluation",
+        suggest_on_error=True,
+    )
     parser.add_argument(
         "--strategies",
         type=str,

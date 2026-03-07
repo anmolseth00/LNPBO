@@ -5,7 +5,6 @@ and provides tabular features (molar ratios, mass ratio, one-hot encoded
 metadata) alongside molecular graphs.
 """
 
-from __future__ import annotations
 
 from pathlib import Path
 

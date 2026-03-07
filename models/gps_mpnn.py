@@ -10,7 +10,6 @@ Extends D-MPNN (Yang et al. 2019) with techniques from recent literature:
 5. Cross-component attention for multi-component formulations
 """
 
-from __future__ import annotations
 
 from functools import partial
 

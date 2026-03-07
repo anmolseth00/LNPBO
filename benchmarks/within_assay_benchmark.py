@@ -7,7 +7,6 @@ and run BO within that stratum only.
 Key question: does within-assay-type performance >> cross-assay-type?
 """
 
-from __future__ import annotations
 
 import json
 import sys

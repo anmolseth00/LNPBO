@@ -9,7 +9,6 @@ Usage:
     python models/train_ensemble.py --save-dir models/runs/ensemble
 """
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -60,7 +59,7 @@ def evaluate(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Train RF+ET+XGB ensemble on LNPDB")
+    parser = argparse.ArgumentParser(description="Train RF+ET+XGB ensemble on LNPDB", suggest_on_error=True)
 
     parser.add_argument("--data-path", type=str, default=None)
     parser.add_argument("--components", nargs="+", default=["IL"],

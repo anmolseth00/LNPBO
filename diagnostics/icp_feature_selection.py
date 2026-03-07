@@ -12,7 +12,6 @@ For each subset S: fit regression Y ~ X_S on each study, test whether residuals
 are distributionally equal across studies (Levene test for equal variance).
 """
 
-from __future__ import annotations
 
 import json
 import sys

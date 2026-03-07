@@ -22,7 +22,6 @@ Reference: Wistuba, M. & Grabocka, J. "Few-Shot Bayesian Optimization
 with Deep Kernel Surrogates", ICLR 2021.
 """
 
-from __future__ import annotations
 
 import json
 import sys

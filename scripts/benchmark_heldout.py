@@ -6,7 +6,6 @@ train on all_data_all.csv, test on heldout_data_all.csv, report Spearman r.
 Usage:
     python -m scripts.benchmark_heldout [--with-aux] [--reduction pca]
 """
-from __future__ import annotations
 
 import argparse
 import sys
@@ -239,7 +238,7 @@ def run_benchmark(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Benchmark on LNPDB held-out studies")
+    parser = argparse.ArgumentParser(description="Benchmark on LNPDB held-out studies", suggest_on_error=True)
     parser.add_argument("--with-aux", action="store_true", help="Include LiON auxiliary features")
     parser.add_argument("--reduction", default="pca", choices=["pca", "pls", "none"])
     parser.add_argument("--n-pcs-count-mfp", type=int, default=5)

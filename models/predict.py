@@ -20,7 +20,6 @@ CSV must have column IL_SMILES and any subset of the formulation columns.
 Missing columns are filled with 0 (continuous) or "Unknown" (categorical).
 """
 
-from __future__ import annotations
 
 import argparse
 import sys
@@ -159,7 +158,7 @@ def single_to_df(args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="XGBoost inference for LNPDB")
+    parser = argparse.ArgumentParser(description="XGBoost inference for LNPDB", suggest_on_error=True)
     parser.add_argument("--model", type=str, default=str(MODEL_PATH))
 
     # Batch mode

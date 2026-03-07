@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Cross-study utility consistency test using Bradley-Terry utilities."""
 
-from __future__ import annotations
 
 import json
 import sys

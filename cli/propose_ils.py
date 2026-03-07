@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from ..generative.il_propose import propose_ionizable_lipids
 
 

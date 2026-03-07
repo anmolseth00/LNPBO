@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """Multi-seed evaluation: XGBoost, Random Forest, RF+XGB ensemble."""
-from __future__ import annotations
 
 import json
 import sys

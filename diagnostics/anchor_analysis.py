@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Anchor IL rank consistency across studies."""
 
-from __future__ import annotations
 
 import json
 import sys

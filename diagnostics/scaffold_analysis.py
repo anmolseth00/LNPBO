@@ -6,7 +6,6 @@ Part 2: Seen vs novel scaffold hit rate across 5 seeds.
 Part 3: Partial correlation between prediction error and physicochemical descriptors.
 """
 
-from __future__ import annotations
 
 import json
 import sys

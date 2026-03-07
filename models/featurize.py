@@ -5,7 +5,6 @@ One-hot encodes atom/bond properties and constructs directed bond graphs
 for message passing.
 """
 
-from __future__ import annotations
 
 from dataclasses import dataclass
 

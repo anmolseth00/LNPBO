@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 import time
 import warnings
@@ -80,7 +78,9 @@ if __name__ == "__main__":
 
     import pandas as pd
 
-    parser = argparse.ArgumentParser(description="Pre-compute Uni-Mol embeddings for LNPDB lipids")
+    parser = argparse.ArgumentParser(
+        description="Pre-compute Uni-Mol embeddings for LNPDB lipids", suggest_on_error=True,
+    )
     parser.add_argument(
         "--data-path",
         default=str(Path(__file__).parent / "LNPDB_repo" / "data" / "LNPDB_for_LiON" / "LNPDB.csv"),

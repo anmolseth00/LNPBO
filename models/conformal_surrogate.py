@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Split conformal prediction for multiple surrogates."""
 
-from __future__ import annotations
 
 import json
 import sys

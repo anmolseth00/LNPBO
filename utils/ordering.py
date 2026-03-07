@@ -1,6 +1,3 @@
-from __future__ import annotations
-
-
 def order_df_columns(config, pbounds):
     res = []
     # pbounds are internally sorted, so this mirrors the behavior

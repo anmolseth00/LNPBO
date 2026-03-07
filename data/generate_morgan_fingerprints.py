@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import numpy as np
 from rdkit import Chem
 from rdkit.Chem import rdFingerprintGenerator
