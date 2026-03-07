@@ -3,6 +3,7 @@ import sys
 
 from .checkpoint import add_checkpoint_command
 from .encode import add_encode_command
+from .propose_ils import add_propose_ils_command
 from .register import add_register_command
 from .suggest import add_suggest_command
 
@@ -17,6 +18,7 @@ def main():
 
     add_encode_command(subparsers)
     add_suggest_command(subparsers)
+    add_propose_ils_command(subparsers)
     add_register_command(subparsers)
     add_checkpoint_command(subparsers)
 
@@ -27,3 +29,7 @@ def main():
         sys.exit(1)
 
     args.func(args)
+
+
+if __name__ == "__main__":
+    main()

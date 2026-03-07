@@ -324,6 +324,20 @@ round1_suggestions = optimizer.suggest(
 ```
 If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. This use case is not described in example 1 but it is described in example 3, so see above if applicable.
 
+## Propose new ionizable lipids (AGILE-lite)
+
+LNPBO can propose new ionizable lipids using SELFIES mutations and uncertainty-aware scoring (LCB = mean - std). This is a local-only workflow that stays near the training distribution and logs the nearest known IL for each candidate.
+
+```
+python -m LNPBO.cli.main propose-ils \
+  --dataset data/LNPDB_repo/data/LNPDB_for_LiON/LNPDB.csv \
+  --output proposed_ils.csv \
+  --n-candidates 20000 \
+  --n-output 100
+```
+
+The output includes: `candidate_smiles`, `pred_mean`, `pred_std`, `pred_lower`, `pred_upper`, `lcb_score`, and nearest-neighbor IL metadata. Use `--lcb-mode lower` to rank strictly by the MAPIE lower bound, or `--lcb-mode std` with `--lcb-kappa` to trade off mean vs interval width.
+
 ______
 
 # Citation
