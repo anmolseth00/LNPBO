@@ -146,15 +146,20 @@ class LNPDBOracle:
 # ---------------------------------------------------------------------------
 
 
-def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False):
+def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False, fp_radius=None, fp_bits=None):
     """Load LNPDB, encode, split into seed/oracle."""
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
+    is_ratios_only = feature_type == "ratios_only"
     is_raw = feature_type.startswith("raw_")
     is_concat = feature_type in ("concat", "raw_concat")
     is_lantern = feature_type in ("lantern", "raw_lantern")
-    effective_reduction = "none" if is_raw else reduction
+    is_lantern_unimol = feature_type in ("lantern_unimol", "raw_lantern_unimol")
+    is_lantern_mordred = feature_type in ("lantern_mordred", "raw_lantern_mordred")
+    is_chemeleon_il_only = feature_type == "chemeleon_il_only"
+    is_chemeleon_helper_only = feature_type == "chemeleon_helper_only"
+    effective_reduction = "none" if (is_raw or is_ratios_only) else reduction
 
     print(f"Loading LNPDB (reduction={effective_reduction}, features={feature_type})...")
     dataset = load_lnpdb_full()
@@ -192,27 +197,71 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
     peg_pcs = _should_encode("PEG", default_pcs if (is_raw or n_pcs is not None) else 3)
 
     encode_kwargs = {}
-    if is_concat:
+    if is_ratios_only:
+        print("  Ratios-only mode: no molecular encoding")
+    elif is_concat:
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_morgan"] = n
             encode_kwargs[f"{role}_n_pcs_unimol"] = n
         print(f"  Concat (MFP+Uni-Mol) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
+    elif is_lantern_mordred:
+        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
+            encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
+            encode_kwargs[f"{role}_n_pcs_rdkit"] = n
+            encode_kwargs[f"{role}_n_pcs_mordred"] = n
+        print(f"  LANTERN+Mordred (count_mfp+rdkit+mordred) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
+    elif is_lantern_unimol:
+        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
+            encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
+            encode_kwargs[f"{role}_n_pcs_rdkit"] = n
+            encode_kwargs[f"{role}_n_pcs_unimol"] = n
+        print(f"  LANTERN+Uni-Mol (count_mfp+rdkit+unimol) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
     elif is_lantern:
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
             encode_kwargs[f"{role}_n_pcs_rdkit"] = n
         print(f"  LANTERN (count_mfp+rdkit) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
+    elif feature_type == "lantern_il_only":
+        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
+        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
+        print(f"  LANTERN IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "lantern_il_hl":
+        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
+        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
+        encode_kwargs["HL_n_pcs_count_mfp"] = hl_pcs
+        encode_kwargs["HL_n_pcs_rdkit"] = hl_pcs
+        print(f"  LANTERN IL+HL: IL={il_pcs}, HL={hl_pcs} PCs (CHL/PEG get ratios only)")
+    elif feature_type == "lantern_il_noratios":
+        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
+        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
+        print(f"  LANTERN IL no-ratios: IL={il_pcs} PCs (no molar ratios)")
+    elif is_chemeleon_il_only:
+        encode_kwargs["IL_n_pcs_chemeleon"] = il_pcs
+        print(f"  CheMeleon IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif is_chemeleon_helper_only:
+        for role, n in [("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
+            encode_kwargs[f"{role}_n_pcs_chemeleon"] = n
+        print(f"  CheMeleon helper-only: HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs} (IL gets ratios only)")
     else:
         base_type = feature_type.replace("raw_", "")
-        param_suffix = {"mfp": "morgan", "mordred": "mordred", "unimol": "unimol", "count_mfp": "count_mfp", "rdkit": "rdkit"}[base_type]
+        param_suffix = {"mfp": "morgan", "mordred": "mordred", "unimol": "unimol", "count_mfp": "count_mfp", "rdkit": "rdkit", "chemeleon": "chemeleon"}[base_type]
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_{param_suffix}"] = n
         print(f"  Encoding dims: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
 
-    encoded = dataset.encode_dataset(
-        **encode_kwargs,
-        reduction=effective_reduction,
-    )
+    if is_ratios_only:
+        encoded = dataset
+    else:
+        fp_kw = {}
+        if fp_radius is not None:
+            fp_kw["fp_radius"] = fp_radius
+        if fp_bits is not None:
+            fp_kw["fp_bits"] = fp_bits
+        encoded = dataset.encode_dataset(
+            **encode_kwargs,
+            reduction=effective_reduction,
+            **fp_kw,
+        )
 
     feature_cols = []
     enc_prefixes = ENC_PREFIXES
@@ -220,12 +269,13 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
         for prefix in enc_prefixes:
             role_cols = [c for c in encoded.df.columns if c.startswith(f"{role}_{prefix}")]
             feature_cols.extend(sorted(role_cols))
-    for role in ["IL", "HL", "CHL", "PEG"]:
-        col = f"{role}_molratio"
-        if col in encoded.df.columns and encoded.df[col].nunique() > 1:
-            feature_cols.append(col)
-    if "IL_to_nucleicacid_massratio" in encoded.df.columns and encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
-        feature_cols.append("IL_to_nucleicacid_massratio")
+    if feature_type != "lantern_il_noratios":
+        for role in ["IL", "HL", "CHL", "PEG"]:
+            col = f"{role}_molratio"
+            if col in encoded.df.columns and encoded.df[col].nunique() > 1:
+                feature_cols.append(col)
+        if "IL_to_nucleicacid_massratio" in encoded.df.columns and encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
+            feature_cols.append("IL_to_nucleicacid_massratio")
 
     if context_features:
         from LNPBO.data.context import encode_context
@@ -437,9 +487,13 @@ def main():
         "--feature-type",
         type=str,
         default="mfp",
-        choices=["mfp", "mordred", "unimol", "count_mfp", "rdkit",
-                 "raw_mfp", "raw_unimol", "raw_count_mfp", "raw_rdkit",
-                 "concat", "raw_concat", "lantern", "raw_lantern"],
+        choices=["mfp", "mordred", "unimol", "count_mfp", "rdkit", "chemeleon",
+                 "raw_mfp", "raw_unimol", "raw_count_mfp", "raw_rdkit", "raw_chemeleon",
+                 "concat", "raw_concat", "lantern", "raw_lantern",
+                 "lantern_unimol", "raw_lantern_unimol",
+                 "lantern_mordred", "raw_lantern_mordred",
+                 "lantern_il_only", "lantern_il_hl", "lantern_il_noratios",
+                 "chemeleon_il_only", "chemeleon_helper_only", "ratios_only"],
         help="Feature type (default: mfp).",
     )
     parser.add_argument("--n-pcs", type=int, default=None, help="Override PCA/PLS components per role")
@@ -455,6 +509,8 @@ def main():
         action="store_true",
         help="Include one-hot experimental context (cell type, target, RoA, etc.)",
     )
+    parser.add_argument("--fp-radius", type=int, default=None, help="Morgan FP radius (default: 3 for mfp, 3 for count_mfp)")
+    parser.add_argument("--fp-bits", type=int, default=None, help="Morgan FP bit size (default: 1024 for mfp, 2048 for count_mfp)")
     args = parser.parse_args()
 
     # Parse strategies
@@ -493,6 +549,8 @@ def main():
         feature_type=args.feature_type,
         n_pcs=args.n_pcs,
         context_features=args.context_features,
+        fp_radius=args.fp_radius,
+        fp_bits=args.fp_bits,
     )
     pls_data = None
     if any(s in PLS_STRATEGIES for s in strategies):
@@ -586,6 +644,8 @@ def main():
             "n_pcs": args.n_pcs,
             "reduction": args.reduction,
             "context_features": args.context_features,
+            "fp_radius": args.fp_radius,
+            "fp_bits": args.fp_bits,
         },
         "results": {},
     }
