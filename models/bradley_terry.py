@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import torch
 from scipy.stats import spearmanr
-from sklearn.metrics import roc_auc_score
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
@@ -137,16 +136,15 @@ def train_bt_model(X, y, study_ids, train_mask, epochs=20, batch_size=1024):
 
 
 def evaluate_pairs(model, X, y, study_ids, test_mask):
-    pairs, labels = build_pair_dataset(X, y, study_ids, test_mask, max_pairs=500)
+    pairs, _labels = build_pair_dataset(X, y, study_ids, test_mask, max_pairs=500)
     if len(pairs) == 0:
-        return float("nan"), float("nan")
+        return float("nan")
     with torch.no_grad():
         u = model(torch.tensor(X)).cpu().numpy()
     logits = u[pairs[:, 0]] - u[pairs[:, 1]]
     probs = 1 / (1 + np.exp(-logits))
     acc = float((probs >= 0.5).mean())
-    auc = float(roc_auc_score(labels, probs))
-    return acc, auc
+    return acc
 
 
 def evaluate_rank_correlation(model, X, y, study_ids, test_mask):
@@ -168,7 +166,7 @@ def main() -> int:
     X, y, study_ids, train_mask, test_mask = prepare_data(min_n=5)
     model = train_bt_model(X, y, study_ids, train_mask, epochs=50)
 
-    acc, auc = evaluate_pairs(model, X, y, study_ids, test_mask)
+    acc = evaluate_pairs(model, X, y, study_ids, test_mask)
     rho = evaluate_rank_correlation(model, X, y, study_ids, test_mask)
 
     # BO-style greedy ranking on test pool
@@ -189,7 +187,6 @@ def main() -> int:
 
     results = {
         "pairwise_accuracy": acc,
-        "pairwise_auc": auc,
         "rank_spearman_mean": rho,
         "top10_recall": recall(top10, top10_true),
         "top50_recall": recall(top50, top50_true),
