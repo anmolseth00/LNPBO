@@ -1,0 +1,8 @@
+{
+  "pairwise_accuracy": 0.620329542817359,
+  "pairwise_auc": NaN,
+  "rank_spearman_mean": 0.08053213586230326,
+  "top10_recall": 0.0,
+  "top50_recall": 0.0,
+  "top100_recall": 0.0
+}

@@ -1,0 +1,73 @@
+{
+  "molecular_only": {
+    "cross_study_r2_mean": -0.06982428816030484,
+    "cross_study_r2_std": 0.02084833149801925,
+    "cross_study_r2_per_seed": {
+      "42": -0.060751315284366614,
+      "123": -0.08452701706452337,
+      "456": -0.06917748165645832,
+      "789": -0.03682099351150048,
+      "2024": -0.09784463328467541
+    },
+    "within_study_r2_mean": -0.10447756536278266,
+    "within_study_r2_std": 0.07580703195137305,
+    "within_study_r2_per_seed": {
+      "42": -0.23991053420698513,
+      "123": -0.041987981734587065,
+      "456": -0.0757045389362565,
+      "789": -0.03400284160737901,
+      "2024": -0.13078193032870558
+    },
+    "n_features": 10
+  },
+  "molecular_plus_context": {
+    "cross_study_r2_mean": -0.07161731914225662,
+    "cross_study_r2_std": 0.026099791060327563,
+    "cross_study_r2_per_seed": {
+      "42": -0.05538915237726405,
+      "123": -0.07208695639619278,
+      "456": -0.05666377993823546,
+      "789": -0.05199337641178792,
+      "2024": -0.12195333058780289
+    },
+    "within_study_r2_mean": -0.034683459316892054,
+    "within_study_r2_std": 0.07567500632280748,
+    "within_study_r2_per_seed": {
+      "42": -0.17388996904912474,
+      "123": 0.04021789487427599,
+      "456": 0.013556593897611248,
+      "789": -0.002271396183883608,
+      "2024": -0.05103042012333914
+    },
+    "n_features": 64
+  },
+  "feature_importance": {
+    "molecular_fraction": 0.17725452746787948,
+    "context_fraction": 0.8227454725321205,
+    "top_context_features": {
+      "ctx_Experiment_method__uptake": 0.06610367002011107,
+      "ctx_Cargo_type__peptide_barcode": 0.03631030560377305,
+      "ctx_Model_type__HEK293T": 0.03487388947886629,
+      "ctx_Experiment_method__luminescence_normalized": 0.03485883558008717,
+      "ctx_Route_of_administration__intravenous": 0.03279825076264309,
+      "ctx_Model_type__Mouse_BALBc": 0.031742097387495734,
+      "ctx_Experiment_method__luminescence_discretized_normalized": 0.031679229385566395,
+      "ctx_Model_type__HeLa": 0.02876513023059926,
+      "ctx_Model_type__HepG2": 0.026261831893998777,
+      "ctx_Experiment_method__zeta_potential": 0.025748628428616555,
+      "ctx_Route_of_administration__in_vitro": 0.0254794612911786,
+      "ctx_Model_target__muscle": 0.024870054062118705,
+      "ctx_Model_type__RAW264.7": 0.022965722828042982,
+      "ctx_Model_target__liver": 0.022705859603547582,
+      "ctx_Model_type__A549": 0.021297845093164958
+    },
+    "context_group_importance": {
+      "Experiment_method": 0.21022472599696915,
+      "Cargo_type": 0.0963089258336001,
+      "Model_type": 0.2563818409020107,
+      "Route_of_administration": 0.07372728443998018,
+      "Model_target": 0.14948767217141812,
+      "Experiment_batching": 0.036615023188142255
+    }
+  }
+}
