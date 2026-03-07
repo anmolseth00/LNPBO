@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""Cross-study utility consistency test using Bradley-Terry utilities."""
+"""Cross-study IL rank consistency using observed Experiment_values.
+
+For each pair of studies sharing >= 3 ionizable lipids, compute Spearman
+correlation on the mean observed Experiment_value per IL. This is a direct
+empirical test of whether ILs that perform well in one study also perform
+well in another — the real scientific question.
+"""
 
 
 import json
@@ -7,13 +13,12 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import torch
 from scipy.stats import spearmanr, ttest_1samp
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+from diagnostics.utils import load_lnpdb_clean
 
 
 def main() -> int:
@@ -24,51 +29,33 @@ def main() -> int:
     keep_ids = study_sizes[study_sizes >= 5].index
     df = df[df["study_id"].isin(keep_ids)].reset_index(drop=True)
 
-    encoded, _ = encode_lantern_il(df, reduction="pca")
-    feat_cols = lantern_il_feature_cols(encoded)
-
-    X = encoded[feat_cols].values.astype(np.float32)
-    y = encoded["Experiment_value"].values.astype(np.float32)
     study_ids = df["study_id"].astype(str).values
 
-    # Train BT on all data
-    from models.bradley_terry import train_bt_model
-    train_mask = np.ones(len(X), dtype=bool)
-    model = train_bt_model(X, y, study_ids, train_mask, epochs=50)
-
-    # Get utilities
-    with torch.no_grad():
-        u = model(torch.tensor(X)).cpu().numpy()
+    # Compute mean observed Experiment_value per IL per study
+    study_il_means = {}
+    for sid in np.unique(study_ids):
+        sdf = df[study_ids == sid]
+        il_mean = sdf.groupby("IL_SMILES")["Experiment_value"].mean()
+        study_il_means[sid] = il_mean
 
     # For each pair of studies sharing ILs, compute rank correlation
-    study_list = np.unique(study_ids)
+    study_list = sorted(study_il_means.keys())
     pair_results = []
 
     for i in range(len(study_list)):
         s1 = study_list[i]
-        idx1 = np.where(study_ids == s1)[0]
-        il1 = df.iloc[idx1]["IL_SMILES"].values
-        # Mean utility per IL in study 1
-        il_u1 = {}
-        for j, smi in enumerate(il1):
-            il_u1.setdefault(smi, []).append(u[idx1[j]])
-        il_u1 = {k: np.mean(v) for k, v in il_u1.items()}
+        il_mean1 = study_il_means[s1]
 
         for j in range(i + 1, len(study_list)):
             s2 = study_list[j]
-            idx2 = np.where(study_ids == s2)[0]
-            il2 = df.iloc[idx2]["IL_SMILES"].values
-            il_u2 = {}
-            for k, smi in enumerate(il2):
-                il_u2.setdefault(smi, []).append(u[idx2[k]])
-            il_u2 = {k: np.mean(v) for k, v in il_u2.items()}
+            il_mean2 = study_il_means[s2]
 
-            shared = set(il_u1) & set(il_u2)
+            shared = sorted(set(il_mean1.index) & set(il_mean2.index))
             if len(shared) < 3:
                 continue
 
-            v1 = np.array([il_u1[s] for s in shared])
-            v2 = np.array([il_u2[s] for s in shared])
+            v1 = np.array([il_mean1[s] for s in shared])
+            v2 = np.array([il_mean2[s] for s in shared])
             rho, p = spearmanr(v1, v2)
             if np.isfinite(rho):
                 pair_results.append({
