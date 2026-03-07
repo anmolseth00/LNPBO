@@ -36,7 +36,7 @@ def scaffold_split(
         scaf = _scaffold(smi)
         scaffolds[scaf].append(i)
 
-    scaffold_groups = sorted(scaffolds.values(), key=len, reverse=True)
+    scaffold_groups = sorted(scaffolds.values(), key=lambda g: len(g), reverse=True)
 
     rng = np.random.RandomState(seed)
 

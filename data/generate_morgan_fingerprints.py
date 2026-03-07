@@ -21,8 +21,14 @@ def single_morgan_fingerprints(smiles: str, radius: int = 3, n_bits: int = 1024,
         return np.zeros(n_bits)
 
 
-def morgan_fingerprints(list_of_smiles: list[str], radius: int = 3, n_bits: int = 1024, count: bool = False, scaler=None):
-    mfps = np.array([single_morgan_fingerprints(smiles, radius, n_bits, count=count) for smiles in tqdm(list_of_smiles)])
+def morgan_fingerprints(
+    list_of_smiles: list[str], radius: int = 3, n_bits: int = 1024,
+    count: bool = False, scaler=None,
+):
+    mfps = np.array([
+        single_morgan_fingerprints(smiles, radius, n_bits, count=count)
+        for smiles in tqdm(list_of_smiles)
+    ])
     if scaler is not None:
         return scaler.transform(mfps), scaler
     mfps_scaler = StandardScaler()

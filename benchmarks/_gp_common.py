@@ -56,27 +56,26 @@ def run_gp_strategy(
         space = FormulationSpace.from_dataset(dataset)
 
         try:
-            _devnull = open(os.devnull, "w")
-            _saved_stdout = sys.stdout
-            sys.stdout = _devnull
-            try:
-                with warnings.catch_warnings():
-                    warnings.simplefilter("ignore")
-                    suggestions = perform_bayesian_optimization(
-                        data=dataset.df,
-                        formulation_space=space,
-                        round_number=r,
-                        acq_type=acq_type,
-                        BATCH_SIZE=batch_size,
-                        RANDOM_STATE_SEED=seed,
-                        KAPPA=kappa,
-                        XI=xi,
-                        verbose=0,
-                        save_gp=False,
-                    )
-            finally:
-                sys.stdout = _saved_stdout
-                _devnull.close()
+            with open(os.devnull, "w") as _devnull:
+                _saved_stdout = sys.stdout
+                sys.stdout = _devnull
+                try:
+                    with warnings.catch_warnings():
+                        warnings.simplefilter("ignore")
+                        suggestions = perform_bayesian_optimization(
+                            data=dataset.df,
+                            formulation_space=space,
+                            round_number=r,
+                            acq_type=acq_type,
+                            BATCH_SIZE=batch_size,
+                            RANDOM_STATE_SEED=seed,
+                            KAPPA=kappa,
+                            XI=xi,
+                            verbose=0,
+                            save_gp=False,
+                        )
+                finally:
+                    sys.stdout = _saved_stdout
         except Exception as e:
             print(f"  Round {r}: BO failed ({e})", flush=True)
             import traceback
@@ -95,6 +94,10 @@ def run_gp_strategy(
 
         batch_best = encoded_df.loc[unique_matched, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
-        print(f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(unique_matched)}", flush=True)
+        print(
+            f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f},"
+            f" n_new={len(unique_matched)}",
+            flush=True,
+        )
 
     return history

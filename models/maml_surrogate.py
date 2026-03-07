@@ -27,7 +27,7 @@ import torch.nn.functional as F
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols, summarize_study_assay_types
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
 
 
 class MLP(torch.nn.Module):
@@ -93,7 +93,7 @@ def maml_train(model, X, y, study_ids, train_study_ids,
         for _ in range(inner_steps):
             pred = model.functional_forward(X_t[sup_idx], fast_params)
             loss = F.mse_loss(pred, y_t[sup_idx])
-            grads = torch.autograd.grad(loss, fast_params.values(), create_graph=True)
+            grads = torch.autograd.grad(loss, list(fast_params.values()), create_graph=True)
             fast_params = OrderedDict({
                 k: v - inner_lr * g for (k, v), g in zip(fast_params.items(), grads)
             })
@@ -216,7 +216,6 @@ def random_baseline(X, y, study_ids, test_study_ids, k_shots, n_bo_rounds=10, ba
             observed_idx = list(idx[perm[:n_total]])
 
             all_vals = y[idx]
-            observed_vals = y[observed_idx]
             study_top10 = set(idx[np.argsort(all_vals)[-10:]])
             study_top50 = set(idx[np.argsort(all_vals)[-min(50, len(idx)):]])
             observed_set = set(observed_idx)
@@ -234,7 +233,10 @@ def random_baseline(X, y, study_ids, test_study_ids, k_shots, n_bo_rounds=10, ba
     return results_by_k
 
 
-def erm_baseline(X, y, study_ids, train_ids, test_ids, k_shots, inner_lr=0.01, inner_steps=10, n_bo_rounds=10, batch_size=6):
+def erm_baseline(
+    X, y, study_ids, train_ids, test_ids, k_shots,
+    inner_lr=0.01, inner_steps=10, n_bo_rounds=10, batch_size=6,
+):
     """ERM-initialized model fine-tuned on support set."""
     X_t = torch.tensor(X, dtype=torch.float32)
     y_t = torch.tensor(y, dtype=torch.float32)

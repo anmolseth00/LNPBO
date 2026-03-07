@@ -20,12 +20,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
-import pandas as pd
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from data import (
     SMILES_COLS,
-    TABULAR_CATEGORICAL_COLS,
     TABULAR_CONTINUOUS_COLS,
     encode_categoricals,
     learn_categorical_levels,
@@ -213,7 +211,7 @@ def main():
     r2 = float(r2_score(y_test, y_pred_test))
 
     print(f"\n{'='*60}")
-    print(f"TEST RESULTS:")
+    print("TEST RESULTS:")
     print(f"  RMSE:  {rmse:.4f}")
     print(f"  MAE:   {mae:.4f}")
     print(f"  R2:    {r2:.4f}")
@@ -252,7 +250,7 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+        _fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
 
         # Pred vs Actual
         ax = axes[0]

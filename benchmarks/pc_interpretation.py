@@ -9,8 +9,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 import numpy as np
 from scipy.stats import spearmanr
 
-from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 from LNPBO.data.compute_pcs import compute_pcs
+from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
     il_smiles = df["IL_SMILES"].dropna().unique().tolist()
     print(f"Unique IL SMILES: {len(il_smiles)}")
 
-    pc_matrix, reducer, fp_scaler, fp_scaled = compute_pcs(
+    pc_matrix, reducer, _fp_scaler, fp_scaled = compute_pcs(
         il_smiles, feature_type="count_mfp", n_components=5,
         reduction="pca", cache_name="IL",
     )
@@ -34,7 +34,7 @@ def main():
     vals = np.array([il_to_val.get(s, np.nan) for s in il_smiles])
     valid = ~np.isnan(vals)
 
-    print(f"\nSpearman correlations with mean Experiment_value:")
+    print("\nSpearman correlations with mean Experiment_value:")
     for i in range(5):
         rho, p = spearmanr(pc_matrix[valid, i], vals[valid])
         print(f"  PC{i+1}: rho={rho:+.3f}, p={p:.2e}")
@@ -85,9 +85,7 @@ def main():
     AllChem.GetMorganFingerprintAsBitVect(example_mol, 2, nBits=2048, bitInfo=bi)
 
     for bit in top_bits:
-        sign = "+" if pc3_loadings[bit] > 0 else "-"
         # Count how many molecules have this bit set
-        bit_counts = fp_scaled[:, bit]  # scaled values
         n_set = (fp_scaled[:, bit] != fp_scaled[:, bit].min()).sum()
         print(f"  bit {bit:>4d}: loading={pc3_loadings[bit]:>+.4f}  "
               f"set_in={n_set:>5d}/{len(il_smiles)} molecules")

@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 from sklearn.metrics import r2_score
@@ -18,12 +19,12 @@ from xgboost import XGBRegressor
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from data.context import encode_context
 from diagnostics.utils import (
-    load_lnpdb_clean,
     encode_lantern_il,
     lantern_il_feature_cols,
+    load_lnpdb_clean,
 )
-from data.context import encode_context
 
 
 def _study_split(df, seed=42):
@@ -127,7 +128,7 @@ def main() -> int:
 
     all_feat_cols = mol_cols + ctx_cols
     before = len(encoded)
-    encoded = encoded.dropna(subset=all_feat_cols + ["Experiment_value"])
+    encoded = encoded.dropna(subset=[*all_feat_cols, "Experiment_value"])
     after = len(encoded)
     if before != after:
         print(f"  Dropped {before - after} rows with NaN features")
@@ -141,7 +142,7 @@ def main() -> int:
         "molecular_plus_context": all_feat_cols,
     }
 
-    results = {
+    results: dict[str, Any] = {
         "scope": "HeLa_FLuc_in_vitro_single",
         "n_rows": len(encoded),
         "n_studies": int(encoded["study_id"].nunique()),
@@ -247,7 +248,7 @@ def main() -> int:
     print(f"\n  Molecular importance: {mol_imp / total_imp:.1%}")
     print(f"  Context importance:   {ctx_imp / total_imp:.1%}")
 
-    print(f"\n  Top features:")
+    print("\n  Top features:")
     for name, imp in feat_imp[:15]:
         tag = "CTX" if name in ctx_cols else "MOL"
         print(f"    [{tag}] {name}: {imp / total_imp:.2%}")

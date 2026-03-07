@@ -60,7 +60,7 @@ def main() -> int:
                 {
                     "study_1": s1,
                     "study_2": s2,
-                    "n_shared": int(len(shared)),
+                    "n_shared": len(shared),
                     "spearman_rho": float(rho),
                     "kendall_tau": float(tau),
                     "assay_pair": pair_key,
@@ -68,12 +68,10 @@ def main() -> int:
             )
 
     rhos = np.array([p["spearman_rho"] for p in pair_results])
-    taus = np.array([p["kendall_tau"] for p in pair_results])
-
     if len(rhos) > 0:
         mean_rho = float(np.mean(rhos))
         med_rho = float(np.median(rhos))
-        t_stat, p_mean = ttest_1samp(rhos, 0.0)
+        _t_stat, p_mean = ttest_1samp(rhos, 0.0)
     else:
         mean_rho = med_rho = p_mean = float("nan")
 

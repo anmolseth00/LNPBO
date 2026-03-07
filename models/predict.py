@@ -23,14 +23,12 @@ Missing columns are filled with 0 (continuous) or "Unknown" (categorical).
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import xgboost as xgb
-
 
 MODEL_DIR = Path(__file__).resolve().parent / "runs" / "xgb_tuned"
 MODEL_PATH = MODEL_DIR / "model.json"

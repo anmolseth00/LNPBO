@@ -12,9 +12,9 @@ import numpy as np
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
-from benchmarks.runner import prepare_benchmark_data, compute_metrics
 from benchmarks._discrete_common import run_discrete_strategy
+from benchmarks.runner import compute_metrics, prepare_benchmark_data
+from diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
 
 
 def _study_split(df, seed=42):
@@ -52,8 +52,6 @@ def main() -> int:
         for seed in seeds:
             # Study-level split
             train_ids, test_ids = _study_split(df, seed=seed)
-            train_df = df[df["study_id"].isin(train_ids)].copy()
-
             # Use train studies as seed pool, test studies as oracle
             train_idx_in_full = df.index[df["study_id"].isin(train_ids)].tolist()
             test_idx_in_full = df.index[df["study_id"].isin(test_ids)].tolist()

@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-import time
 from pathlib import Path
 
 import numpy as np
@@ -21,8 +20,7 @@ from gpytorch.mlls import ExactMarginalLogLikelihood
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT.parent))
 
-from LNPBO.benchmarks.runner import prepare_benchmark_data, compute_metrics
-from LNPBO.benchmarks.runner import init_history, update_history
+from LNPBO.benchmarks.runner import compute_metrics, init_history, prepare_benchmark_data, update_history
 
 
 def _fit_gp(X_train, y_train):
@@ -54,7 +52,10 @@ def _score_acq(model, X_pool, acq_type="qei", beta=2.0, best_f=None):
     return vals
 
 
-def run_gp_discrete(encoded_df, feature_cols, seed_idx, oracle_idx, batch_size, n_rounds, acq_type, seed, beta=2.0, encoded_dataset=None):
+def run_gp_discrete(
+    encoded_df, feature_cols, seed_idx, oracle_idx, batch_size, n_rounds,
+    acq_type, seed, beta=2.0, encoded_dataset=None,
+):
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
     history = init_history(encoded_df, training_idx)
@@ -84,7 +85,10 @@ def run_gp_discrete(encoded_df, feature_cols, seed_idx, oracle_idx, batch_size, 
 
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
-        print(f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}", flush=True)
+        print(
+            f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}",
+            flush=True,
+        )
 
     return history
 

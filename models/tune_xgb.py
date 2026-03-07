@@ -24,14 +24,12 @@ import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from data import (
-    SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
     encode_categoricals,
     learn_categorical_levels,
     load_lnpdb_dataframe,
     scaffold_split,
 )
-
 
 FP_BITS = 2048
 FP_RADIUS = 3
@@ -165,7 +163,7 @@ def main():
                 n_trials = int(sys.argv[i + 2])
 
     print(f"\nStarting Optuna optimization ({n_trials} trials)...")
-    print(f"Baseline: RMSE=0.812, R2=0.349")
+    print("Baseline: RMSE=0.812, R2=0.349")
     print("=" * 60)
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
@@ -191,7 +189,7 @@ def main():
     print(f"\nOptimization finished in {opt_time:.1f}s")
     print(f"Best trial: #{study.best_trial.number}")
     print(f"Best val RMSE: {study.best_value:.4f}")
-    print(f"Best params:")
+    print("Best params:")
     for k, v in study.best_params.items():
         print(f"  {k}: {v}")
 
@@ -218,13 +216,13 @@ def main():
     test_r2 = float(r2_score(y_test, y_pred_test))
 
     print(f"\n{'=' * 60}")
-    print(f"TEST RESULTS (best model):")
+    print("TEST RESULTS (best model):")
     print(f"  RMSE:  {test_rmse:.4f}")
     print(f"  MAE:   {test_mae:.4f}")
     print(f"  R2:    {test_r2:.4f}")
     print(f"  Best iteration: {best_model.best_iteration}")
     print(f"{'=' * 60}")
-    print(f"\nBaseline comparison:")
+    print("\nBaseline comparison:")
     print(f"  Old RMSE: 0.8122  ->  New RMSE: {test_rmse:.4f}  "
           f"({'better' if test_rmse < 0.8122 else 'worse'})")
     print(f"  Old R2:   0.3493  ->  New R2:   {test_r2:.4f}  "
@@ -272,7 +270,7 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+        _fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
 
         # Pred vs Actual
         ax = axes[0]

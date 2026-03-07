@@ -20,13 +20,13 @@ from itertools import combinations
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import levene, f_oneway
+from scipy.stats import f_oneway, levene
 from sklearn.linear_model import LinearRegression
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
 
 
 def test_invariance(X, y, study_ids, feature_subset, alpha=0.05):
@@ -133,7 +133,7 @@ def main() -> int:
 
     print(f"\nInvariant subsets: {n_invariant} / {len(all_results)}")
     print(f"Causal features (intersection): {causal_features}")
-    print(f"\nInvariant by size:")
+    print("\nInvariant by size:")
     for size in sorted(invariant_by_size):
         info = invariant_by_size[size]
         print(f"  size={size}: {info['invariant']} / {info['total']}")

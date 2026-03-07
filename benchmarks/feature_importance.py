@@ -6,13 +6,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 
-from LNPBO.benchmarks.runner import prepare_benchmark_data
-from xgboost import XGBRegressor
 import numpy as np
+from xgboost import XGBRegressor
+
+from LNPBO.benchmarks.runner import prepare_benchmark_data
 
 
 def main():
-    encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = \
+    _encoded, encoded_df, feature_cols, seed_idx, _oracle_idx, _top_k_values = \
         prepare_benchmark_data(n_seed=500, random_seed=42, reduction="pca", feature_type="lantern")
 
     X = encoded_df[feature_cols].values
@@ -60,7 +61,7 @@ def main():
     print(f"  {'Feature':<35} {'Mean':>6} {'Std':>6}")
     for feat in [f for f, _ in feat_imp]:
         vals = np.array(all_importances[feat])
-        t = sum(np.array(list(all_importances.values())).sum(axis=0)) / len(seeds := [42, 123, 456, 789, 2024])
+        t = sum(np.array(list(all_importances.values())).sum(axis=0)) / 5
         print(f"  {feat:<35} {vals.mean()/t*100:>5.1f}% {vals.std()/t*100:>5.1f}%")
 
 

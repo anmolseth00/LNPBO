@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-import numpy as np
+import contextlib
 from pathlib import Path
 
+import numpy as np
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 from sklearn.preprocessing import StandardScaler
 from tqdm import tqdm
-
 
 # All 2D RDKit descriptors (excludes 3D-dependent ones)
 _DESC_LIST = [(name, func) for name, func in Descriptors.descList if not name.startswith("PMI")]
@@ -42,10 +42,8 @@ def rdkit_descriptors(
             vals = np.zeros(n_desc)
             if mol is not None:
                 for j, (_, func) in enumerate(_DESC_LIST):
-                    try:
+                    with contextlib.suppress(Exception):
                         vals[j] = func(mol)
-                    except Exception:
-                        pass
             cache[smi] = vals
         save_npz_cache(CACHE_DIR, cache_name, cache)
         print(f"  Cached {len(todo)} descriptors to {CACHE_DIR / (cache_name + '.npz')}")
@@ -74,5 +72,5 @@ def rdkit_descriptors(
 
     new_scaler = StandardScaler()
     scaled = new_scaler.fit_transform(result)
-    new_scaler.keep_mask_ = keep_mask
+    new_scaler.keep_mask_ = keep_mask  # type: ignore[attr-defined]
     return scaled, new_scaler

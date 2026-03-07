@@ -14,8 +14,7 @@ from scipy.stats import spearmanr, ttest_1samp
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols
-from models.bradley_terry import UtilityMLP, build_pair_dataset
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
 
 
 def main() -> int:
@@ -84,7 +83,7 @@ def main() -> int:
     rhos = np.array([p["spearman_rho"] for p in pair_results])
     if len(rhos) > 0:
         mean_rho = float(np.mean(rhos))
-        t_stat, p_mean = ttest_1samp(rhos, 0.0)
+        _t_stat, p_mean = ttest_1samp(rhos, 0.0)
     else:
         mean_rho = float("nan")
         p_mean = float("nan")

@@ -18,20 +18,19 @@ import sys
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from data.context import encode_context
 from diagnostics.utils import (
-    load_lnpdb_clean,
     encode_lantern_il,
     lantern_il_feature_cols,
+    load_lnpdb_clean,
     summarize_study_assay_types,
 )
-from data.context import encode_context
 
 
 def _study_split(df, seed=42):
@@ -72,7 +71,7 @@ def _within_study_r2(df, feat_cols, min_n=20, seed=42):
     """Per-study 80/20 formulation split, return mean within-study R²."""
     rng = np.random.RandomState(seed)
     r2s = []
-    for sid, sdf in df.groupby("study_id"):
+    for _sid, sdf in df.groupby("study_id"):
         if len(sdf) < min_n:
             continue
         idx = sdf.index.tolist()
@@ -117,7 +116,7 @@ def main() -> int:
     # Drop rows with NaN in any feature column
     all_feat_cols = mol_cols + ctx_cols
     before = len(encoded)
-    encoded = encoded.dropna(subset=all_feat_cols + ["Experiment_value"])
+    encoded = encoded.dropna(subset=[*all_feat_cols, "Experiment_value"])
     after = len(encoded)
     if before != after:
         print(f"  Dropped {before - after} rows with NaN features")
@@ -220,12 +219,12 @@ def main() -> int:
 
     # Top context features
     ctx_ranked = [(k, v) for k, v in feat_imp if k in ctx_cols]
-    print(f"\n  Top context features:")
+    print("\n  Top context features:")
     for name, imp in ctx_ranked[:15]:
         print(f"    {name}: {imp / total_imp:.2%}")
 
     # Per context column group
-    print(f"\n  Context importance by column group:")
+    print("\n  Context importance by column group:")
     col_group_imp = {}
     for name, imp in feat_imp:
         if name in ctx_cols:

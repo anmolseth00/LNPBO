@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
@@ -13,6 +14,6 @@ def load_npz_cache(cache_dir: Path, name: str) -> dict[str, np.ndarray]:
     return {}
 
 
-def save_npz_cache(cache_dir: Path, name: str, cache: dict[str, np.ndarray]):
+def save_npz_cache(cache_dir: Path, name: str, cache: dict[str, Any]):
     cache_dir.mkdir(exist_ok=True)
     np.savez_compressed(cache_dir / f"{name}.npz", **cache)

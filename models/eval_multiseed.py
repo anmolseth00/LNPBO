@@ -1,18 +1,23 @@
 #!/usr/bin/env python3
 """Multi-seed evaluation: XGBoost, Random Forest, RF+XGB ensemble."""
 from __future__ import annotations
-import sys, json, time
+
+import json
+import sys
+import time
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
-import pandas as pd
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from data import (
-    SMILES_COLS, TABULAR_CATEGORICAL_COLS, TABULAR_CONTINUOUS_COLS,
-    encode_categoricals, learn_categorical_levels, load_lnpdb_dataframe,
+    TABULAR_CONTINUOUS_COLS,
+    encode_categoricals,
+    learn_categorical_levels,
+    load_lnpdb_dataframe,
     scaffold_split,
 )
 

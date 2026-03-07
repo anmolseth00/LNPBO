@@ -26,7 +26,6 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from data import (
     SMILES_COLS,
-    TABULAR_CATEGORICAL_COLS,
     TABULAR_CONTINUOUS_COLS,
     encode_categoricals,
     learn_categorical_levels,
@@ -278,7 +277,7 @@ def main():
     print(f"{'='*60}")
 
     pred_ens_test = np.mean([pred_rf_test, pred_et_test, pred_xgb_test], axis=0)
-    pred_ens_val = np.mean([pred_rf_val, pred_et_val, pred_xgb_val], axis=0)
+    _pred_ens_val = np.mean([pred_rf_val, pred_et_val, pred_xgb_val], axis=0)
     ens_metrics = evaluate(y_test, pred_ens_test)
     total_time = rf_time + et_time + xgb_time
 
@@ -345,7 +344,7 @@ def main():
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+        _fig, axes = plt.subplots(2, 3, figsize=(18, 10))
 
         # Row 1: Pred vs Actual for each model + ensemble
         model_preds = [

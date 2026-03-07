@@ -36,17 +36,18 @@ def compute_pcs(
     _keep_mask = getattr(fitted_scaler, "keep_mask_", None) if fitted_scaler is not None else None
 
     if feature_type == "mfp":
-        kw = {}
-        if fp_radius is not None:
-            kw["radius"] = fp_radius
-        if fp_bits is not None:
-            kw["n_bits"] = fp_bits
-        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, scaler=fitted_scaler, **kw)
+        _radius = fp_radius if fp_radius is not None else 3
+        _n_bits = fp_bits if fp_bits is not None else 1024
+        fp_scaled, fp_scaler = morgan_fingerprints(
+            list_of_smiles, radius=_radius, n_bits=_n_bits, scaler=fitted_scaler,
+        )
     elif feature_type == "count_mfp":
-        kw = {"n_bits": fp_bits or 2048, "count": True}
-        if fp_radius is not None:
-            kw["radius"] = fp_radius
-        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, scaler=fitted_scaler, **kw)
+        _radius = fp_radius if fp_radius is not None else 3
+        _n_bits = fp_bits if fp_bits is not None else 2048
+        fp_scaled, fp_scaler = morgan_fingerprints(
+            list_of_smiles, radius=_radius, n_bits=_n_bits, count=True,
+            scaler=fitted_scaler,
+        )
     elif feature_type == "mordred":
         from .generate_mordred_descriptors import mordred_descriptors
 

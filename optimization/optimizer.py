@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import pairwise_distances
 
-from ..data.dataset import Dataset
 from ..space.formulation import FormulationSpace
 from .bayesopt import perform_bayesian_optimization
 from .doe import mixture_doe
@@ -70,7 +69,8 @@ class Optimizer:
             col = f"{role}_molratio"
             if col in dataset.df.columns and dataset.df[col].nunique() > 1:
                 feature_cols.append(col)
-        if "IL_to_nucleicacid_massratio" in dataset.df.columns and dataset.df["IL_to_nucleicacid_massratio"].nunique() > 1:
+        if ("IL_to_nucleicacid_massratio" in dataset.df.columns
+                and dataset.df["IL_to_nucleicacid_massratio"].nunique() > 1):
             feature_cols.append("IL_to_nucleicacid_massratio")
 
         # Add one-hot encoded experimental context features

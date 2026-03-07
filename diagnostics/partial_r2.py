@@ -15,7 +15,7 @@ from sklearn.preprocessing import OneHotEncoder
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols, summarize_study_assay_types
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
 
 
 def _study_split(df, seed=42):
@@ -56,10 +56,7 @@ def main() -> int:
     r2_m0 = float(r2_score(y_test, y_pred_m0))
 
     # M1: study fixed effects
-    try:
-        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
-    except TypeError:
-        enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     X_train_sid = enc.fit_transform(train_enc[["study_id"]])
     X_test_sid = enc.transform(test_enc[["study_id"]])
     lr1 = LinearRegression()

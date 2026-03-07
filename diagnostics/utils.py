@@ -8,9 +8,8 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT.parent))
 
-from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 from LNPBO.data.dataset import Dataset
-
+from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
 ASSAY_TYPES = [
     "in_vitro_single_formulation",
@@ -89,25 +88,25 @@ def encode_lantern_il(
     reduction: str = "pca",
 ):
     """Encode LANTERN IL-only features with optional train/test split."""
-    encode_kwargs = {
-        "IL_n_pcs_count_mfp": il_pcs,
-        "IL_n_pcs_rdkit": il_pcs,
-    }
-
     if train_idx is None or test_idx is None:
         dataset = Dataset(df.copy(), source="lnpdb", name="lantern_il")
-        encoded = dataset.encode_dataset(**encode_kwargs, reduction=reduction)
+        encoded = dataset.encode_dataset(
+            IL_n_pcs_count_mfp=il_pcs, IL_n_pcs_rdkit=il_pcs, reduction=reduction,
+        )
         return encoded.df, encoded.fitted_transformers
 
     train_df = df.iloc[train_idx].copy()
     test_df = df.iloc[test_idx].copy()
 
     train_dataset = Dataset(train_df, source="lnpdb", name="lantern_il_train")
-    train_encoded = train_dataset.encode_dataset(**encode_kwargs, reduction=reduction)
+    train_encoded = train_dataset.encode_dataset(
+        IL_n_pcs_count_mfp=il_pcs, IL_n_pcs_rdkit=il_pcs, reduction=reduction,
+    )
 
     test_dataset = Dataset(test_df, source="lnpdb", name="lantern_il_test")
     test_encoded = test_dataset.encode_dataset(
-        **encode_kwargs, reduction=reduction, fitted_transformers_in=train_encoded.fitted_transformers
+        IL_n_pcs_count_mfp=il_pcs, IL_n_pcs_rdkit=il_pcs,
+        reduction=reduction, fitted_transformers_in=train_encoded.fitted_transformers,
     )
 
     return train_encoded.df, test_encoded.df, train_encoded.fitted_transformers

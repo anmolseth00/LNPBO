@@ -1,6 +1,5 @@
 """Shared discrete candidate pool strategy loop."""
 
-import numpy as np
 
 from LNPBO.optimization.discrete import score_candidate_pool
 
@@ -62,6 +61,9 @@ def run_discrete_strategy(
 
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
-        print(f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}", flush=True)
+        print(
+            f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}",
+            flush=True,
+        )
 
     return history

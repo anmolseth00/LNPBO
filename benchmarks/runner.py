@@ -146,7 +146,10 @@ class LNPDBOracle:
 # ---------------------------------------------------------------------------
 
 
-def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False, fp_radius=None, fp_bits=None, data_df=None):
+def prepare_benchmark_data(
+    n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp",
+    n_pcs=None, context_features=False, fp_radius=None, fp_bits=None, data_df=None,
+):
     """Load LNPDB, encode, split into seed/oracle."""
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
@@ -215,13 +218,19 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
             encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
             encode_kwargs[f"{role}_n_pcs_rdkit"] = n
             encode_kwargs[f"{role}_n_pcs_mordred"] = n
-        print(f"  LANTERN+Mordred (count_mfp+rdkit+mordred) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
+        print(
+            f"  LANTERN+Mordred (count_mfp+rdkit+mordred) dims per role:"
+            f" IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}"
+        )
     elif is_lantern_unimol:
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
             encode_kwargs[f"{role}_n_pcs_rdkit"] = n
             encode_kwargs[f"{role}_n_pcs_unimol"] = n
-        print(f"  LANTERN+Uni-Mol (count_mfp+rdkit+unimol) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
+        print(
+            f"  LANTERN+Uni-Mol (count_mfp+rdkit+unimol) dims per role:"
+            f" IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}"
+        )
     elif is_lantern:
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
@@ -250,7 +259,10 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
         print(f"  CheMeleon helper-only: HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs} (IL gets ratios only)")
     else:
         base_type = feature_type.replace("raw_", "")
-        param_suffix = {"mfp": "morgan", "mordred": "mordred", "unimol": "unimol", "count_mfp": "count_mfp", "rdkit": "rdkit", "chemeleon": "chemeleon"}[base_type]
+        param_suffix = {
+            "mfp": "morgan", "mordred": "mordred", "unimol": "unimol",
+            "count_mfp": "count_mfp", "rdkit": "rdkit", "chemeleon": "chemeleon",
+        }[base_type]
         for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             encode_kwargs[f"{role}_n_pcs_{param_suffix}"] = n
         print(f"  Encoding dims: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
@@ -280,7 +292,8 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
             col = f"{role}_molratio"
             if col in encoded.df.columns and encoded.df[col].nunique() > 1:
                 feature_cols.append(col)
-        if "IL_to_nucleicacid_massratio" in encoded.df.columns and encoded.df["IL_to_nucleicacid_massratio"].nunique() > 1:
+        mr_col = "IL_to_nucleicacid_massratio"
+        if mr_col in encoded.df.columns and encoded.df[mr_col].nunique() > 1:
             feature_cols.append("IL_to_nucleicacid_massratio")
 
     if context_features:
@@ -515,8 +528,14 @@ def main():
         action="store_true",
         help="Include one-hot experimental context (cell type, target, RoA, etc.)",
     )
-    parser.add_argument("--fp-radius", type=int, default=None, help="Morgan FP radius (default: 3 for mfp, 3 for count_mfp)")
-    parser.add_argument("--fp-bits", type=int, default=None, help="Morgan FP bit size (default: 1024 for mfp, 2048 for count_mfp)")
+    parser.add_argument(
+        "--fp-radius", type=int, default=None,
+        help="Morgan FP radius (default: 3 for mfp, 3 for count_mfp)",
+    )
+    parser.add_argument(
+        "--fp-bits", type=int, default=None,
+        help="Morgan FP bit size (default: 1024 for mfp, 2048 for count_mfp)",
+    )
     args = parser.parse_args()
 
     # Parse strategies

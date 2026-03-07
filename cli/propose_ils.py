@@ -11,9 +11,18 @@ def add_propose_ils_command(subparsers):
 
     parser.add_argument("--dataset", required=True, help="Path to LNPDB-format CSV with IL_SMILES + Experiment_value")
     parser.add_argument("--output", required=True, help="Output CSV path for proposed ILs")
-    parser.add_argument("--n-candidates", type=int, default=20000, help="Number of candidates to generate (default: 20000)")
-    parser.add_argument("--n-output", type=int, default=100, help="Number of candidates to output (default: 100)")
-    parser.add_argument("--diversity-pool", type=int, default=1000, help="Top-N by score for diversity selection (default: 1000)")
+    parser.add_argument(
+        "--n-candidates", type=int, default=20000,
+        help="Number of candidates to generate (default: 20000)",
+    )
+    parser.add_argument(
+        "--n-output", type=int, default=100,
+        help="Number of candidates to output (default: 100)",
+    )
+    parser.add_argument(
+        "--diversity-pool", type=int, default=1000,
+        help="Top-N by score for diversity selection (default: 1000)",
+    )
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
     parser.add_argument("--max-mutations", type=int, default=2, help="Max SELFIES mutations per candidate (default: 2)")
     parser.add_argument("--lcb-kappa", type=float, default=1.0, help="LCB weight on uncertainty (default: 1.0)")

@@ -15,15 +15,12 @@ from xgboost import XGBRegressor
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols, summarize_study_assay_types
-
-
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
 from models.splits import scaffold_split
 
 
 def _study_split(df, seed=42):
     rng = np.random.RandomState(seed)
-    study_ids = df["study_id"].unique().tolist()
 
     # Stratify by assay_type
     study_to_type = {}
@@ -87,10 +84,7 @@ def evaluate_split(df, split_name, train_idx, test_idx, seed=42):
     results["chemistry"] = float(r2_score(y_test, preds))
 
     # Model 2: study-id-only
-    try:
-        enc = OneHotEncoder(handle_unknown="ignore", sparse=False)
-    except TypeError:
-        enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+    enc = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
     X_train_sid = enc.fit_transform(df.loc[train_idx, ["study_id"]])
     X_test_sid = enc.transform(df.loc[test_idx, ["study_id"]])
     model_sid = _fit_xgb(X_train_sid, y_train, seed=seed)

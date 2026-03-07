@@ -314,10 +314,27 @@ class Dataset:
             return pd.concat([lipid_df.reset_index(drop=True), *blocks], axis=1)
 
         encoders = {
-            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol, "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit, "chemeleon": IL_n_pcs_chemeleon},
-            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp, "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon},
-            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp, "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon},
-            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp, "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon},
+            "IL": {
+                "mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred,
+                "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol,
+                "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit,
+                "chemeleon": IL_n_pcs_chemeleon,
+            },
+            "HL": {
+                "mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred,
+                "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp,
+                "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon,
+            },
+            "CHL": {
+                "mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred,
+                "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp,
+                "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon,
+            },
+            "PEG": {
+                "mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred,
+                "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp,
+                "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon,
+            },
         }
 
         encoding_tables = []

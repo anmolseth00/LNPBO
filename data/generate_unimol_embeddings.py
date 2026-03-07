@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-import os
 import time
 import warnings
 from pathlib import Path
@@ -78,6 +77,7 @@ def unimol_embeddings(
 
 if __name__ == "__main__":
     import argparse
+
     import pandas as pd
 
     parser = argparse.ArgumentParser(description="Pre-compute Uni-Mol embeddings for LNPDB lipids")

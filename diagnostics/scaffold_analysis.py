@@ -14,19 +14,17 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from rdkit import Chem
+from rdkit.Chem import QED, Descriptors
+from rdkit.Chem.Scaffolds.MurckoScaffold import GetScaffoldForMol
 from scipy import stats
 from xgboost import XGBRegressor
-
-from rdkit import Chem
-from rdkit.Chem import Descriptors, QED
-from rdkit.Chem.Scaffolds.MurckoScaffold import GetScaffoldForMol
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols
 from benchmarks.runner import prepare_benchmark_data
-
+from diagnostics.utils import load_lnpdb_clean
 
 SEEDS = [42, 123, 456, 789, 2024]
 N_SEED = 500
@@ -52,7 +50,8 @@ def compute_scaffold(smiles: str, head_name: str | None = None) -> str:
 def compute_rdkit_descriptors(smiles: str) -> dict:
     mol = Chem.MolFromSmiles(smiles)
     if mol is None:
-        return {k: np.nan for k in ["MolLogP", "TPSA", "NumHDonors", "NumHAcceptors", "MolWt", "NumRotatableBonds", "QED"]}
+        keys = ["MolLogP", "TPSA", "NumHDonors", "NumHAcceptors", "MolWt", "NumRotatableBonds", "QED"]
+        return {k: np.nan for k in keys}
     return {
         "MolLogP": Descriptors.MolLogP(mol),
         "TPSA": Descriptors.TPSA(mol),
@@ -64,7 +63,7 @@ def compute_rdkit_descriptors(smiles: str) -> dict:
     }
 
 
-def part1_scaffold_clustering(df: pd.DataFrame) -> dict:
+def part1_scaffold_clustering(df: pd.DataFrame) -> tuple[dict, dict]:
     """Cluster ILs by Murcko scaffold (ring) or head group (acyclic)."""
     print("\n" + "=" * 70)
     print("PART 1: Scaffold Clustering of ILs")
@@ -98,7 +97,7 @@ def part1_scaffold_clustering(df: pd.DataFrame) -> dict:
     print(f"  Acyclic (no head name): {n_other} ({100*n_other/len(il_unique):.1f}%)")
 
     scaffold_counts = il_unique["scaffold"].value_counts()
-    print(f"\nTop 10 scaffolds/head groups by IL count:")
+    print("\nTop 10 scaffolds/head groups by IL count:")
     for i, (scaf, cnt) in enumerate(scaffold_counts.head(10).items()):
         print(f"  {i+1}. {scaf}: {cnt} ILs")
 
@@ -107,19 +106,19 @@ def part1_scaffold_clustering(df: pd.DataFrame) -> dict:
     df_scaffolded["scaffold"] = df_scaffolded["IL_SMILES"].map(smi_to_scaffold)
 
     scaffold_formulation_counts = df_scaffolded["scaffold"].value_counts()
-    print(f"\nTop 10 scaffolds by formulation count:")
+    print("\nTop 10 scaffolds by formulation count:")
     for i, (scaf, cnt) in enumerate(scaffold_formulation_counts.head(10).items()):
         n_ils = il_unique[il_unique["scaffold"] == scaf].shape[0]
         print(f"  {i+1}. {scaf}: {cnt} formulations ({n_ils} ILs)")
 
     mean_by_scaffold = df_scaffolded.groupby("scaffold")["Experiment_value"].agg(["mean", "std", "count"])
     mean_by_scaffold = mean_by_scaffold.sort_values("mean", ascending=False)
-    print(f"\nTop 10 scaffolds by mean Experiment_value:")
+    print("\nTop 10 scaffolds by mean Experiment_value:")
     for i, (scaf, row) in enumerate(mean_by_scaffold.head(10).iterrows()):
         print(f"  {i+1}. {scaf}: mean={row['mean']:.3f}, std={row['std']:.3f}, n={int(row['count'])}")
 
     result = {
-        "n_unique_ils": int(len(il_unique)),
+        "n_unique_ils": len(il_unique),
         "n_ring_containing": int(n_ring),
         "n_acyclic_head": int(n_head),
         "n_acyclic_other": int(n_other),
@@ -143,7 +142,7 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
     for seed in SEEDS:
         print(f"\n--- Seed {seed} ---")
 
-        encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
+        _encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _top_k_values = prepare_benchmark_data(
             n_seed=N_SEED,
             random_seed=seed,
             reduction="pca",
@@ -266,7 +265,7 @@ def part3_partial_correlation(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
     for seed in SEEDS:
         print(f"\n--- Seed {seed} ---")
 
-        encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
+        _encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _top_k_values = prepare_benchmark_data(
             n_seed=N_SEED,
             random_seed=seed,
             reduction="pca",
@@ -294,9 +293,9 @@ def part3_partial_correlation(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
             desc_cache[smi] = compute_rdkit_descriptors(smi)
 
         for d in desc_names:
-            test_df[d] = test_df["IL_SMILES"].map(lambda s, d=d: desc_cache.get(s, {}).get(d, np.nan))
+            test_df[d] = test_df["IL_SMILES"].map(lambda s, d=d, _dc=desc_cache: _dc.get(s, {}).get(d, np.nan))
 
-        valid = test_df.dropna(subset=desc_names + ["pred_error", "scaffold"]).copy()
+        valid = test_df.dropna(subset=[*desc_names, "pred_error", "scaffold"]).copy()
 
         scaffold_codes, _ = pd.factorize(valid["scaffold"])
         valid["scaffold_code"] = scaffold_codes

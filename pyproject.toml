@@ -19,4 +19,17 @@ quote-style = "double"
 
 [tool.ty.environment]
 python-version = "3.12"
-extra-paths = [".."]
+extra-paths = ["..", "models"]
+
+[tool.ty.rules]
+# Third-party libraries without complete type stubs (rdkit, gpytorch, xgboost)
+unresolved-attribute = "warn"
+possibly-missing-attribute = "ignore"
+# models/ files use sys.path.insert for local imports that ty can't resolve
+unresolved-import = "warn"
+# gpytorch Tensor properties, torch.autograd.grad, numpy overloads
+call-non-callable = "warn"
+unsupported-operator = "warn"
+no-matching-overload = "warn"
+# torch Dataset __getitem__ override
+invalid-method-override = "warn"

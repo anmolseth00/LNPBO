@@ -26,20 +26,17 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
+from featurize import BatchMolGraph
+from mpnn import MultiComponentMPNN
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from mpnn import MultiComponentMPNN
-from featurize import BatchMolGraph
 from data import (
-    LNPDataset,
     SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
-    TABULAR_CATEGORICAL_COLS,
-    collate_fn,
+    LNPDataset,
     encode_categoricals,
     learn_categorical_levels,
     load_lnpdb_dataframe,
@@ -235,7 +232,7 @@ def save_plots(
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    _fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
 
     # Training curve
     ax = axes[0]
@@ -521,7 +518,7 @@ def main():
     print(f"  RMSE:  {test_results['rmse']:.4f}")
     print(f"  MAE:   {test_results['mae']:.4f}")
     print(f"  R2:    {test_results['r2']:.4f}")
-    print(f"  (Chemprop v1.7 baseline: RMSE=0.995)")
+    print("  (Chemprop v1.7 baseline: RMSE=0.995)")
     print(f"{'='*60}")
 
     # Save test metrics

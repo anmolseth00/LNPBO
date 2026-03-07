@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """Multi-seed evaluation with Optuna-tuned XGBoost hyperparameters."""
 from __future__ import annotations
-import sys, json, time
+
+import json
+import sys
+import time
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
@@ -11,8 +15,10 @@ from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from data import (
-    TABULAR_CATEGORICAL_COLS, TABULAR_CONTINUOUS_COLS,
-    encode_categoricals, learn_categorical_levels, load_lnpdb_dataframe,
+    TABULAR_CONTINUOUS_COLS,
+    encode_categoricals,
+    learn_categorical_levels,
+    load_lnpdb_dataframe,
     scaffold_split,
 )
 

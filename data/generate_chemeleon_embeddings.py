@@ -22,8 +22,8 @@ def _get_chemeleon_model():
 
     References: Burns et al., arXiv:2506.15792, 2025.
     """
-    from chemprop.nn.message_passing import BondMessagePassing
     from chemprop.nn.agg import MeanAggregation
+    from chemprop.nn.message_passing import BondMessagePassing
 
     cache_dir = Path.home() / ".chemprop"
     cache_dir.mkdir(exist_ok=True)
@@ -62,9 +62,9 @@ def chemeleon_embeddings(
     Returns (scaled_embeddings, scaler) matching the interface of
     morgan_fingerprints() and unimol_embeddings().
     """
-    from rdkit import Chem
-    from chemprop.featurizers import SimpleMoleculeMolGraphFeaturizer
     from chemprop.data.collate import BatchMolGraph
+    from chemprop.featurizers import SimpleMoleculeMolGraphFeaturizer
+    from rdkit import Chem
 
     unique_smiles = list(dict.fromkeys(list_of_smiles))
     cache = load_npz_cache(CACHE_DIR,cache_name)

@@ -28,7 +28,7 @@ import pandas as pd
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT.parent))
 
-from LNPBO.data.context import CONTEXT_COLUMNS, encode_context
+from LNPBO.data.context import encode_context
 from LNPBO.data.dataset import Dataset, encode_kwargs_for_feature_type
 from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 from LNPBO.models.splits import scaffold_split
@@ -264,7 +264,6 @@ def main():
     # 5. Aggregate SHAP by feature category
     # -------------------------------------------------------------------------
     categories = categorize_features(feature_names)
-    cat_names = sorted(set(categories.values()))
 
     # Mean absolute SHAP per feature
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
@@ -292,7 +291,7 @@ def main():
     print(f"  Context total:    {ctx_shap:.4f} ({ctx_shap/total_shap*100:.1f}%)")
 
     # Top 20 individual features
-    print(f"\nTop 20 features:")
+    print("\nTop 20 features:")
     for _, row in feature_importance.head(20).iterrows():
         print(f"  {row['feature']:<45} {row['mean_abs_shap']:>8.4f}  [{row['category']}]")
 
@@ -360,7 +359,7 @@ def main():
                 colors.append("#3498db")
             else:
                 colors.append("#2ecc71")
-        bars = ax.barh(range(len(cat_importance)), cat_importance.values, color=colors)
+        ax.barh(range(len(cat_importance)), cat_importance.values, color=colors)
         ax.set_yticks(range(len(cat_importance)))
         ax.set_yticklabels(cat_importance.index, fontsize=9)
         ax.set_xlabel("Mean |SHAP value|")
@@ -429,8 +428,8 @@ def main():
 
         print(f"  {'Test R²':<20} {ctx_r2:>15.4f} {no_ctx_r2:>15.4f}")
         print(f"  {'R² improvement':<20} {ctx_r2 - no_ctx_r2:>+15.4f}")
-        print(f"\n  If R² improves substantially with context, the model was previously")
-        print(f"  confounding molecular signal with assay differences.")
+        print("\n  If R² improves substantially with context, the model was previously")
+        print("  confounding molecular signal with assay differences.")
 
 
 if __name__ == "__main__":

@@ -7,7 +7,6 @@ import json
 import sys
 from pathlib import Path
 
-import numpy as np
 import torch
 from scipy.stats import norm
 from sklearn.metrics import r2_score
@@ -17,9 +16,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from diagnostics.compute_icc import fit_reml_random_intercept
-from diagnostics.utils import load_lnpdb_clean, encode_lantern_il, lantern_il_feature_cols
-
-
+from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
 from models.splits import scaffold_split
 
 
@@ -229,7 +226,7 @@ def main() -> int:
             per_study[str(study_id)] = {
                 "coverage_90": cov_s,
                 "ece_90": ece_s,
-                "n": int(len(y_s)),
+                "n": len(y_s),
             }
 
         results[label] = {

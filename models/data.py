@@ -12,9 +12,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
+from featurize import BatchMolGraph, MolGraph, batch_mol_graphs, mol_to_graph
 from torch.utils.data import DataLoader, Dataset
-
-from featurize import MolGraph, BatchMolGraph, batch_mol_graphs, mol_to_graph
 
 # Columns used as tabular features (continuous, z-scored)
 TABULAR_CONTINUOUS_COLS = [
@@ -99,7 +98,7 @@ def encode_categoricals(
     return df, new_cols
 
 
-from models.splits import scaffold_split, _scaffold  # noqa: F401
+from models.splits import _scaffold, scaffold_split  # noqa: F401
 
 
 class LNPDataset(Dataset):
@@ -176,7 +175,7 @@ class LNPDataset(Dataset):
     def __len__(self) -> int:
         return len(self.df)
 
-    def __getitem__(self, idx: int) -> tuple[dict[str, MolGraph], np.ndarray, float]:
+    def __getitem__(self, idx: int) -> tuple[dict[str, MolGraph | None], np.ndarray, float]:
         graphs = {comp: self._graphs[comp][idx] for comp in self.components}
         tabular = self._tabular[idx]
         target = (self._targets[idx] - self.target_mean) / self.target_std
@@ -309,7 +308,7 @@ def load_lnpdb_dataframe(
 
     # Get SMILES from LNPDB.csv, everything else from all_data_all.csv
     smiles_cols_needed = [SMILES_COLS[c] for c in components if c != "IL"]
-    keep_from_lnpdb = ["LNP_ID"] + smiles_cols_needed
+    keep_from_lnpdb = ["LNP_ID", *smiles_cols_needed]
 
     df = df_all.merge(
         df_lnpdb[keep_from_lnpdb].drop_duplicates("LNP_ID"),

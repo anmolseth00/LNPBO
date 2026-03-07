@@ -20,20 +20,16 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
+from featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
+from gps_mpnn import MultiComponentGPS, make_graph_fn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
-from gps_mpnn import MultiComponentGPS, make_graph_fn
 from data import (
-    LNPDataset,
-    SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
-    TABULAR_CATEGORICAL_COLS,
-    collate_fn,
+    LNPDataset,
     encode_categoricals,
     learn_categorical_levels,
     load_lnpdb_dataframe,
@@ -179,7 +175,7 @@ def save_plots(train_losses, val_rmses, test_results, save_dir):
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
-    fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
+    _fig, axes = plt.subplots(1, 3, figsize=(15, 4.5))
 
     ax = axes[0]
     epochs_range = range(1, len(train_losses) + 1)

@@ -139,7 +139,7 @@ def compute_icc(df, label: str, n_boot: int = 200):
     sigma_a2, sigma_e2, ll_full = fit_reml_random_intercept(y, groups)
     icc = icc_from_variances(sigma_a2, sigma_e2)
 
-    sigma_e2_null, ll_null = fit_reml_null(y)
+    _sigma_e2_null, ll_null = fit_reml_null(y)
     lr_stat = 2 * (ll_full - ll_null)
     # Mixture distribution for boundary (Self & Liang 1987): 0.5*chi2_0 + 0.5*chi2_1
     p_val = 0.5 * (1 - chi2.cdf(lr_stat, df=1))
@@ -148,8 +148,8 @@ def compute_icc(df, label: str, n_boot: int = 200):
 
     return {
         "label": label,
-        "n": int(len(y)),
-        "n_studies": int(len(np.unique(groups))),
+        "n": len(y),
+        "n_studies": len(np.unique(groups)),
         "sigma_a2": sigma_a2,
         "sigma_e2": sigma_e2,
         "icc": icc,

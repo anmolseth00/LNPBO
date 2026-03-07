@@ -64,12 +64,12 @@ def main():
             if m >= 0.5:
                 print(f"  {feat:<35} {m:>5.1f} ±{s:>4.1f}%")
 
-        print(f"\n  By role:")
+        print("\n  By role:")
         for role in ["IL", "HL", "CHL", "PEG"]:
             role_imp = sum(np.mean(v) for f, v in all_imp.items() if f.startswith(role + "_"))
             print(f"    {role:<5} {role_imp*100:>5.1f}%")
 
-        print(f"\n  By feature type:")
+        print("\n  By feature type:")
         for ftype in ["count_mfp", "rdkit", "molratio", "massratio"]:
             type_imp = sum(np.mean(v) for f, v in all_imp.items() if ftype in f)
             print(f"    {ftype:<15} {type_imp*100:>5.1f}%")
