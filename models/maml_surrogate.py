@@ -266,11 +266,6 @@ def main() -> int:
     df = df[df["study_id"].isin(keep_ids)].reset_index(drop=True)
     print(f"Using {len(df)} rows from {df['study_id'].nunique()} studies (>=25 per study)")
 
-    encoded, _ = encode_lantern_il(df, reduction="pca")
-    feat_cols = lantern_il_feature_cols(encoded)
-
-    X = encoded[feat_cols].values.astype(np.float32)
-    y = encoded["Experiment_value"].values.astype(np.float32)
     study_ids = df["study_id"].astype(str).values
 
     study_to_type = {}
@@ -279,6 +274,20 @@ def main() -> int:
         study_to_type[str(sid)] = assay_type
 
     train_ids, test_ids = _study_split(np.unique(study_ids), study_to_type, seed=42)
+
+    train_idx = [i for i, sid in enumerate(study_ids) if sid in train_ids]
+    test_idx = [i for i, sid in enumerate(study_ids) if sid in test_ids]
+
+    train_encoded, test_encoded, _fitted = encode_lantern_il(
+        df, train_idx=train_idx, test_idx=test_idx, reduction="pca",
+    )
+    feat_cols = lantern_il_feature_cols(train_encoded)
+
+    import pandas as pd
+    encoded = pd.concat([train_encoded, test_encoded]).sort_index()
+
+    X = encoded[feat_cols].values.astype(np.float32)
+    y = encoded["Experiment_value"].values.astype(np.float32)
     print(f"Train studies: {len(train_ids)}, Test studies: {len(test_ids)}")
 
     k_shots = [5, 10, 20]
