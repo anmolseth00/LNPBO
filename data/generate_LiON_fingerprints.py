@@ -14,7 +14,7 @@ DEFAULT_FEATURES_CSV = MODULE_DIR / "LiON_for_LNPBO" / "template_extra_data.csv"
 
 def lion_fingerprints(
     smiles: list[str],
-    experiment_values: list[float],
+    experiment_values: list[float] | None,
     checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR,
     features_csv: Path | str = DEFAULT_FEATURES_CSV,
     conda_env: str = "lnp_ml",
@@ -27,6 +27,9 @@ def lion_fingerprints(
     pulmonary gene therapy," Nature Biotechnology, 43(11), 1790-1799 (2025).
     DOI: 10.1038/s41587-024-02490-y
     """
+
+    if experiment_values is None:
+        experiment_values = [0.0] * len(smiles)
 
     if len(smiles) != len(experiment_values):
         raise ValueError("SMILES and experiment_values must have same length")
