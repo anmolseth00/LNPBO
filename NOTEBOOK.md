@@ -1,270 +1,286 @@
 # LNPBO: Bayesian Optimization for LNP Formulation Design
 
-**Top result: LANTERN + PLS + XGBoost discrete greedy -- 26.4% top-50 recall at n_seed=1000 (3.0x vs random).** Count-based Morgan FP (2048-bit) + RDKit 2D descriptors, PLS-reduced to 5 components per lipid role, scored by XGBoost greedy mean prediction over a discrete candidate pool. PLS is re-fit each round using only observed training targets (no leakage from the oracle).
-
-We started with GP-based continuous Bayesian optimization (UCB, EI, LogEI) using binary Morgan fingerprints, and found that GPs fail catastrophically at small sample sizes -- Spearman correlation ~0.04 at n=100, worse than random selection. We pivoted to discrete candidate pool scoring with tree-based surrogates, which eliminated the continuous-to-discrete nearest-neighbor matching confound. In parallel, we tested foundation model embeddings (Uni-Mol, the same 3D molecular encoder used by COMET) but found they underperformed simple count-based fingerprints at small n due to the curse of dimensionality. LANTERN features (count Morgan FP + RDKit descriptors, PLS-reduced) emerged as the best representation, and XGBoost greedy scoring as the best surrogate, giving 2-3x improvement over random selection across all seed pool sizes.
+**Top result: LANTERN IL-only + XGBoost discrete greedy -- 24.0% top-10 recall (±4.9%) at n_seed=500.** For Top-50, LANTERN+UniMol batch6 (30 rounds, batch=6) leads at 26.0% ±7.4%. At n_seed=1000, prospective PLS achieves 26.4% Top-50 (3.0x vs random). Ionizable lipid molecular structure accounts for 82% of SHAP importance and 100% of permutation importance — helper lipid encoding adds no marginal predictive value.
 
 ## 1. Problem Statement
 
 LNP (lipid nanoparticle) formulations consist of four lipid components (ionizable lipid, helper lipid, cholesterol analog, PEGylated lipid) at specified molar ratios. The combinatorial space is vast: LNPDB contains ~19,800 formulations across thousands of unique ionizable lipids. The goal is an optimization pipeline that, given a small initial screen, suggests the next batch of formulations most likely to maximize a target property (e.g., transfection efficiency).
 
-### 1a. LNPDB Dependency
+### 1a. LNPDB Data Quality
 
-LNPBO requires the LNPDB database (Collins et al., Nature Communications 2026, ~19,800 formulations). Clone the LNPDB repo as a sibling directory or symlink it:
+LNPDB (Collins et al., Nature Communications 2026) z-scores `Experiment_value` per study (mean=0, std=1). We identified 122 formulations with `|Experiment_value| > 10`, implausible as z-scores, indicating normalization failures in the source data. The most extreme cases are 8 formulations from PMID 38424061 with raw values of 135-215. `load_lnpdb_full(drop_unnormalized=True)` (default) removes these. Clean dataset: 16,787 rows, mean=0.005, std=1.007, max=9.27.
+
+All results in this notebook use the clean dataset unless explicitly noted.
+
+### 1b. LNPDB Dependency
+
+Clone the LNPDB repo as a sibling directory or symlink it:
 
 ```bash
 git clone https://github.com/evancollins1/LNPDB.git ../LNPDB
 ln -s ../../LNPDB data/LNPDB_repo
 ```
 
-The bridge module `data/lnpdb_bridge.py` mediates between LNPDB's data layout (`data/LNPDB_for_LiON/LNPDB.csv`, `all_data_all.csv`) and LNPBO's `Dataset` class. LNPDB.csv contains raw `Experiment_value`; `all_data_all.csv` contains z-scored values. The pipeline uses raw values and z-scores internally as needed.
+The bridge module `data/lnpdb_bridge.py` mediates between LNPDB's data layout and LNPBO's `Dataset` class.
 
 ## 2. Codebase
 
-Refactored LNPBO into a modular Python package:
-- `data/`: Dataset loading, molecular encoding (Morgan FP, count MFP, RDKit descriptors, Uni-Mol embeddings, LiON fingerprints), PCA/PLS dimensionality reduction
+- `data/`: Dataset loading, molecular encoding (Morgan FP, count MFP, RDKit, mordred, Uni-Mol, CheMeleon, LiON), PCA/PLS reduction
 - `space/`: FormulationSpace with bounded simplex projection for molar ratio constraints
-- `optimization/`: GP-based acquisition (UCB, EI, LogEI, Local Penalization, Kriging Believer) and discrete candidate pool scoring (XGBoost, RF-UCB, RF-TS, GP-UCB)
-- `benchmarks/`: Modular strategy evaluation using LNPDB as oracle
+- `optimization/`: GP-based acquisition (UCB, EI, LogEI, Local Penalization, Kriging Believer) and discrete pool scoring (XGBoost, RF-UCB, RF-TS, GP-UCB)
+- `benchmarks/`: Strategy evaluation using LNPDB as oracle, SHAP analysis, PCA interpretation
 - `models/`: Standalone surrogate model training and evaluation (see `models/README.md`)
 - `pipeline.py`: End-to-end CLI for suggesting new formulations
-- `cli/`: Subcommands for encode and suggest steps
+- `cli/`: Subcommands for encode, suggest, and propose-ils
 
 ### Feature Type Glossary
 
-CLI names used by `pipeline.py`, `benchmarks/runner.py`, and `cli/suggest.py`:
+| CLI name | Description |
+|----------|-------------|
+| `mfp` | Binary Morgan FP (1024-bit), PCA-reduced |
+| `count_mfp` | Count-based Morgan FP (2048-bit), PCA-reduced |
+| `rdkit` | ~210 RDKit 2D descriptors, PCA-reduced |
+| `mordred` | ~1613 mordred 2D descriptors, PCA-reduced |
+| `chemeleon` | CheMeleon pretrained embeddings (2048-dim), PCA-reduced |
+| `lantern` | Count MFP + RDKit descriptors, PCA/PLS-reduced (all 4 roles) |
+| `lantern_il_only` | LANTERN encoding for IL only (helpers get ratios only) |
+| `lantern_unimol` | Count MFP + RDKit + Uni-Mol, PCA-reduced |
+| `ratios_only` | Molar ratios and mass ratio only (no molecular encoding) |
 
-| CLI name | Display name (tables) | Description |
-|----------|-----------------------|-------------|
-| `mfp` | Morgan PCA | Binary Morgan FP (1024-bit), PCA-reduced |
-| `count_mfp` | Count MFP PCA | Count-based Morgan FP (2048-bit), PCA-reduced |
-| `rdkit` | RDKit PCA | ~210 RDKit 2D descriptors, PCA-reduced |
-| `lantern` | LANTERN PCA/PLS | Count MFP + RDKit descriptors, PCA or PLS-reduced |
-
-The `--reduction` flag controls dimensionality reduction: `pca` (unsupervised), `pls` (supervised, target-aware), or `none` (raw features). Default: `pls`.
+The `--reduction` flag controls dimensionality reduction: `pca` (unsupervised), `pls` (supervised, target-aware), or `none` (raw features).
 
 ## 3. Feature Engineering
 
-### 3a. Molecular Representations Tested
+### 3a. Molecular Representations
 
-| Feature | Description | Dims | Reference |
-|---------|-------------|------|-----------|
-| Morgan FP (binary, `mfp`) | Substructure presence, 1024-bit | 1024 | Rogers & Hahn, J Chem Inf Model 2010 |
-| Morgan FP (count, `count_mfp`) | Substructure frequency, 2048-bit | 2048 | Rogers & Hahn 2010 |
-| RDKit descriptors (`rdkit`) | ~210 physicochemical properties (MW, logP, TPSA, ...) | ~210 | Landrum, RDKit |
-| Uni-Mol embeddings | 3D-aware CLS representations (frozen pretrained) | 512 | Zhou et al., ICLR 2023 |
-| LiON fingerprints | D-MPNN penultimate-layer embeddings from trained LNP model | varies | Witten et al., Nat Biotech 2025 |
-| LANTERN (`lantern`) | Count Morgan FP + RDKit descriptors | ~2258 | Mehradfar et al., arXiv:2507.03209 |
+| Feature | Dims | Reference |
+|---------|------|-----------|
+| Morgan FP (binary, `mfp`) | 1024 | Rogers & Hahn, J Chem Inf Model 2010 |
+| Morgan FP (count, `count_mfp`) | 2048 | Rogers & Hahn 2010 |
+| RDKit descriptors (`rdkit`) | ~210 | Landrum, RDKit |
+| Mordred descriptors (`mordred`) | ~1613 | Moriwaki et al., J Cheminformatics 2018 |
+| CheMeleon embeddings (`chemeleon`) | 2048 | Vasan et al. |
+| Uni-Mol embeddings | 512 | Zhou et al., ICLR 2023 |
+| LANTERN (`lantern`) | ~2258 | Mehradfar et al., arXiv:2507.03209 |
 
-### 3b. Foundation Model Embeddings: Uni-Mol and COMET
+Uni-Mol is the same molecular backbone used by COMET (Chan et al., Nature Nanotechnology 2025). We could not use COMET directly on LNPDB because: (1) pairwise ranking loss, not regression; (2) trained on only 14 molecules; (3) requires synthesis parameters LNPDB doesn't standardize; (4) restrictive license.
 
-We tested Uni-Mol v1 (Zhou et al., ICLR 2023) as a foundation model approach to molecular encoding. Uni-Mol is a pretrained 3D molecular encoder that produces 512-dim CLS token embeddings from atomic coordinates. Pre-computed embeddings are cached in `data/unimol_cache/` for all LNPDB lipids (12,845 ILs, 8 HLs, 16 CHLs, 14 PEGs).
+### 3b. Feature Comparison (n_seed=500, 5 seeds, XGB discrete greedy, 15 rounds, batch=12)
 
-Uni-Mol is the same molecular backbone used by COMET (Chan et al., Nature Nanotechnology 2025), a transformer-based LNP efficacy predictor trained on the LANCE dataset (~3,000 formulations, 14 unique lipids). COMET uses frozen Uni-Mol embeddings identically to our approach, then stacks a formulation-level transformer with self-attention across component tokens. We could not use COMET directly on LNPDB because: (1) it was trained with pairwise ranking loss, not regression -- the output is a relative ranking score, not a predicted value; (2) its transformer layers learned to discriminate among only 14 molecules vs LNPDB's thousands of unique ionizable lipids; (3) it requires synthesis parameters (flow rates, N/P ratio encoding) that LNPDB does not standardize across its ~200 source publications; (4) the license is restrictive and non-standard.
+| Feature | Top-10 | Top-50 | Top-100 |
+|---------|--------|--------|---------|
+| Random baseline | 10.0 ±8.9% | 7.6 ±5.0% | 6.6 ±2.6% |
+| Ratios only | 8.0 ±7.5% | 4.8 ±2.0% | 5.4 ±1.9% |
+| Count MFP PCA | 14.0 ±10.2% | 23.2 ±7.4% | 22.2 ±4.3% |
+| Mordred 20PC | 10.0 ±15.5% | 22.8 ±5.3% | 21.6 ±3.5% |
+| **LANTERN IL-only** | **24.0 ±4.9%** | 20.4 ±5.3% | 20.6 ±5.4% |
+| LANTERN PCA (all roles) | 12.0 ±19.4% | 23.6 ±11.1% | 22.4 ±8.1% |
+| LANTERN+UniMol | 8.0 ±11.7% | 21.6 ±6.6% | 20.8 ±4.5% |
+| LANTERN batch6 (30r) | 8.0 ±11.7% | 22.8 ±10.5% | 22.8 ±7.4% |
+| **LANTERN+UniMol batch6** | 12.0 ±14.7% | **26.0 ±7.4%** | **23.6 ±4.4%** |
 
-Despite the architectural sophistication, raw Uni-Mol embeddings (10.0% top-10) underperformed count-based Morgan FP (26.0% top-10) and LANTERN (40.0% top-10) at n_seed=500. The 512-dim embedding space suffers from the curse of dimensionality at small sample sizes (n=100-500), while LANTERN's PCA/PLS-reduced features (5 components per role) provide a much more compact and predictive representation. This mirrors findings from LANTERN (Mehradfar et al., arXiv:2507.03209) that simple tabular fingerprints outperform learned embeddings when data is scarce.
+Key findings:
 
-### 3c. Feature Comparison (n_seed=500, 5 seeds, XGB surrogate)
+- **Ratios alone are worse than random** — lipid identity dominates composition.
+- **Count-based MFP > binary MFP** — substructure frequency matters more than presence/absence.
+- **LANTERN IL-only is the most robust Top-10 config** (24% ±4.9%, consistent 20-30% every seed).
+- **LANTERN+UniMol batch6 leads Top-50** (26.0%) — Uni-Mol adds signal only with enough refit cycles (30 rounds vs 15).
+- **Mordred 20PC has the lowest variance** (±5.3% Top-50, ±3.5% Top-100) — most reliable for budget-constrained campaigns.
+- Foundation model embeddings (Uni-Mol, CheMeleon) underperform simple count-based fingerprints at batch=12/15 rounds.
 
-| Feature (CLI name) | Top-10 | Top-50 | Top-100 |
-|---------------------|--------|--------|---------|
-| `mfp` (Morgan PCA) | 20.0% | 20.8% | 21.8% |
-| `count_mfp` (Count MFP PCA) | 26.0% | 27.2% | 26.8% |
-| **`lantern` (LANTERN PCA)** | **40.0%** | **32.8%** | **28.4%** |
-| Uni-Mol (raw, 512-dim) | 10.0% | 18.8% | 21.8% |
+### 3c. Top-10 vs Top-50: Different Optimal Configs
 
-LANTERN features provide 2x improvement over binary Morgan FP. Count-based encoding and RDKit descriptors each contribute independently. PCA reduction prevents overfitting vs raw features at small sample sizes (n=100-500).
+LANTERN IL-only wins Top-10 but trails on Top-50. This makes chemical sense: the **top-10 formulations share a single IL scaffold** (12_A\*_T\*b tricyclohexyl series) regardless of helper lipid composition. Extra helper features add noise for these specific molecules. The broader Top-50 spans more diverse IL scaffolds where composition varies more, so additional features provide marginal signal.
 
-## 4. Surrogate Models
+Practical implication: use IL-only encoding for finding the very best formulations; use LANTERN+UniMol batch6 for finding a broad set of good ones.
 
-### 4a. GP Failure Mode
+### 3d. Top-10 Bimodal Distribution
 
-At n_seed=100, all GP-based strategies (UCB, EI, LogEI, Local Penalization, Kriging Believer) perform worse than random. Root causes:
+In a 20-seed analysis of LANTERN PCA, Top-10 recall shows a phase transition: 55% of seeds find 0 hits, 25% find 80-100%. This is a genuine structural property of LNPDB — 9 of the top 10 formulations share one Murcko scaffold. If the seed set contains any member, XGBoost finds the rest; if not, it cannot.
+
+LANTERN IL-only avoids this collapse: its simpler feature space (10 PCs vs 33 for full LANTERN) yields consistent 20-30% across all seeds instead of the bimodal 0-or-50% pattern.
+
+**Top-50 is the correct primary metric** — it spans multiple scaffolds and is stable across seeds.
+
+## 4. Feature Attribution
+
+### 4a. SHAP TreeExplainer (5-seed mean)
+
+| Feature Group | SHAP % |
+|---------------|--------|
+| IL molecular (count_mfp PCs) | 44.1% |
+| IL molecular (RDKit PCs) | 39.1% |
+| Molar ratios | 14.1% |
+| IL-to-nucleic-acid mass ratio | 2.8% |
+| HL molecular | 3.7% |
+| PEG molecular | 0.7% |
+| CHL molecular | 0.2% |
+
+**By role:** IL=82.3%, HL=8.2% (mostly ratios), CHL=3.1% (mostly ratios), PEG=6.5% (mostly ratios).
+
+### 4b. Permutation Importance (5-seed mean)
+
+Permutation importance on held-out data gives the most honest measure of marginal predictive value:
+
+- **IL molecular: ~100%** of all importance
+- **HL, CHL, PEG molecular: 0%** — zero marginal predictive contribution
+- **All molar ratios: 0%** — zero marginal contribution
+- **Mass ratio: ~1%**
+
+The SHAP vs permutation discrepancy is expected: SHAP measures how much the model *uses* a feature, permutation measures whether *removing* it degrades prediction. The model uses ratios internally, but they are redundant with IL features for prediction.
+
+### 4c. Importance Method Comparison
+
+| Method | IL | HL | Ratios | Interpretation |
+|--------|----|----|--------|---------------|
+| XGBoost gain | 65% | 12% | 14.5% | Biased toward correlated features |
+| SHAP TreeExplainer | 82.3% | 3.7% | 14.1% | What the model uses |
+| Permutation importance | ~100% | 0% | 0% | What actually predicts |
+
+XGBoost gain inflates HL importance from 3.7% (SHAP) to 12% (gain) due to correlation with IL features. Use SHAP or permutation importance for attribution in tree models.
+
+Script: `benchmarks/shap_importance.py`
+
+## 5. PCA Interpretation: What XGBoost Learns
+
+Analysis of count_mfp PCA components (2048-bit, 5 PCs):
+
+- Each PC explains <2% variance — very high intrinsic dimensionality in fingerprint space
+- Cumulative 5 PCs explain ~7% of total fingerprint variance
+- Each PC captures a different IL chemistry series (SN, A34-T, disulfides, paracyclophanes, 12_A\*_T\*b)
+- PC5 separates the dominant 12_A\*_T\*b scaffold — this directly explains the bimodal Top-10 distribution
+- Individual PC-transfection correlations are weak (Spearman rho < 0.08); power comes from nonlinear PC interactions
+- **XGBoost learns scaffold family identification, not generalizable structure-activity rules**
+
+Script: `benchmarks/pc_interpretation.py`
+
+## 6. Surrogate Models
+
+### 6a. GP Failure Mode
+
+At n_seed=100, all GP-based strategies (UCB, EI, LogEI, Local Penalization, Kriging Believer) perform worse than random:
 1. GP surrogate is non-predictive (Spearman ~0.04) with 100 training points in 19D
 2. Continuous optimization + NN-matching adds quantization noise
 3. All acquisition functions collapse to the same maximizer
 
-### 4b. Discrete Surrogates
+### 6b. Discrete Surrogates
 
-Scoring the candidate pool directly with ML models eliminates the NN-matching confound:
+Scoring the candidate pool directly eliminates the NN-matching confound. XGBoost greedy scoring is the best surrogate at all seed pool sizes, with RF-TS excelling at Top-10 (needle-in-haystack).
 
-| Surrogate | Top-50 (n_seed=500) | Top-50 (n_seed=1000) |
-|-----------|---------------------|----------------------|
-| Random | 15.2% | 26.2% |
-| RF-TS | 28.0% | 43.2% |
-| **XGBoost** | **37.8%** | **50.2%** |
-
-These numbers use LANTERN PCA (unsupervised reduction). XGBoost greedy scoring is the best surrogate at all seed pool sizes. RF-TS excels at top-10 recall (needle-in-haystack), XGB at broad coverage (top-50/100). See Section 5a for prospective PLS results.
-
-### 4c. Standalone Model Training (seed 42, scaffold split)
+### 6c. Standalone Model Training (seed 42, scaffold split)
 
 | Model | R^2 | Details |
 |-------|-----|---------|
 | RF default | 0.384 | `models/eval_multiseed.py` |
 | XGB default | 0.387 | `models/eval_multiseed.py` |
-| **XGB Optuna-tuned** | **0.376** | `models/tune_xgb.py` (depth=12, lr=0.016, 100 trials) |
-| MPNN (4-component) | 0.355 | `models/train_lion.py --components IL HL CHL PEG` |
+| **XGB Optuna-tuned** | **0.376** | depth=12, lr=0.016, 100 trials |
+| MPNN (4-component) | 0.355 | `models/train_lion.py` |
 | GPS-MPNN | 0.328 | `models/train_gps.py` |
 
-Tabular ML on fingerprints matches or exceeds end-to-end GNNs. Multi-component encoding provides no benefit (only 9 unique HLs, 16 CHLs, 14 PEGs). The R^2 ceiling (~0.40) is driven by feature representation, not model architecture. See `models/README.md` for full reproduction commands and all run results.
+Tabular ML on fingerprints matches or exceeds end-to-end GNNs. Multi-component encoding provides no benefit (only 9 unique HLs, 16 CHLs, 14 PEGs). The R^2 ceiling (~0.40) is driven by feature representation, not model architecture.
 
-The trained XGBoost model is saved at `models/runs/xgb_tuned/model.json`. Inference: `python models/predict.py --il-smiles "..." --il-molratio 50 ...` or `from models.predict import load_model, predict`.
+## 7. Dimensionality Reduction
 
-## 5. Dimensionality Reduction
+### 7a. PCA vs PLS
 
-### 5a. PCA vs PLS (LANTERN features)
-
-PLS (supervised, target-aware; Wold et al. 2001; Geladi & Kowalski 1986) outperforms PCA (unsupervised) when fit properly. However, naive benchmarking overstates the benefit: fitting PLS on full-dataset targets (including oracle values) is target leakage. The live pipeline avoids this via `Dataset.refit_pls()`, which re-fits PLS each round using only observed training targets.
+PLS (supervised, target-aware; Wold et al. 2001) can outperform PCA but requires careful implementation. Fitting PLS on full-dataset targets is target leakage; the live pipeline re-fits PLS each round using only observed training targets (`Dataset.refit_pls()`).
 
 **Prospective PLS results (5 seeds, no leakage):**
 
-| n_seed | Surrogate | Top-10 | Top-50 | Top-100 | vs Random |
-|--------|-----------|--------|--------|---------|-----------|
-| 500 | XGB Greedy | 22.0% | 18.0% | 14.8% | 2.4x |
-| 500 | XGB-UCB | 20.0% | 15.6% | 13.4% | 2.1x |
-| 500 | Random | 8.0% | 7.6% | 7.6% | 1.0x |
-| 1000 | XGB Greedy | 30.0% | **26.4%** | 21.6% | 3.0x |
-| 1000 | XGB-UCB | 28.0% | 26.0% | 22.0% | 3.0x |
-| 1000 | Random | 10.0% | 8.8% | 8.8% | 1.0x |
+| n_seed | Top-10 | Top-50 | Top-100 | vs Random |
+|--------|--------|--------|---------|-----------|
+| 500 | 10.0 ±15.5% | 19.6 ±11.7% | 19.8 ±4.7% | 2.6x |
+| 1000 | 18.0 ±17.2% | **26.4 ±9.1%** | **28.4 ±6.5%** | 3.0x |
 
-For comparison, leaked PLS (fit on full-dataset targets) showed 59.6% top-50 at n=1000 -- dramatically inflated. Prospective PLS at 26.4% still represents a 3.0x improvement over random and remains the recommended reduction method, since PCA achieves similar recall only with larger seed pools.
+At n=500, PCA (23.6% Top-50) outperforms PLS (19.6%) — supervised reduction overfits at smaller sample sizes. PLS becomes advantageous at n≥1000. Leaked PLS (fit on full-dataset targets) showed 59.6% Top-50 at n=1000 — dramatically inflated.
 
-## 6. Scaling Analysis
+### 7b. Mordred PCA Sweep
 
-### 6a. Seed Pool Size (LANTERN PCA, subset=5000, 10 seeds)
+Mordred's 1613 descriptors require more PCs than Morgan FP's 2048 bits:
+- 5 PCs: 14.8% Top-50 (too aggressive)
+- 10 PCs: 20.8%
+- **20 PCs: 22.8 ±5.3%** (optimal, lowest variance)
+- 50 PCs: 21.2%
 
-Note: These use PCA (unsupervised reduction) on a 5,000-formulation subset. The higher top-50 recall vs Section 5a reflects the smaller pool (top-50 out of 5,000 is easier than out of ~19,800) and PCA's lack of target leakage concerns. For prospective PLS results on the full pool, see Section 5a.
+IL chemical space intrinsic dimensionality is low — ~20 PCs capture the useful variation.
 
-| n_seed | Random Top-50 | XGB Top-50 | BO/Random |
-|--------|--------------|-----------|-----------|
-| 200 | 8.0% | 24.2% | 3.0x |
-| 500 | 15.2% | 37.8% | 2.5x |
-| 1000 | 26.2% | 50.2% | 1.9x |
+## 8. Ablation Study
 
-### 6b. Full LNPDB (no subset, ~19,800 formulations, 10 seeds)
+| Configuration | Top-50 | Delta | Interpretation |
+|---------------|--------|-------|----------------|
+| Random | 7.6% | — | Baseline |
+| Ratios only | 4.8% | -2.8pp | Ratios alone are worse than random |
+| LANTERN IL-only | 20.4% | +15.6pp | **IL structure is the dominant signal** |
+| LANTERN PCA (all roles) | 23.6% | +3.2pp | Helper encoding adds modest signal |
 
-| n_seed | Random Top-50 | XGB Top-50 | BO/Random |
-|--------|--------------|-----------|-----------|
-| 500 | 6.8% | 29.0% | 4.3x |
-| 1000 | 9.6% | 37.2% | 3.9x |
+- **IL structure: +15.6pp** over ratios-only (dominant, highly significant)
+- **Helper lipid encoding: +3.2pp** over IL-only (marginal, within SE at 5 seeds)
+- **Molar ratios: no marginal value** (permutation importance = 0%)
 
-BO's relative advantage increases on larger pools. LANTERN features at n_seed=200 match Morgan PCA at n_seed=500 (2.5x more data-efficient).
+## 9. Context Features (SHAP analysis)
 
-## 7. Best Configuration
+LNPDB spans diverse experimental conditions. One-hot encoding of 6 context columns (cell type, target, cargo, measurement method, route of administration) improves R² from 0.813 to 0.878 (scaffold split).
+
+| Feature Group | SHAP % |
+|---------------|--------|
+| IL fingerprint | 55.5% |
+| Molar ratios | 10.9% |
+| Experiment method | 9.9% |
+| Cargo type | 7.7% |
+| HL fingerprint | 5.6% |
+| Cell type | 3.0% |
+| Mass ratio | 2.8% |
+| Target organ | 2.1% |
+| PEG + CHL fingerprint | 1.5% |
+
+**Molecular: 76.5% / Context: 23.5%.** Context adds real signal — different cell types and cargo types shift the response distribution. The top context feature (`Experiment_method__diameter`) reflects that diameter/zeta measurements are on fundamentally different scales than transfection luminescence.
+
+Script: `scripts/shap_analysis.py`
+
+## 10. Best Configuration
 
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
-| Features | `lantern` (count MFP 2048-bit + RDKit 2D) | 2x better than binary MFP |
-| Reduction | `pls` (5 components, re-fit each round) | Supervised reduction, no leakage |
-| Surrogate | XGBoost greedy (n_estimators=200) | Best broad coverage |
+| Features | `lantern_il_only` | Best Top-10, lowest variance, simplest |
+| Reduction | `pca` (5 components) | Unsupervised, no leakage risk |
+| Surrogate | XGBoost greedy | Best broad coverage |
 | Strategy | Discrete pool scoring | Eliminates NN-matching noise |
-| Batch size | 12 | Standard experimental plate |
-| Seed pool | 500+ formulations | BO non-predictive below ~200 |
+| Batch size | 6 or 12 | 6 with 30r for best Top-50; 12 for convenience |
+| Seed pool | 500+ | BO non-predictive below ~200 |
 
-**Best result:** 26.4% top-50 recall at n_seed=1000 (3.0x vs random), prospective PLS with no target leakage.
+**For Top-10 (finding the best):** `lantern_il_only`, PCA, batch=12, 15 rounds → 24.0% ±4.9%
 
-## 8. Pipeline Integration
+**For Top-50 (finding many good ones):** `lantern_unimol`, PCA, batch=6, 30 rounds → 26.0% ±7.4%
 
-Default configuration:
+**At n_seed=1000:** `lantern`, PLS, batch=12, 15 rounds → 26.4% ±9.1% (3.0x vs random)
+
+## 11. Pipeline Usage
+
 ```bash
-python pipeline.py --subset 500
-# Defaults: --surrogate xgb --feature-type lantern --reduction pls --batch-size 12
+# Recommended (IL-only, most robust)
+python pipeline.py --feature-type lantern_il_only --reduction pca
+
+# Best Top-50 (needs 30 rounds)
+python -m benchmarks.runner --strategies discrete_xgb_greedy --feature-type lantern_unimol --rounds 30 --batch-size 6 --n-seeds 500
+
+# Benchmark comparison
+python -m benchmarks.runner --strategies discrete_xgb_greedy,random --rounds 15 --n-seeds 500 --feature-type lantern_il_only
 ```
 
-GP path (legacy):
-```bash
-python pipeline.py --subset 500 --surrogate gp --feature-type mfp --reduction pca
-```
+## 12. Next Steps
 
-Benchmark:
-```bash
-python -m benchmarks.runner --strategies discrete_xgb_greedy,random --rounds 15 --n-seeds 500 --feature-type lantern --reduction pls
-```
+### 12a. Calibrated Uncertainty (Implemented)
 
-## 9. SHAP Feature Attribution Analysis
+XGB-UCB wraps XGBoost with MAPIE conformal prediction (CV+ method, Barber et al., AoS 2021). Performs comparably to greedy at n=1000 — exploration doesn't help when the pool is large enough that greedy exploitation is effective.
 
-### 9a. Experimental Context Features
+### 12b. Generative Molecular Design (Implemented)
 
-LNPDB formulations span diverse experimental conditions: cell types (HeLa, HepG2, primary hepatocytes, ...), targets (in vitro, liver, spleen, ...), routes of administration (IV, IM, ...), cargo types (mRNA, siRNA, DNA barcode, ...), and measurement methods (luminescence, diameter, zeta potential). We added one-hot encoding of 6 context columns (`data/context.py`) and measured their contribution via SHAP TreeExplainer on the full LNPDB dataset.
+AGILE-lite via `propose-ils`: SELFIES mutations around known ILs, LANTERN+PLS encoding, MAPIE uncertainty, LCB ranking (mean - std), MaxMin diversity selection. See `cli/propose_ils.py`.
 
-### 9b. Setup
+### 12c. Uncertainty Sampling
 
-- **Data**: 14,310 valid formulations (from 16,787 after NaN removal)
-- **Features**: LANTERN (count MFP + RDKit, PLS-reduced to 5 PCs per role) + one-hot context (45 binary columns)
-- **Split**: Murcko scaffold split on IL SMILES (80/20 train/test) — no structural leakage
-- **Model**: XGBoost (500 trees, depth=8, lr=0.05)
-- **Script**: `scripts/shap_analysis.py`
+In the n<200 regime where surrogates are non-predictive, active learning-style uncertainty sampling could improve early-round sample efficiency. Pool-based AL (Settles, 2009) is directly applicable.
 
-### 9c. Results
+### 12d. Mixed-Variable Bayesian Optimization
 
-| Metric | With Context | Without Context |
-|--------|-------------|-----------------|
-| Test R² | **0.878** | 0.813 |
-| Test RMSE | 1.70 | 2.11 |
-| Train R² | 0.983 | 0.984 |
-| Features | 78 (33 mol + 45 ctx) | 33 |
-
-SHAP attribution (with-context model):
-
-| Feature Group | SHAP % | Description |
-|---------------|--------|-------------|
-| IL fingerprint (MFP + RDKit PCs) | 55.5% | Ionizable lipid molecular structure |
-| Molar ratios | 10.9% | Component molar percentages |
-| Context: Experiment_method | 9.9% | Measurement type (luminescence vs diameter vs zeta) |
-| Context: Cargo_type | 7.7% | Payload (mRNA, siRNA, DNA barcode) |
-| HL fingerprint | 5.6% | Helper lipid structure |
-| Context: Model_type | 3.0% | Cell type |
-| Mass ratio | 2.8% | Lipid-to-nucleic-acid ratio |
-| Context: Model_target | 2.1% | Target organ/system |
-| PEG + CHL fingerprint | 1.5% | Minimal signal (few unique molecules) |
-| Context: Route_of_administration | 0.2% | IV, IM, etc. |
-
-**Molecular: 76.5% / Context: 23.5%**
-
-### 9d. Interpretation
-
-1. **IL molecular structure dominates** (55.5%). The PLS-compressed Morgan FP + RDKit descriptors capture the primary structure-activity relationship for transfection.
-
-2. **Context adds real signal** (+6.6 pp in R²). The model legitimately benefits from knowing experimental conditions — different cell types and cargo types shift the response distribution.
-
-3. **Top context feature is `Experiment_method__diameter`** (SHAP 0.175). Diameter/zeta measurements are on fundamentally different scales than transfection luminescence. This is arguably a data cleaning issue: these 10 rows measure physical properties, not transfection. Future work could filter to luminescence-only or treat measurement type as a separate task.
-
-4. **DNA barcode cargo** (SHAP 0.101) is the second-largest context feature. Barcoded library screens produce different value distributions than single-formulation assays.
-
-5. **The honest R² is 0.878** (scaffold split, corrected data). Previous results showing R²>0.98 were artifacts of a many-to-many merge bug in `encode_dataset()` that inflated the dataset from 16,787 to ~43,000 rows with structural duplicates leaking across train/test.
-
-### 9e. Bug Fix: encode_dataset Many-to-Many Merge
-
-`data/dataset.py` line 319 previously merged encoding tables on `{role}_name` alone. Since 299 IL names in LNPDB map to multiple SMILES, this caused many-to-many row expansion (16,787 → 43,368). Fixed by merging on `(name, SMILES)` pairs with a row count assertion. All results in this section use the corrected pipeline.
-
-## 10. Next Steps
-
-Approaches not yet tried that could improve the pipeline:
-
-### 10a. Calibrated Uncertainty (Implemented)
-
-XGB-UCB wraps XGBoost with MAPIE conformal prediction (CV+ method, Barber et al., AoS 2021) to produce calibrated prediction intervals. The `xgb_ucb` surrogate in `optimization/discrete.py` uses `CrossConformalRegressor` at 68% confidence (1-sigma equivalent) and scores candidates as `mean + kappa * half_width`. In benchmarks (Section 5a), XGB-UCB performs comparably to greedy (26.0% vs 26.4% top-50 at n=1000) -- the additional exploration does not help at these sample sizes, possibly because the pool is large enough that greedy exploitation is already effective.
-
-### 10b. Uncertainty Sampling (Active Learning)
-
-In the n<200 regime where surrogates are non-predictive, BO's exploitation focus fails. Switching to active learning-style uncertainty sampling -- selecting formulations where the model is most uncertain -- could improve sample efficiency in early rounds. This is complementary to BO: use AL for exploration when the surrogate is weak, transition to BO exploitation as the model improves. Pool-based AL (Settles, 2009) is directly applicable to the discrete candidate pool setup.
-
-### 10c. Generative Molecular Design (AGILE-style)
-
-The current pipeline selects from a fixed candidate pool of known formulations. AGILE (Xu et al., Nat Commun 2024; DOI: 10.1038/s41467-024-50619-z) demonstrated GNN-guided design of novel ionizable lipid structures -- designing new molecules rather than just optimizing ratios of existing ones. Integrating a generative component (variational autoencoder or reinforcement learning on molecular graphs) could expand the search space beyond LNPDB's existing lipid library. This is the largest potential upside but also the biggest engineering undertaking.
-
-AGILE-lite (local) is now implemented via `propose-ils`: SELFIES mutations around known ILs, LANTERN+PLS encoding fit on training data only, MAPIE uncertainty, LCB ranking (mean - std), MaxMin diversity selection, and nearest-neighbor anchors for each proposal.
-
-### 10d. Mixed-Variable Bayesian Optimization
-
-The current pipeline treats lipid identity as a discrete choice and molar ratios as continuous, but optimizes them separately (discrete pool scoring ignores ratio optimization). CoCaBO (Ru et al., NeurIPS 2020) and CASMOPOLITAN (Wan et al., JMLR 2021) handle mixed categorical-continuous spaces in a unified acquisition function, which could jointly optimize lipid selection and molar ratios in a single BO loop.
-
-### 10e. What Was Not Tried
-
-| Approach | Why Not | Status |
-|----------|---------|--------|
-| COMET (Chan et al., Nat Nanotech 2025) | Ranking loss, 14-molecule training set, incompatible with LNPDB (see Section 3b) | Not applicable |
-| LiON fingerprints in BO loop | Requires separate conda env (Chemprop v1) and trained checkpoint | Infrastructure constraint |
-| Mordred descriptors | Incompatible with numpy 2.x; imported lazily but not benchmarked in BO | Dependency conflict |
-| Multi-fidelity BO | Physical characterization data (size, PDI) exists for only 96 formulations | Insufficient data |
-| Transfer learning across cell types | Only 9 unique HLs, 16 CHLs -- too little structural diversity for meaningful transfer | Limited by data |
+CoCaBO (Ru et al., NeurIPS 2020) and CASMOPOLITAN (Wan et al., JMLR 2021) handle mixed categorical-continuous spaces, which could jointly optimize lipid selection and molar ratios in a single BO loop.
