@@ -9,17 +9,13 @@ Key question: does within-assay-type performance >> cross-assay-type?
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from benchmarks._discrete_common import run_discrete_strategy
-from benchmarks.runner import compute_metrics, prepare_benchmark_data
-from diagnostics.utils import load_lnpdb_clean
+from LNPBO.benchmarks._discrete_common import run_discrete_strategy
+from LNPBO.benchmarks.runner import compute_metrics, prepare_benchmark_data
+from LNPBO.diagnostics.utils import load_lnpdb_clean
 
 
 def _study_split_within_stratum(df, assay_type, seed=42):
@@ -37,8 +33,8 @@ def main() -> int:
     df = load_lnpdb_clean(drop_duplicates=False)
 
     # Assign assay types
-    from diagnostics.utils import _infer_assay_type_row
-    df["assay_type"] = df.apply(_infer_assay_type_row, axis=1)
+    from LNPBO.diagnostics.utils import infer_assay_type_row
+    df["assay_type"] = df.apply(infer_assay_type_row, axis=1)
 
     seeds = [42, 123, 456, 789, 2024]
     assay_types = df["assay_type"].value_counts()

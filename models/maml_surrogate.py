@@ -15,7 +15,6 @@ of Deep Networks", ICML 2017.
 
 import copy
 import json
-import sys
 from collections import OrderedDict
 from pathlib import Path
 
@@ -23,40 +22,14 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
-
-
-class MLP(torch.nn.Module):
-    def __init__(self, in_dim):
-        super().__init__()
-        self.fc1 = torch.nn.Linear(in_dim, 256)
-        self.fc2 = torch.nn.Linear(256, 128)
-        self.fc3 = torch.nn.Linear(128, 1)
-
-    def forward(self, x):
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        return self.fc3(x).squeeze(-1)
-
-    def functional_forward(self, x, params):
-        x = F.relu(F.linear(x, params["fc1.weight"], params["fc1.bias"]))
-        x = F.relu(F.linear(x, params["fc2.weight"], params["fc2.bias"]))
-        return F.linear(x, params["fc3.weight"], params["fc3.bias"]).squeeze(-1)
-
-
-def _study_split(study_ids, study_to_type, seed=42):
-    rng = np.random.RandomState(seed)
-    train_ids, test_ids = set(), set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-    return train_ids, test_ids
+from LNPBO.diagnostics.utils import (
+    build_study_type_map,
+    encode_lantern_il,
+    lantern_il_feature_cols,
+    load_lnpdb_clean,
+    study_split,
+)
+from LNPBO.models.surrogate_mlp import SurrogateMLP
 
 
 def maml_train(model, X, y, study_ids, train_study_ids,
@@ -242,7 +215,7 @@ def erm_baseline(
 
     # Train ERM model on all training studies
     train_idx = np.concatenate([np.where(study_ids == sid)[0] for sid in train_ids])
-    model = MLP(X.shape[1])
+    model = SurrogateMLP(X.shape[1])
     opt = torch.optim.Adam(model.parameters(), lr=1e-3)
     for _ in range(100):
         pred = model(X_t[train_idx])
@@ -268,12 +241,8 @@ def main() -> int:
 
     study_ids = df["study_id"].astype(str).values
 
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[str(sid)] = assay_type
-
-    train_ids, test_ids = _study_split(np.unique(study_ids), study_to_type, seed=42)
+    study_to_type = build_study_type_map(df)
+    train_ids, test_ids = study_split(np.unique(study_ids), study_to_type, seed=42)
 
     train_idx = [i for i, sid in enumerate(study_ids) if sid in train_ids]
     test_idx = [i for i, sid in enumerate(study_ids) if sid in test_ids]
@@ -294,7 +263,7 @@ def main() -> int:
 
     # MAML training
     print("\n=== MAML Training ===")
-    model = MLP(X.shape[1])
+    model = SurrogateMLP(X.shape[1])
     model = maml_train(model, X, y, study_ids, train_ids,
                        inner_lr=0.01, outer_lr=1e-3, inner_steps=3,
                        n_episodes=5000, support_size=10, query_size=10)

@@ -3,7 +3,6 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,38 +10,16 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import OneHotEncoder
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
-
-
-def _study_split(df, seed=42):
-    rng = np.random.RandomState(seed)
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-
-    train_idx = df.index[df["study_id"].isin(train_ids)].tolist()
-    test_idx = df.index[df["study_id"].isin(test_ids)].tolist()
-    return train_idx, test_idx
+from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, study_split
 
 
 def main() -> int:
     df = load_lnpdb_clean(drop_duplicates=False)
     df = df.dropna(subset=["IL_SMILES", "Experiment_value"]).reset_index(drop=True)
 
-    train_idx, test_idx = _study_split(df, seed=42)
+    _train_ids, _test_ids = study_split(df, seed=42)
+    train_idx = df.index[df["study_id"].isin(_train_ids)].tolist()
+    test_idx = df.index[df["study_id"].isin(_test_ids)].tolist()
 
     train_enc, test_enc, _ = encode_lantern_il(df, train_idx=train_idx, test_idx=test_idx, reduction="pca")
     feat_cols = lantern_il_feature_cols(train_enc)

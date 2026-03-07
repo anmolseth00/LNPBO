@@ -3,7 +3,6 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -12,31 +11,8 @@ from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 from xgboost import XGBRegressor
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
-
-
-def _study_split(df, seed=42):
-    rng = np.random.RandomState(seed)
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-
-    train_mask = df["study_id"].isin(train_ids)
-    test_mask = df["study_id"].isin(test_ids)
-    return train_mask.values, test_mask.values
+from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, study_split
+from LNPBO.models.surrogate_mlp import SurrogateMLP
 
 
 def _split_calibration(mask, seed=42):
@@ -131,13 +107,7 @@ def fit_vrex_mlp(X, y, study_ids, train_idx, epochs=100, lr=1e-3, lambda_rex=1.0
     X_t = torch.tensor(X, dtype=torch.float32)
     y_t = torch.tensor(y, dtype=torch.float32)
 
-    model = torch.nn.Sequential(
-        torch.nn.Linear(X.shape[1], 256),
-        torch.nn.ReLU(),
-        torch.nn.Linear(256, 128),
-        torch.nn.ReLU(),
-        torch.nn.Linear(128, 1),
-    )
+    model = SurrogateMLP(X.shape[1])
     opt = torch.optim.Adam(model.parameters(), lr=lr)
 
     train_studies = np.unique(study_ids[train_idx])
@@ -149,7 +119,7 @@ def fit_vrex_mlp(X, y, study_ids, train_idx, epochs=100, lr=1e-3, lambda_rex=1.0
             idx = train_idx[study_ids[train_idx] == sid]
             if len(idx) == 0:
                 continue
-            pred = model(X_t[idx]).squeeze(-1)
+            pred = model(X_t[idx])
             loss = torch.mean((pred - y_t[idx]) ** 2)
             losses.append(loss)
         if not losses:
@@ -163,7 +133,7 @@ def fit_vrex_mlp(X, y, study_ids, train_idx, epochs=100, lr=1e-3, lambda_rex=1.0
 
 def predict_mlp(model, X):
     with torch.no_grad():
-        return model(torch.tensor(X, dtype=torch.float32)).squeeze(-1).cpu().numpy()
+        return model(torch.tensor(X, dtype=torch.float32)).cpu().numpy()
 
 
 def main() -> int:
@@ -177,7 +147,9 @@ def main() -> int:
     y = encoded["Experiment_value"].values
     study_ids = df["study_id"].astype(str).values
 
-    train_mask, test_mask = _study_split(df, seed=42)
+    train_ids, test_ids = study_split(df, seed=42)
+    train_mask = df["study_id"].isin(train_ids).values
+    test_mask = df["study_id"].isin(test_ids).values
     train_idx, cal_idx = _split_calibration(train_mask, seed=42)
 
     scaler = StandardScaler().fit(X[train_idx])

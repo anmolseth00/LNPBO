@@ -3,73 +3,14 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 import torch
 from sklearn.metrics import r2_score
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
-
-
-def _study_split(study_ids, study_to_type, seed=42):
-    rng = np.random.RandomState(seed)
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-    return train_ids, test_ids
-
-
-def prepare_data(min_n=5):
-    df = load_lnpdb_clean(drop_duplicates=False)
-    df = df.dropna(subset=["IL_SMILES", "Experiment_value"]).reset_index(drop=True)
-
-    study_sizes = df.groupby("study_id").size()
-    keep_ids = study_sizes[study_sizes >= min_n].index
-    df = df[df["study_id"].isin(keep_ids)].reset_index(drop=True)
-
-    encoded, _ = encode_lantern_il(df, reduction="pca")
-    feat_cols = lantern_il_feature_cols(encoded)
-
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids, test_ids = _study_split(df["study_id"].unique(), study_to_type, seed=42)
-
-    train_mask = df["study_id"].isin(train_ids)
-    test_mask = df["study_id"].isin(test_ids)
-
-    X = encoded[feat_cols].values.astype(np.float32)
-    y = encoded["Experiment_value"].values.astype(np.float32)
-    study_ids = df["study_id"].astype(str).values
-
-    return X, y, study_ids, train_mask.values, test_mask.values
-
-
-class MLP(torch.nn.Module):
-    def __init__(self, in_dim):
-        super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(in_dim, 256),
-            torch.nn.ReLU(),
-            torch.nn.Linear(256, 128),
-            torch.nn.ReLU(),
-            torch.nn.Linear(128, 1),
-        )
-
-    def forward(self, x):
-        return self.net(x).squeeze(-1)
+from LNPBO.diagnostics.utils import prepare_study_data
+from LNPBO.models.surrogate_mlp import SurrogateMLP
 
 
 def train_groupdro(X, y, study_ids, train_mask, eta=0.01, epochs=200, lr=1e-3):
@@ -77,7 +18,7 @@ def train_groupdro(X, y, study_ids, train_mask, eta=0.01, epochs=200, lr=1e-3):
     X_t = torch.tensor(X, device=device)
     y_t = torch.tensor(y, device=device)
 
-    model = MLP(X.shape[1]).to(device)
+    model = SurrogateMLP(X.shape[1]).to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
 
     train_idx = np.where(train_mask)[0]
@@ -132,7 +73,7 @@ def worst_k_study_r2(y_true, preds, study_ids, mask, k=5):
 
 
 def main() -> int:
-    X, y, study_ids, train_mask, test_mask = prepare_data(min_n=5)
+    X, y, study_ids, train_mask, test_mask = prepare_study_data(min_n=5)
 
     etas = [0.001, 0.01, 0.1]
     results = {}

@@ -3,36 +3,13 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from benchmarks._discrete_common import run_discrete_strategy
-from benchmarks.runner import compute_metrics, prepare_benchmark_data
-from diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
-
-
-def _study_split(df, seed=42):
-    rng = np.random.RandomState(seed)
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-
-    return train_ids, test_ids
+from LNPBO.benchmarks._discrete_common import run_discrete_strategy
+from LNPBO.benchmarks.runner import compute_metrics, prepare_benchmark_data
+from LNPBO.diagnostics.utils import build_study_type_map, load_lnpdb_clean, study_split
 
 
 def main() -> int:
@@ -40,6 +17,10 @@ def main() -> int:
 
     seeds = [42, 123, 456, 789, 2024]
     configs = ["lantern_il_only"]
+
+    # Build study-type map once (deterministic, doesn't depend on seed)
+    study_to_type = build_study_type_map(df)
+    all_study_ids = df["study_id"].unique()
 
     all_results = {}
     for config in configs:
@@ -50,7 +31,7 @@ def main() -> int:
         per_seed = []
         for seed in seeds:
             # Study-level split
-            train_ids, test_ids = _study_split(df, seed=seed)
+            train_ids, test_ids = study_split(all_study_ids, study_to_type, seed=seed)
             encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
                 n_seed=500,
                 random_seed=seed,

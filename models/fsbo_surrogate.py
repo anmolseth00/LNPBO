@@ -24,37 +24,22 @@ with Deep Kernel Surrogates", ICLR 2021.
 
 
 import json
-import sys
 import warnings
 from pathlib import Path
 
 import numpy as np
 import torch
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import (
+from LNPBO.diagnostics.utils import (
+    build_study_type_map,
     encode_lantern_il,
     lantern_il_feature_cols,
     load_lnpdb_clean,
-    summarize_study_assay_types,
+    study_split,
 )
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=FutureWarning)
-
-
-def _study_split(study_ids, study_to_type, seed=42):
-    rng = np.random.RandomState(seed)
-    train_ids, test_ids = set(), set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-    return train_ids, test_ids
 
 
 def _normalize_X(X, bounds=None):
@@ -303,12 +288,8 @@ def main() -> int:
 
     study_ids = df["study_id"].astype(str).values
 
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[str(sid)] = assay_type
-
-    train_ids, test_ids = _study_split(np.unique(study_ids), study_to_type, seed=42)
+    study_to_type = build_study_type_map(df)
+    train_ids, test_ids = study_split(np.unique(study_ids), study_to_type, seed=42)
 
     train_idx = [i for i, sid in enumerate(study_ids) if sid in train_ids]
     test_idx = [i for i, sid in enumerate(study_ids) if sid in test_ids]

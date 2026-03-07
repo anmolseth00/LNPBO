@@ -3,7 +3,6 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -11,34 +10,8 @@ from sklearn.metrics import r2_score
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBRegressor
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, summarize_study_assay_types
-from models.splits import scaffold_split
-
-
-def _study_split(df, seed=42):
-    rng = np.random.RandomState(seed)
-
-    # Stratify by assay_type
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-
-    train_idx = df.index[df["study_id"].isin(train_ids)].tolist()
-    test_idx = df.index[df["study_id"].isin(test_ids)].tolist()
-    return train_idx, test_idx
+from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, study_split
+from LNPBO.models.splits import scaffold_split
 
 
 def _fit_xgb(X_train, y_train, seed=42):
@@ -118,7 +91,9 @@ def main() -> int:
     results.append(evaluate_split(df, "formulation_scaffold", train_idx, test_idx, seed=42))
 
     # Study-level split
-    train_idx_s, test_idx_s = _study_split(df, seed=42)
+    _train_ids, _test_ids = study_split(df, seed=42)
+    train_idx_s = df.index[df["study_id"].isin(_train_ids)].tolist()
+    test_idx_s = df.index[df["study_id"].isin(_test_ids)].tolist()
     results.append(evaluate_split(df, "study_level", train_idx_s, test_idx_s, seed=42))
 
     out_path = Path("diagnostics") / "permutation_decomposition.json"

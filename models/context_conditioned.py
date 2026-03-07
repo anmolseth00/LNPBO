@@ -13,43 +13,20 @@ Evaluation:
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from data.context import encode_context
-from diagnostics.utils import (
+from LNPBO.data.context import encode_context
+from LNPBO.diagnostics.utils import (
+    build_study_type_map,
     encode_lantern_il,
     lantern_il_feature_cols,
     load_lnpdb_clean,
-    summarize_study_assay_types,
+    study_split,
 )
-
-
-def _study_split(df, seed=42):
-    """80/20 study-level split, stratified by assay type."""
-    rng = np.random.RandomState(seed)
-    study_to_type = {}
-    for sid, sdf in df.groupby("study_id"):
-        assay_type, _ = summarize_study_assay_types(sdf)
-        study_to_type[sid] = assay_type
-
-    train_ids = set()
-    test_ids = set()
-    for assay_type in sorted(set(study_to_type.values())):
-        ids = [sid for sid, at in study_to_type.items() if at == assay_type]
-        rng.shuffle(ids)
-        cut = max(1, int(0.8 * len(ids))) if len(ids) > 1 else len(ids)
-        train_ids.update(ids[:cut])
-        test_ids.update(ids[cut:])
-
-    return train_ids, test_ids
 
 
 def _train_xgb(X_train, y_train, seed=42):
@@ -130,6 +107,10 @@ def main() -> int:
         "molecular_plus_context": all_feat_cols,
     }
 
+    # Build study-type map once (deterministic, doesn't depend on seed)
+    study_to_type = build_study_type_map(encoded)
+    all_study_ids = encoded["study_id"].unique()
+
     results = {}
 
     # --- Cross-study evaluation ---
@@ -143,7 +124,7 @@ def main() -> int:
         within_r2s_all = []
 
         for seed in seeds:
-            train_ids, test_ids = _study_split(encoded, seed=seed)
+            train_ids, test_ids = study_split(all_study_ids, study_to_type, seed=seed)
             train_mask = encoded["study_id"].isin(train_ids)
             test_mask = encoded["study_id"].isin(test_ids)
 
@@ -194,7 +175,7 @@ def main() -> int:
     print("FEATURE IMPORTANCE (molecular + context, seed=42)")
     print("=" * 70)
 
-    train_ids, test_ids = _study_split(encoded, seed=42)
+    train_ids, test_ids = study_split(all_study_ids, study_to_type, seed=42)
     train_mask = encoded["study_id"].isin(train_ids)
 
     X_train = encoded.loc[train_mask, all_feat_cols].values
