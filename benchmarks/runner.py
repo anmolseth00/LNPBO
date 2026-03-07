@@ -146,7 +146,7 @@ class LNPDBOracle:
 # ---------------------------------------------------------------------------
 
 
-def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False, fp_radius=None, fp_bits=None):
+def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp", n_pcs=None, context_features=False, fp_radius=None, fp_bits=None, data_df=None):
     """Load LNPDB, encode, split into seed/oracle."""
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
@@ -162,8 +162,14 @@ def prepare_benchmark_data(n_seed=500, random_seed=42, subset=None, reduction="p
     effective_reduction = "none" if (is_raw or is_ratios_only) else reduction
 
     print(f"Loading LNPDB (reduction={effective_reduction}, features={feature_type})...")
-    dataset = load_lnpdb_full()
-    df = dataset.df
+    if data_df is None:
+        dataset = load_lnpdb_full()
+        df = dataset.df
+    else:
+        df = data_df.copy()
+        if "Formulation_ID" not in df.columns:
+            df["Formulation_ID"] = range(1, len(df) + 1)
+        dataset = Dataset(df, source="lnpdb", name="LNPDB_benchmark")
 
     if subset and subset < len(df):
         df = df.sample(n=subset, random_state=random_seed).reset_index(drop=True)

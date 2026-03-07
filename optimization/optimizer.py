@@ -101,6 +101,13 @@ class Optimizer:
         if missing:
             raise ValueError(f"Candidate pool missing feature columns: {missing}")
 
+        # Drop rows with missing feature values (training + pool)
+        train_mask = dataset.df[feature_cols].notna().all(axis=1)
+        if not train_mask.all():
+            n_drop = int((~train_mask).sum())
+            print(f"  Dropped {n_drop} training rows with missing features")
+        train_df = dataset.df.loc[train_mask].copy()
+
         # Deduplicate pool by composition to avoid suggesting the same formulation twice.
         # Use lipid names + ratios (what the scientist actually makes), not feature vectors.
         composition_cols = [c for c in [
@@ -115,8 +122,17 @@ class Optimizer:
             if n_deduped > 0:
                 print(f"  Deduplicated pool: {n_before:,} -> {len(pool_df):,} ({n_deduped:,} duplicates removed)")
 
-        X_train = dataset.df[feature_cols].values
-        y_train = dataset.df["Experiment_value"].values
+        pool_mask = pool_df[feature_cols].notna().all(axis=1)
+        if not pool_mask.all():
+            n_drop = int((~pool_mask).sum())
+            print(f"  Dropped {n_drop} pool rows with missing features")
+            pool_df = pool_df.loc[pool_mask].copy()
+
+        if pool_df.empty or train_df.empty:
+            raise ValueError("No valid rows available after dropping missing features.")
+
+        X_train = train_df[feature_cols].values
+        y_train = train_df["Experiment_value"].values
         X_pool = pool_df[feature_cols].values
 
         top_indices, _ = score_candidate_pool(
@@ -308,4 +324,3 @@ class Optimizer:
         # Filter to columns that actually exist
         ordered_cols = [c for c in ordered_cols if c in df_final.columns]
         return df_final[ordered_cols]
-
