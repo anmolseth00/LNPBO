@@ -1,0 +1,576 @@
+{
+  "n_train_studies": 31,
+  "n_test_studies": 8,
+  "n_rows": 19157,
+  "n_features": 10,
+  "meta_params": {
+    "lengthscales_mean": 0.8106057714798339,
+    "lengthscales_std": 0.7724681229231202,
+    "noise": 0.8319722982698293,
+    "mean_constant": -0.03332265980128007
+  },
+  "fsbo": {
+    "5": {
+      "mean_top10_recall": 0.4625,
+      "mean_top50_recall": 0.3933333333333333,
+      "n_studies_evaluated": 8
+    },
+    "10": {
+      "mean_top10_recall": 0.375,
+      "mean_top50_recall": 0.40166666666666667,
+      "n_studies_evaluated": 8
+    },
+    "20": {
+      "mean_top10_recall": 0.425,
+      "mean_top50_recall": 0.43333333333333335,
+      "n_studies_evaluated": 8
+    }
+  },
+  "cold_start_gp": {
+    "5": {
+      "mean_top10_recall": 0.44999999999999996,
+      "mean_top50_recall": 0.3783333333333333,
+      "n_studies_evaluated": 8
+    },
+    "10": {
+      "mean_top10_recall": 0.4125,
+      "mean_top50_recall": 0.4116666666666666,
+      "n_studies_evaluated": 8
+    },
+    "20": {
+      "mean_top10_recall": 0.39999999999999997,
+      "mean_top50_recall": 0.43333333333333335,
+      "n_studies_evaluated": 8
+    }
+  },
+  "random": {
+    "5": {
+      "mean_top10_recall": 0.3625,
+      "mean_top50_recall": 0.3825,
+      "n_studies_evaluated": 8
+    },
+    "10": {
+      "mean_top10_recall": 0.3875,
+      "mean_top50_recall": 0.4,
+      "n_studies_evaluated": 8
+    },
+    "20": {
+      "mean_top10_recall": 0.4375,
+      "mean_top50_recall": 0.43000000000000005,
+      "n_studies_evaluated": 8
+    }
+  },
+  "fsbo_per_study": {
+    "5": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.2,
+        "top50_recall": 0.16,
+        "best_found": 3.878274157,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 5,
+        "n_observed": 29,
+        "top10_recall": 1.0,
+        "top50_recall": 0.9666666666666667,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.1,
+        "top50_recall": 0.1,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.5,
+        "top50_recall": 0.56,
+        "best_found": 0.944644174,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.1,
+        "top50_recall": 0.12,
+        "best_found": 1.952411924,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.2,
+        "top50_recall": 0.2,
+        "best_found": 3.627182454,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.6,
+        "top50_recall": 0.36,
+        "best_found": 3.689869287,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 1.0,
+        "top50_recall": 0.68,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ],
+    "10": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.2,
+        "top50_recall": 0.1,
+        "best_found": 3.878274157,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 10,
+        "n_observed": 28,
+        "top10_recall": 0.8,
+        "top50_recall": 0.9333333333333333,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.1,
+        "top50_recall": 0.1,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.5,
+        "top50_recall": 0.7,
+        "best_found": 1.105676091,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.1,
+        "top50_recall": 0.04,
+        "best_found": 1.952411924,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.0,
+        "top50_recall": 0.08,
+        "best_found": 1.693547834,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.5,
+        "top50_recall": 0.46,
+        "best_found": 1.727524144,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.8,
+        "top50_recall": 0.8,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ],
+    "20": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.2,
+        "top50_recall": 0.12,
+        "best_found": 3.820367389,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 20,
+        "n_observed": 26,
+        "top10_recall": 0.7,
+        "top50_recall": 0.8666666666666667,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.06,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.9,
+        "top50_recall": 0.84,
+        "best_found": 1.105676091,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.08,
+        "best_found": 2.554332042,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.12,
+        "best_found": 2.35010035,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.5,
+        "top50_recall": 0.48,
+        "best_found": 3.689869287,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.8,
+        "top50_recall": 0.9,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ]
+  },
+  "cold_start_per_study": {
+    "5": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.2,
+        "top50_recall": 0.14,
+        "best_found": 3.878274157,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 5,
+        "n_observed": 29,
+        "top10_recall": 1.0,
+        "top50_recall": 0.9666666666666667,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.1,
+        "top50_recall": 0.1,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.5,
+        "top50_recall": 0.5,
+        "best_found": 0.962717268,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.0,
+        "top50_recall": 0.1,
+        "best_found": 1.885012985,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.2,
+        "top50_recall": 0.18,
+        "best_found": 3.627182454,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 0.6,
+        "top50_recall": 0.38,
+        "best_found": 3.689869287,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 5,
+        "n_observed": 65,
+        "top10_recall": 1.0,
+        "top50_recall": 0.66,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ],
+    "10": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.2,
+        "top50_recall": 0.12,
+        "best_found": 3.878274157,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 10,
+        "n_observed": 28,
+        "top10_recall": 0.8,
+        "top50_recall": 0.9333333333333333,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.1,
+        "top50_recall": 0.1,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.8,
+        "top50_recall": 0.78,
+        "best_found": 1.105676091,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.1,
+        "top50_recall": 0.04,
+        "best_found": 1.952411924,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.0,
+        "top50_recall": 0.08,
+        "best_found": 1.693547834,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.5,
+        "top50_recall": 0.46,
+        "best_found": 3.689869287,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 10,
+        "n_observed": 70,
+        "top10_recall": 0.8,
+        "top50_recall": 0.78,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ],
+    "20": [
+      {
+        "study_id": "31570898.0",
+        "n_in_study": 1128,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.2,
+        "top50_recall": 0.12,
+        "best_found": 3.820367389,
+        "study_max": 4.472089488
+      },
+      {
+        "study_id": "32080183.0",
+        "n_in_study": 30,
+        "k_shots": 20,
+        "n_observed": 26,
+        "top10_recall": 0.7,
+        "top50_recall": 0.8666666666666667,
+        "best_found": 1.961949189,
+        "study_max": 1.961949189
+      },
+      {
+        "study_id": "35879315.0",
+        "n_in_study": 1080,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.06,
+        "best_found": 3.71723523,
+        "study_max": 4.329460088
+      },
+      {
+        "study_id": "37853662.0",
+        "n_in_study": 131,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.7,
+        "top50_recall": 0.86,
+        "best_found": 1.105676091,
+        "study_max": 1.105676091
+      },
+      {
+        "study_id": "37985700.0",
+        "n_in_study": 1902,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.08,
+        "best_found": 2.554332042,
+        "study_max": 2.661572817
+      },
+      {
+        "study_id": "38740955.0",
+        "n_in_study": 611,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.1,
+        "top50_recall": 0.1,
+        "best_found": 2.35010035,
+        "study_max": 4.620220094
+      },
+      {
+        "study_id": "38969646.0",
+        "n_in_study": 140,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.5,
+        "top50_recall": 0.48,
+        "best_found": 3.689869287,
+        "study_max": 3.689869287
+      },
+      {
+        "study_id": "40234552.0",
+        "n_in_study": 91,
+        "k_shots": 20,
+        "n_observed": 80,
+        "top10_recall": 0.8,
+        "top50_recall": 0.9,
+        "best_found": 0.477611216,
+        "study_max": 0.477611216
+      }
+    ]
+  },
+  "maml_reference": {
+    "5": {
+      "mean_top10_recall": 0.35,
+      "mean_top50_recall": 0.36333333333333334,
+      "n_studies_evaluated": 8
+    },
+    "10": {
+      "mean_top10_recall": 0.32499999999999996,
+      "mean_top50_recall": 0.37416666666666665,
+      "n_studies_evaluated": 8
+    },
+    "20": {
+      "mean_top10_recall": 0.3875,
+      "mean_top50_recall": 0.4033333333333333,
+      "n_studies_evaluated": 8
+    }
+  }
+}
