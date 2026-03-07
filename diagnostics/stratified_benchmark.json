@@ -1,0 +1,206 @@
+{
+  "in_vitro_single_formulation": {
+    "summary": {
+      "n_seeds": 5,
+      "top10_mean": 0.1,
+      "top50_mean": 0.132,
+      "top100_mean": 0.128,
+      "top10_std": 0.0894427190999916,
+      "top50_std": 0.05741080037762929,
+      "top100_std": 0.0256124969497314
+    },
+    "per_seed": [
+      {
+        "final_best": 5.468071128,
+        "auc": 5.468071128000001,
+        "top_k_recall": {
+          "10": 0.2,
+          "50": 0.1,
+          "100": 0.12
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 5.204579094,
+        "auc": 5.204579093999998,
+        "top_k_recall": {
+          "10": 0.0,
+          "50": 0.14,
+          "100": 0.13
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 5.468071128,
+        "auc": 5.468071128000001,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.08,
+          "100": 0.13
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.544497192,
+        "auc": 4.490980653700001,
+        "top_k_recall": {
+          "10": 0.0,
+          "50": 0.24,
+          "100": 0.17
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 5.468071128,
+        "auc": 5.468071128000001,
+        "top_k_recall": {
+          "10": 0.2,
+          "50": 0.1,
+          "100": 0.09
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      }
+    ]
+  },
+  "in_vivo_liver": {
+    "summary": {
+      "n_seeds": 5,
+      "top10_mean": 0.96,
+      "top50_mean": 0.9640000000000001,
+      "top100_mean": 0.958,
+      "top10_std": 0.04898979485566354,
+      "top50_std": 0.023323807579381222,
+      "top100_std": 0.021354156504062614
+    },
+    "per_seed": [
+      {
+        "final_best": 5.204579094,
+        "auc": 5.204579093999998,
+        "top_k_recall": {
+          "10": 0.9,
+          "50": 0.94,
+          "100": 0.93
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 5.204579094,
+        "auc": 5.204579093999998,
+        "top_k_recall": {
+          "10": 0.9,
+          "50": 0.96,
+          "100": 0.96
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 6.038629821,
+        "auc": 6.038629821,
+        "top_k_recall": {
+          "10": 1.0,
+          "50": 0.94,
+          "100": 0.94
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 6.038629821,
+        "auc": 6.038629821,
+        "top_k_recall": {
+          "10": 1.0,
+          "50": 0.98,
+          "100": 0.97
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 6.038629821,
+        "auc": 6.038629821,
+        "top_k_recall": {
+          "10": 1.0,
+          "50": 1.0,
+          "100": 0.99
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      }
+    ]
+  },
+  "in_vivo_other": {
+    "summary": {
+      "n_seeds": 5,
+      "top10_mean": 0.62,
+      "top50_mean": 0.612,
+      "top100_mean": 0.6060000000000001,
+      "top10_std": 0.17204650534085253,
+      "top50_std": 0.04118252056394801,
+      "top100_std": 0.030066592756745846
+    },
+    "per_seed": [
+      {
+        "final_best": 3.237135076,
+        "auc": 3.2371350760000004,
+        "top_k_recall": {
+          "10": 0.6,
+          "50": 0.62,
+          "100": 0.63
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.095499043,
+        "auc": 4.095499042999999,
+        "top_k_recall": {
+          "10": 0.9,
+          "50": 0.68,
+          "100": 0.65
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.095499043,
+        "auc": 4.095499042999999,
+        "top_k_recall": {
+          "10": 0.7,
+          "50": 0.56,
+          "100": 0.57
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 3.565285689,
+        "auc": 3.5652856889999995,
+        "top_k_recall": {
+          "10": 0.4,
+          "50": 0.58,
+          "100": 0.6
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 3.237135076,
+        "auc": 3.1900451217,
+        "top_k_recall": {
+          "10": 0.5,
+          "50": 0.62,
+          "100": 0.58
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      }
+    ]
+  }
+}
