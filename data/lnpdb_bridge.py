@@ -102,6 +102,7 @@ _LNPDB_CSV_USECOLS = [
     "PEG_molratio",
     "Experiment_value",
     # Useful metadata
+    "Model",
     "Model_type",
     "Model_target",
     "Route_of_administration",
@@ -150,8 +151,9 @@ def _peek_columns(path: Path) -> list[str]:
 
 def load_lnpdb_full(
     drop_missing_values: bool = True,
-    drop_duplicates: bool = True,
+    drop_duplicates: bool = False,
     drop_unnormalized: bool = True,
+    use_zscore_source: bool = True,
 ) -> Dataset:
     """Load the complete LNPDB dataset (~19,800 rows) as a Dataset.
 
@@ -160,12 +162,21 @@ def load_lnpdb_full(
     drop_missing_values : bool
         If True, drop rows where any LNPDB_REQUIRED_COLUMNS value is NaN.
     drop_duplicates : bool
-        If True, deduplicate on the formulation feature columns.
+        If True, deduplicate on formulation composition. Use with care:
+        the same formulation appears across multiple studies and should
+        generally be kept to preserve study-level variation.
     drop_unnormalized : bool
         If True, remove formulations with unnormalized Experiment_value.
-        LNPDB z-scores per study (mean=0, std=1), but PMID 38424061 has
-        8 formulations with raw values (135-215) that were never normalized.
-        These corrupt Top-K rankings and distort all downstream analysis.
+        LNPDB is z-scored per Experiment_ID (mean=0, std=1). Values >10
+        are implausible z-scores. This filter is applied AFTER z-score
+        replacement when use_zscore_source=True.
+    use_zscore_source : bool
+        If True (default), replace Experiment_value with the authoritative
+        z-scored values from all_data_all.csv. LNPDB.csv contains a mix
+        of raw and z-scored Experiment_value for ~8,800 rows due to the
+        database being updated after all_data_all.csv was generated.
+        The z-scoring is per Experiment_ID (≈per paper), covering all
+        measurement methods within a study (luminescence, uptake, etc.).
 
     Returns
     -------
@@ -178,10 +189,17 @@ def load_lnpdb_full(
 
     df = _read_lnpdb_csv(csv_path)
 
+    if use_zscore_source:
+        zscore_path = _lion_dir() / "all_data_all.csv"
+        if zscore_path.exists():
+            zscore_df = pd.read_csv(zscore_path, usecols=["LNP_ID", "Experiment_value"])
+            zscore_map = zscore_df.set_index("LNP_ID")["Experiment_value"]
+            mask = df["LNP_ID"].isin(zscore_map.index)
+            n_replaced = mask.sum()
+            df.loc[mask, "Experiment_value"] = df.loc[mask, "LNP_ID"].map(zscore_map)
+            print(f"  Replaced Experiment_value with z-scored values for {n_replaced} rows")
+
     if drop_unnormalized and "Experiment_value" in df.columns:
-        # LNPDB is z-scored per study (mean≈0, std≈1). Values >10 are
-        # implausible as z-scores and indicate normalization failure.
-        # All known cases are from PMID 38424061 (8 formulations, values 135-215).
         bad_mask = df["Experiment_value"].abs() > 10
         n_bad = bad_mask.sum()
         if n_bad > 0:
