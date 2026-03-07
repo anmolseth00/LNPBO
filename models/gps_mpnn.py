@@ -17,7 +17,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph, MolGraph, mol_to_graph
+
+from LNPBO.models.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph, MolGraph, mol_to_graph
 
 # ---------------------------------------------------------------------------
 # RWSE computation

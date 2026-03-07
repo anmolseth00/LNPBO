@@ -12,21 +12,16 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import torch
 import torch.nn as nn
-from featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
-from gps_mpnn import MultiComponentGPS, make_graph_fn
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from data import (
+from LNPBO.models.data import (
     TABULAR_CONTINUOUS_COLS,
     LNPDataset,
     encode_categoricals,
@@ -35,6 +30,8 @@ from data import (
     make_dataloader,
     scaffold_split,
 )
+from LNPBO.models.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
+from LNPBO.models.gps_mpnn import MultiComponentGPS, make_graph_fn
 
 
 def parse_args() -> argparse.Namespace:

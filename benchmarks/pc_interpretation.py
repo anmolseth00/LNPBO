@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """Interpret IL count_mfp PCA components — what chemical variation do they capture?"""
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
 import numpy as np
 from scipy.stats import spearmanr
 

@@ -5,11 +5,6 @@ Uses SHAP TreeExplainer (exact for tree models) and sklearn permutation
 importance to avoid XGBoost gain-based bias toward correlated features.
 """
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
 import numpy as np
 from xgboost import XGBRegressor
 

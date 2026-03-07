@@ -14,7 +14,6 @@ are distributionally equal across studies (Levene test for equal variance).
 
 
 import json
-import sys
 from itertools import combinations
 from pathlib import Path
 
@@ -22,10 +21,7 @@ import numpy as np
 from scipy.stats import f_oneway, levene
 from sklearn.linear_model import LinearRegression
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
 
 
 def test_invariance(X, y, study_ids, feature_subset, alpha=0.05):

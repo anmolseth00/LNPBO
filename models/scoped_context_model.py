@@ -7,7 +7,6 @@ improves cross-study R² when scoped to a single cell type and cargo.
 
 
 import json
-import sys
 from pathlib import Path
 from typing import Any
 
@@ -15,11 +14,8 @@ import numpy as np
 from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from data.context import encode_context
-from diagnostics.utils import (
+from LNPBO.data.context import encode_context
+from LNPBO.diagnostics.utils import (
     encode_lantern_il,
     lantern_il_feature_cols,
     load_lnpdb_clean,
@@ -278,7 +274,7 @@ def main() -> int:
     helps = ctx_cross > mol_cross
     print(f"\n  Context helps cross-study? {helps} (delta={ctx_cross - mol_cross:+.4f})")
 
-    out_path = PROJECT_ROOT / "models" / "scoped_context_results.json"
+    out_path = Path(__file__).resolve().parent / "scoped_context_results.json"
     out_path.write_text(json.dumps(results, indent=2))
     print(f"\nSaved {out_path}")
 

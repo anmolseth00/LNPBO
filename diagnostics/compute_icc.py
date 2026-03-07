@@ -3,17 +3,13 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 from scipy.optimize import minimize
 from scipy.stats import chi2
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import load_lnpdb_clean
+from LNPBO.diagnostics.utils import load_lnpdb_clean
 
 
 def _group_summaries(y: np.ndarray, groups: np.ndarray):

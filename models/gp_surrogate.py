@@ -3,7 +3,6 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import torch
@@ -11,12 +10,9 @@ from scipy.stats import norm
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import StandardScaler
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.compute_icc import fit_reml_random_intercept
-from diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
-from models.splits import scaffold_split
+from LNPBO.diagnostics.compute_icc import fit_reml_random_intercept
+from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+from LNPBO.models.splits import scaffold_split
 
 
 class ExactGPModel(torch.nn.Module):

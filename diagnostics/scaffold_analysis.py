@@ -19,11 +19,8 @@ from rdkit.Chem.Scaffolds.MurckoScaffold import GetScaffoldForMol
 from scipy import stats
 from xgboost import XGBRegressor
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from benchmarks.runner import prepare_benchmark_data
-from diagnostics.utils import load_lnpdb_clean
+from LNPBO.benchmarks.runner import prepare_benchmark_data
+from LNPBO.diagnostics.utils import load_lnpdb_clean
 
 SEEDS = [42, 123, 456, 789, 2024]
 N_SEED = 500

@@ -17,22 +17,16 @@ Baseline to beat: Chemprop v1.7, RMSE=0.995 (single IL encoder + extra features)
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
-
-# Ensure models/ is importable when run as a script
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 import torch
 import torch.nn as nn
-from featurize import BatchMolGraph
-from mpnn import MultiComponentMPNN
 from torch.optim import AdamW
 from torch.optim.lr_scheduler import OneCycleLR
 
-from data import (
+from LNPBO.models.data import (
     SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
     LNPDataset,
@@ -42,6 +36,8 @@ from data import (
     make_dataloader,
     scaffold_split,
 )
+from LNPBO.models.featurize import BatchMolGraph
+from LNPBO.models.mpnn import MultiComponentMPNN
 
 
 def parse_args() -> argparse.Namespace:

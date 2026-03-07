@@ -8,7 +8,6 @@ Usage:
 """
 
 import argparse
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -17,9 +16,7 @@ from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 from xgboost import XGBRegressor
 
-# Add project root to path
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from data.compute_pcs import compute_pcs
+from LNPBO.data.compute_pcs import compute_pcs
 
 HELDOUT_ROOT = Path("data/LNPDB_repo/data/LNPDB_for_LiON/heldout")
 STUDIES = ["BL_2023", "LM_2019", "SL_2020", "ZC_2023"]

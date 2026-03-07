@@ -3,16 +3,12 @@
 
 
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import kendalltau, spearmanr, ttest_1samp
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT))
-
-from diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
+from LNPBO.diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
 
 
 def main() -> int:

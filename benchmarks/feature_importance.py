@@ -1,11 +1,6 @@
 #!/usr/bin/env python3
 """XGBoost feature importance analysis for LANTERN benchmark."""
 
-import sys
-from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-
 import numpy as np
 from xgboost import XGBRegressor
 

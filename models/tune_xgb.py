@@ -15,14 +15,12 @@ import sys
 import time
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-
 import numpy as np
 import optuna
 import xgboost as xgb
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from data import (
+from LNPBO.models.data import (
     TABULAR_CONTINUOUS_COLS,
     encode_categoricals,
     learn_categorical_levels,

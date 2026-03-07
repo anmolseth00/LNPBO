@@ -4,7 +4,6 @@
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import numpy as np
@@ -15,9 +14,6 @@ from botorch.models import SingleTaskGP
 from botorch.models.transforms.input import Normalize
 from botorch.models.transforms.outcome import Standardize
 from gpytorch.mlls import ExactMarginalLogLikelihood
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
 
 from LNPBO.benchmarks.runner import compute_metrics, init_history, prepare_benchmark_data, update_history
 
@@ -156,7 +152,7 @@ def main():
         "summary": summary,
     }
 
-    out_path = PROJECT_ROOT / "benchmark_results" / f"gp_{args.acq}_benchmark.json"
+    out_path = Path(__file__).resolve().parent.parent / "benchmark_results" / f"gp_{args.acq}_benchmark.json"
     out_path.parent.mkdir(exist_ok=True)
     out_path.write_text(json.dumps(out, indent=2))
     print(f"Saved {out_path}")

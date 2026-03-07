@@ -12,16 +12,13 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
-from data import (
+from LNPBO.models.data import (
     SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
     encode_categoricals,

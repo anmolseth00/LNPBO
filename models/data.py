@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import torch
-from featurize import BatchMolGraph, MolGraph, batch_mol_graphs, mol_to_graph
 from torch.utils.data import DataLoader, Dataset
+
+from LNPBO.models.featurize import BatchMolGraph, MolGraph, batch_mol_graphs, mol_to_graph
 
 # Columns used as tabular features (continuous, z-scored)
 TABULAR_CONTINUOUS_COLS = [
@@ -97,7 +98,7 @@ def encode_categoricals(
     return df, new_cols
 
 
-from models.splits import _scaffold, scaffold_split  # noqa: F401
+from LNPBO.models.splits import _scaffold, scaffold_split  # noqa: F401
 
 
 class LNPDataset(Dataset):

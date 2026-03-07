@@ -12,7 +12,8 @@ concatenated with tabular features before the FFN.
 
 import torch
 import torch.nn as nn
-from featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
+
+from LNPBO.models.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
 
 
 class DMPNNEncoder(nn.Module):
