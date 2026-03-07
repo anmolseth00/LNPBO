@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Compute ICC using a random-intercepts REML model."""
+"""Compute ICC using a random-intercepts REML model.
+
+Reference:
+    Searle, S.R., Casella, G. & McCulloch, C.E. (1992). "Variance Components."
+    Wiley Series in Probability and Statistics.
+"""
 
 
 import json

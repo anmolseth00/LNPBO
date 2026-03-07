@@ -1,3 +1,10 @@
+"""Discrete pool scoring for BO surrogates (XGBoost, RF, conformal).
+
+XGB-UCB uses MAPIE conformal prediction for uncertainty quantification:
+    Barber, R.F. et al. (2021). "Predictive Inference with the Jackknife+."
+    Ann. Statist. 49(1), 486-507. doi:10.1214/20-AOS1965.
+"""
+
 import warnings
 
 import numpy as np

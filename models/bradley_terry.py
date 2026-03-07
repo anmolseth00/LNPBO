@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Bradley-Terry pairwise preference model using an MLP utility."""
+"""Bradley-Terry pairwise preference model using an MLP utility.
+
+Reference:
+    Bradley, R.A. & Terry, M.E. (1952). "Rank Analysis of Incomplete Block
+    Designs: I. The Method of Paired Comparisons." Biometrika, 39(3/4), 324-345.
+"""
 
 
 import json

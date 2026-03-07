@@ -1,3 +1,10 @@
+"""Mixture Design of Experiments: initial batch generation for LNP formulations.
+
+Reference:
+    Cornell, J.A. (2002). "Experiments with Mixtures: Designs, Models, and the
+    Analysis of Mixture Data." 3rd ed., Wiley Series in Probability and Statistics.
+"""
+
 import itertools
 
 import numpy as np

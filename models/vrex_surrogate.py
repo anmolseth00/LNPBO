@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""V-REx surrogate on LANTERN IL-only PCs."""
+"""V-REx surrogate on LANTERN IL-only PCs.
+
+Reference:
+    Krueger, D. et al. (2021). "Out-of-Distribution Generalization via Risk
+    Extrapolation (REx)." ICML 2021. arXiv:2003.00688.
+"""
 
 
 import json

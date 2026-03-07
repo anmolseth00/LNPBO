@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""GroupDRO surrogate on LANTERN IL-only PCs."""
+"""GroupDRO surrogate on LANTERN IL-only PCs.
+
+Reference:
+    Sagawa, S. et al. (2020). "Distributionally Robust Neural Networks for
+    Group Shifts: On the Importance of Regularization for Worst-Case
+    Generalization." ICLR 2020. arXiv:1911.08731.
+"""
 
 
 import json

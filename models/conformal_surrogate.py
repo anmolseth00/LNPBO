@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Split conformal prediction for multiple surrogates."""
+"""Split conformal prediction for multiple surrogates.
+
+Reference:
+    Vovk, V., Gammerman, A. & Shafer, G. (2005). "Algorithmic Learning in a
+    Random World." Springer. doi:10.1007/b106715.
+"""
 
 
 import json
