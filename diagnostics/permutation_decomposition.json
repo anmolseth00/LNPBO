@@ -1,0 +1,14 @@
+[
+  {
+    "split": "formulation_scaffold",
+    "chemistry": 0.17378576285242453,
+    "study_only": -0.0038922515156851745,
+    "shuffled_il": -0.037980874446547075
+  },
+  {
+    "split": "study_level",
+    "chemistry": -0.019490126662298657,
+    "study_only": -7.459302717860439e-05,
+    "shuffled_il": -0.032953517035140045
+  }
+]
