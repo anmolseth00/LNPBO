@@ -1,0 +1,90 @@
+{
+  "config": {
+    "strategies": [
+      "discrete_xgb_greedy"
+    ],
+    "rounds": 15,
+    "batch_size": 12,
+    "seed": 456,
+    "n_seeds": 500,
+    "subset": null,
+    "kappa": 5.0,
+    "xi": 0.01,
+    "normalize": "copula",
+    "feature_type": "ratios_only",
+    "n_pcs": null,
+    "reduction": "pca",
+    "context_features": false,
+    "fp_radius": null,
+    "fp_bits": null
+  },
+  "results": {
+    "discrete_xgb_greedy": {
+      "metrics": {
+        "final_best": 9.27,
+        "auc": 9.27,
+        "top_k_recall": {
+          "10": 0.2,
+          "50": 0.04,
+          "100": 0.04
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      "elapsed": 7.254444122314453,
+      "best_so_far": [
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27,
+        9.27
+      ],
+      "round_best": [
+        0.751466234,
+        2.62912927,
+        2.196082231,
+        3.724757028,
+        2.185099711,
+        2.362672311,
+        2.131948569,
+        1.85005724,
+        2.185099711,
+        2.791396167,
+        2.367230044,
+        1.010403951,
+        1.85005724,
+        2.948694289,
+        1.85005724
+      ],
+      "n_evaluated": [
+        500,
+        512,
+        524,
+        536,
+        548,
+        560,
+        572,
+        584,
+        596,
+        608,
+        620,
+        632,
+        644,
+        656,
+        668,
+        680
+      ]
+    }
+  }
+}
