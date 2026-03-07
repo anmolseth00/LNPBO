@@ -31,53 +31,8 @@ sys.path.insert(0, str(PROJECT_ROOT.parent))
 from LNPBO.data.context import CONTEXT_COLUMNS, encode_context
 from LNPBO.data.dataset import Dataset, encode_kwargs_for_feature_type
 from LNPBO.data.lnpdb_bridge import load_lnpdb_full
+from LNPBO.models.splits import scaffold_split
 from LNPBO.optimization.optimizer import ENC_PREFIXES
-
-
-def _scaffold_train_test(smiles_list, test_size=0.2, seed=42):
-    """Murcko scaffold split into train/test (no validation set).
-
-    Groups molecules by Murcko scaffold, then assigns entire groups to
-    train or test to prevent structural leakage.
-    """
-    from collections import defaultdict
-
-    from rdkit import Chem
-    from rdkit.Chem.Scaffolds.MurckoScaffold import MurckoScaffoldSmiles
-
-    scaffolds = defaultdict(list)
-    for i, smi in enumerate(smiles_list):
-        mol = Chem.MolFromSmiles(smi)
-        if mol is None:
-            scaf = ""
-        else:
-            try:
-                scaf = MurckoScaffoldSmiles(mol=mol, includeChirality=False)
-            except Exception:
-                scaf = ""
-        scaffolds[scaf].append(i)
-
-    groups = sorted(scaffolds.values(), key=len, reverse=True)
-    rng = np.random.RandomState(seed)
-
-    # If one scaffold dominates, fall back to random
-    if len(groups[0]) / len(smiles_list) > 0.5:
-        print("Warning: largest scaffold > 50% of data, falling back to random split")
-        indices = np.arange(len(smiles_list))
-        rng.shuffle(indices)
-        n_test = int(len(smiles_list) * test_size)
-        return indices[n_test:].tolist(), indices[:n_test].tolist()
-
-    n_train = int(len(smiles_list) * (1.0 - test_size))
-    train_idx, test_idx = [], []
-    order = list(range(len(groups)))
-    rng.shuffle(order)
-    for i in order:
-        if len(train_idx) < n_train:
-            train_idx.extend(groups[i])
-        else:
-            test_idx.extend(groups[i])
-    return train_idx, test_idx
 
 
 def build_features(df, encoded_df, feature_type="lantern", reduction="pls",
@@ -135,9 +90,9 @@ def main():
                         choices=["pca", "pls", "none"])
     parser.add_argument("--output-dir", type=str, default="shap_output")
     parser.add_argument("--test-size", type=float, default=0.2, help="Test split fraction")
-    parser.add_argument("--split", type=str, default="scaffold",
-                        choices=["scaffold", "random"],
-                        help="Split strategy (default: scaffold on IL_SMILES)")
+    parser.add_argument("--split", type=str, default="amine",
+                        choices=["amine", "scaffold", "random"],
+                        help="Split strategy (default: amine on IL_head_name, matching LNPDB paper)")
     args = parser.parse_args()
 
     output_dir = PROJECT_ROOT / args.output_dir
@@ -214,11 +169,32 @@ def main():
     y = encoded_df["Experiment_value"].values
     feature_names = feature_cols
 
+    if args.split == "amine":
+        head_col = "IL_head_name"
+        if head_col not in encoded_df.columns:
+            print(f"Warning: {head_col} not found, falling back to random split")
+            args.split = "random"
+        else:
+            groups = encoded_df[head_col].fillna("Unknown")
+            unique_heads = groups.unique()
+            rng = np.random.RandomState(args.seed)
+            rng.shuffle(unique_heads)
+            n_test_heads = max(1, int(len(unique_heads) * args.test_size))
+            test_heads = set(unique_heads[:n_test_heads])
+            test_mask = groups.isin(test_heads)
+            train_idx = np.where(~test_mask)[0]
+            test_idx = np.where(test_mask)[0]
+            X_train, X_test = X[train_idx], X[test_idx]
+            y_train, y_test = y[train_idx], y[test_idx]
+            print(f"Amine split — {len(unique_heads)} groups, {len(test_heads)} held out")
+            print(f"  Train: {len(X_train):,}, Test: {len(X_test):,}")
+
     if args.split == "scaffold":
         il_smiles = encoded_df["IL_SMILES"].tolist()
-        train_idx, test_idx = _scaffold_train_test(
-            il_smiles, test_size=args.test_size, seed=args.seed,
+        train_idx, val_idx, test_idx = scaffold_split(
+            il_smiles, sizes=(1.0 - args.test_size, 0.0, args.test_size), seed=args.seed,
         )
+        train_idx = train_idx + val_idx
         X_train, X_test = X[train_idx], X[test_idx]
         y_train, y_test = y[train_idx], y[test_idx]
         print(f"Scaffold split — Train: {len(X_train):,}, Test: {len(X_test):,}")
