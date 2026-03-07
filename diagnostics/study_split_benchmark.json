@@ -1,0 +1,70 @@
+{
+  "lantern_il_only": {
+    "eval_split": "study_level",
+    "summary": {
+      "top10_mean": 0.12,
+      "top10_std": 0.14696938456699069,
+      "top50_mean": 0.08399999999999999,
+      "top50_std": 0.07310266752998827,
+      "top100_mean": 0.11599999999999999,
+      "top100_std": 0.0728285658241325
+    },
+    "per_seed": [
+      {
+        "final_best": 4.135759959,
+        "auc": 4.135759959,
+        "top_k_recall": {
+          "10": 0.0,
+          "50": 0.02,
+          "100": 0.02
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 658
+      },
+      {
+        "final_best": 5.026547143,
+        "auc": 5.026547142999999,
+        "top_k_recall": {
+          "10": 0.4,
+          "50": 0.14,
+          "100": 0.22
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 660
+      },
+      {
+        "final_best": 5.468071128,
+        "auc": 5.468071128000001,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.2,
+          "100": 0.13
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 668
+      },
+      {
+        "final_best": 4.273788993,
+        "auc": 4.264973753533334,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.04,
+          "100": 0.05
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 663
+      },
+      {
+        "final_best": 5.204579094,
+        "auc": 5.204579093999998,
+        "top_k_recall": {
+          "10": 0.0,
+          "50": 0.02,
+          "100": 0.16
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 660
+      }
+    ]
+  }
+}

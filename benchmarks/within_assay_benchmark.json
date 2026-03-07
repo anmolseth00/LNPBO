@@ -1,0 +1,72 @@
+{
+  "in_vitro_single_formulation": {
+    "eval_split": "within_assay_study_level",
+    "n_studies": 33,
+    "n_rows": 16811,
+    "summary": {
+      "top10_mean": 0.28,
+      "top10_std": 0.2712931993250107,
+      "top50_mean": 0.192,
+      "top50_std": 0.0934665715643834,
+      "top100_mean": 0.188,
+      "top100_std": 0.08084553172563094
+    },
+    "per_seed": [
+      {
+        "final_best": 3.714937716,
+        "auc": 3.6357790434,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.06,
+          "100": 0.16
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.207604886,
+        "auc": 4.187654026500001,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.1,
+          "100": 0.07
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.472089488,
+        "auc": 4.423678543166668,
+        "top_k_recall": {
+          "10": 0.3,
+          "50": 0.28,
+          "100": 0.18
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 5.468071128,
+        "auc": 5.468071128000001,
+        "top_k_recall": {
+          "10": 0.8,
+          "50": 0.28,
+          "100": 0.32
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      },
+      {
+        "final_best": 4.135759959,
+        "auc": 4.135759959,
+        "top_k_recall": {
+          "10": 0.1,
+          "50": 0.24,
+          "100": 0.21
+        },
+        "n_rounds": 15,
+        "n_total_evaluated": 680
+      }
+    ]
+  }
+}
