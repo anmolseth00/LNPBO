@@ -151,6 +151,7 @@ def _peek_columns(path: Path) -> list[str]:
 def load_lnpdb_full(
     drop_missing_values: bool = True,
     drop_duplicates: bool = True,
+    drop_unnormalized: bool = True,
 ) -> Dataset:
     """Load the complete LNPDB dataset (~19,800 rows) as a Dataset.
 
@@ -160,6 +161,11 @@ def load_lnpdb_full(
         If True, drop rows where any LNPDB_REQUIRED_COLUMNS value is NaN.
     drop_duplicates : bool
         If True, deduplicate on the formulation feature columns.
+    drop_unnormalized : bool
+        If True, remove formulations with unnormalized Experiment_value.
+        LNPDB z-scores per study (mean=0, std=1), but PMID 38424061 has
+        8 formulations with raw values (135-215) that were never normalized.
+        These corrupt Top-K rankings and distort all downstream analysis.
 
     Returns
     -------
@@ -171,6 +177,16 @@ def load_lnpdb_full(
         raise FileNotFoundError(f"LNPDB.csv not found at {csv_path}")
 
     df = _read_lnpdb_csv(csv_path)
+
+    if drop_unnormalized and "Experiment_value" in df.columns:
+        # LNPDB is z-scored per study (mean≈0, std≈1). Values >10 are
+        # implausible as z-scores and indicate normalization failure.
+        # All known cases are from PMID 38424061 (8 formulations, values 135-215).
+        bad_mask = df["Experiment_value"].abs() > 10
+        n_bad = bad_mask.sum()
+        if n_bad > 0:
+            df = df[~bad_mask]
+            print(f"  Dropped {n_bad} unnormalized formulations (|Experiment_value| > 10)")
 
     # Validate required columns
     missing = set(LNPDB_REQUIRED_COLUMNS) - set(df.columns)

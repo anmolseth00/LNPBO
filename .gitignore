@@ -88,6 +88,26 @@ models/runs/*/model.json
 data/LNPDB_repo
 
 # ==========================
+# Embedding / descriptor caches (large binary files)
+# ==========================
+data/chemeleon_cache/
+data/mordred_cache/
+
+# ==========================
+# Benchmark results (only clean-data results are tracked)
+# ==========================
+benchmark_results/*
+!benchmark_results/clean_*
+
+# ==========================
+# Generated outputs
+# ==========================
+proposed_ils.csv
+shap_output/
+slides/
+generative/
+
+# ==========================
 # Claude Code
 # ==========================
 .claude/
