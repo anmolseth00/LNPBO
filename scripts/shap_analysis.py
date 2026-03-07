@@ -18,21 +18,19 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
-
 from LNPBO.data.context import encode_context
-from LNPBO.data.dataset import Dataset, encode_kwargs_for_feature_type
+from LNPBO.data.dataset import Dataset, encoders_for_feature_type
 from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 from LNPBO.models.splits import scaffold_split
 from LNPBO.optimization.optimizer import ENC_PREFIXES
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def build_features(df, encoded_df, feature_type="lantern", reduction="pls",
@@ -135,13 +133,12 @@ def main():
     chl_pcs = _should_encode("CHL", 3)
     peg_pcs = _should_encode("PEG", 3)
 
-    encode_kwargs = encode_kwargs_for_feature_type(args.feature_type, il_pcs=il_pcs, other_pcs=0)
+    enc = encoders_for_feature_type(args.feature_type, il_pcs=il_pcs, other_pcs=0)
     for role, n in [("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-        for key in list(encode_kwargs):
-            if key.startswith(f"{role}_"):
-                encode_kwargs[key] = n
+        if role in enc:
+            enc[role] = {k: n for k in enc[role]}
 
-    encoded = dataset.encode_dataset(**encode_kwargs, reduction=args.reduction)
+    encoded = dataset.encode_dataset(enc, reduction=args.reduction)
     encoded_df = encoded.df.copy()
 
     # Drop rows with NaN in target

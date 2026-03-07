@@ -1,4 +1,4 @@
-from ..data.dataset import Dataset, encode_kwargs_for_feature_type
+from ..data.dataset import Dataset, encoders_for_feature_type
 from ..optimization.optimizer import Optimizer
 from ..space.formulation import FormulationSpace
 
@@ -50,9 +50,9 @@ def add_suggest_command(subparsers):
 def run_suggest(args):
     dataset = Dataset.from_lnpdb_csv(args.dataset)
 
-    encode_kwargs = encode_kwargs_for_feature_type(args.feature_type)
+    enc = encoders_for_feature_type(args.feature_type)
 
-    encoded = dataset.encode_dataset(**encode_kwargs, reduction=args.reduction)
+    encoded = dataset.encode_dataset(enc, reduction=args.reduction)
 
     space = FormulationSpace.from_dataset(encoded)
 
@@ -64,7 +64,7 @@ def run_suggest(args):
             pool_df = pd.read_csv(args.pool)
             pool_dataset = Dataset(pool_df, source="lnpdb", name="candidate_pool")
             pool_encoded = pool_dataset.encode_dataset(
-                **encode_kwargs,
+                enc,
                 reduction=args.reduction,
                 fitted_transformers_in=encoded.fitted_transformers,
             )

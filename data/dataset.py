@@ -1,4 +1,5 @@
 import os
+import warnings
 from typing import Self
 
 import pandas as pd
@@ -18,8 +19,10 @@ LNPDB_REQUIRED_COLUMNS = [
     "Experiment_value",
 ]
 
-_FEATURE_TYPE_SUFFIX = {
-    "mfp": ["morgan"],
+_ENC_PREFIXES = ("mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_", "chemeleon_")
+
+_FEATURE_TYPE_ENCODERS = {
+    "mfp": ["mfp"],
     "count_mfp": ["count_mfp"],
     "rdkit": ["rdkit"],
     "mordred": ["mordred"],
@@ -28,18 +31,96 @@ _FEATURE_TYPE_SUFFIX = {
     "lantern": ["count_mfp", "rdkit"],
 }
 
+# Maps encoder key -> flat kwarg suffix used in the deprecated API.
+# Most are identity; the exception is "mfp" -> "morgan".
+_ENCODER_TO_KWARG_SUFFIX = {
+    "mfp": "morgan",
+    "count_mfp": "count_mfp",
+    "rdkit": "rdkit",
+    "mordred": "mordred",
+    "unimol": "unimol",
+    "chemeleon": "chemeleon",
+    "lion": "lion",
+}
+
+_ROLES = ("IL", "HL", "CHL", "PEG")
+
+
+def encoders_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
+    """Build a nested ``encoders`` dict for a named feature type.
+
+    Returns ``dict[str, dict[str, int]]`` suitable for passing as
+    ``encoders=`` to ``Dataset.encode_dataset()``.
+
+    Example::
+
+        encoders_for_feature_type("lantern", il_pcs=5, other_pcs=0)
+        # => {"IL": {"count_mfp": 5, "rdkit": 5},
+        #     "HL": {"count_mfp": 0, "rdkit": 0}, ...}
+    """
+    encoder_keys = _FEATURE_TYPE_ENCODERS.get(feature_type)
+    if encoder_keys is None:
+        raise ValueError(f"Unknown feature type: {feature_type!r}")
+    enc: dict[str, dict[str, int]] = {}
+    for role in _ROLES:
+        n = il_pcs if role == "IL" else other_pcs
+        enc[role] = {k: n for k in encoder_keys}
+    return enc
+
 
 def encode_kwargs_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
-    """Map feature type name to encode_dataset() keyword arguments."""
-    suffixes = _FEATURE_TYPE_SUFFIX.get(feature_type)
-    if suffixes is None:
+    """Map feature type name to flat ``encode_dataset()`` keyword arguments.
+
+    .. deprecated::
+        Use :func:`encoders_for_feature_type` and pass the result as
+        ``encoders=`` to ``encode_dataset()`` instead.
+    """
+    encoder_keys = _FEATURE_TYPE_ENCODERS.get(feature_type)
+    if encoder_keys is None:
         raise ValueError(f"Unknown feature type: {feature_type!r}")
     kwargs = {}
-    for role in ["IL", "HL", "CHL", "PEG"]:
+    for role in _ROLES:
         n = il_pcs if role == "IL" else other_pcs
-        for s in suffixes:
-            kwargs[f"{role}_n_pcs_{s}"] = n
+        for k in encoder_keys:
+            kwarg_suffix = _ENCODER_TO_KWARG_SUFFIX[k]
+            kwargs[f"{role}_n_pcs_{kwarg_suffix}"] = n
     return kwargs
+
+
+def _flat_kwargs_to_encoders(
+    IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
+    IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
+    HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
+    HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
+    CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
+    CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
+    PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
+    PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
+):
+    """Convert the 24 individual n_pcs kwargs into a nested encoders dict."""
+    return {
+        "IL": {
+            "mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred,
+            "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol,
+            "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit,
+            "chemeleon": IL_n_pcs_chemeleon,
+        },
+        "HL": {
+            "mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred,
+            "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp,
+            "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon,
+        },
+        "CHL": {
+            "mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred,
+            "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp,
+            "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon,
+        },
+        "PEG": {
+            "mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred,
+            "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp,
+            "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon,
+        },
+    }
 
 
 columns_to_check_for_duplicates = [
@@ -133,6 +214,8 @@ class Dataset:
 
     def encode_dataset(
         self,
+        encoders: dict[str, dict[str, int]] | None = None,
+        *,
         IL_n_pcs_morgan: int = 0,
         IL_n_pcs_mordred: int = 0,
         IL_n_pcs_lion: int = 0,
@@ -166,6 +249,46 @@ class Dataset:
         fp_bits: int | None = None,
     ) -> Dataset:
 
+        # Build the canonical encoders dict. If ``encoders`` is provided, use
+        # it directly. Otherwise fall back to the individual kwargs (backward
+        # compat — these are deprecated but still functional).
+        any_kwarg_set = any(v != 0 for v in [
+            IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
+            IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
+            HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
+            HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
+            CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
+            CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
+            PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
+            PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
+        ])
+
+        if encoders is not None and any_kwarg_set:
+            raise ValueError(
+                "Cannot specify both 'encoders' and individual {ROLE}_n_pcs_{encoder} kwargs. "
+                "Use one or the other."
+            )
+
+        if encoders is None:
+            if any_kwarg_set:
+                warnings.warn(
+                    "Passing individual {ROLE}_n_pcs_{encoder} kwargs to encode_dataset() "
+                    "is deprecated. Use encoders=encoders_for_feature_type(...) or pass "
+                    "a dict[str, dict[str, int]] via the 'encoders' parameter instead.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+            encoders = _flat_kwargs_to_encoders(
+                IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
+                IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
+                HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
+                HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
+                CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
+                CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
+                PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
+                PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
+            )
+
         df = self.df.copy()
 
         def is_variable(col):
@@ -194,7 +317,8 @@ class Dataset:
         }
 
         # Prevent mixed IL encoding strategies
-        if IL_n_pcs_lion > 0 and (IL_n_pcs_morgan > 0 or IL_n_pcs_mordred > 0):
+        il_enc = encoders.get("IL", {})
+        if il_enc.get("lion", 0) > 0 and (il_enc.get("mfp", 0) > 0 or il_enc.get("mordred", 0) > 0):
             raise ValueError("LiON encoding cannot be combined with Morgan or Mordred for IL.")
 
         def unique_lipids(role: str) -> pd.DataFrame:
@@ -312,30 +436,6 @@ class Dataset:
 
             return pd.concat([lipid_df.reset_index(drop=True), *blocks], axis=1)
 
-        encoders = {
-            "IL": {
-                "mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred,
-                "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol,
-                "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit,
-                "chemeleon": IL_n_pcs_chemeleon,
-            },
-            "HL": {
-                "mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred,
-                "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp,
-                "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon,
-            },
-            "CHL": {
-                "mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred,
-                "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp,
-                "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon,
-            },
-            "PEG": {
-                "mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred,
-                "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp,
-                "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon,
-            },
-        }
-
         encoding_tables = []
 
         for role, pcs_spec in encoders.items():
@@ -398,7 +498,7 @@ class Dataset:
                 ]
 
                 encoding_cols = []
-                enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_", "chemeleon_"]
+                enc_prefixes = _ENC_PREFIXES
                 for role in ["IL", "HL", "CHL", "PEG"]:
                     role_cols = [
                         c for c in df.columns
@@ -454,7 +554,7 @@ class Dataset:
             name_col = f"{role}_name"
 
             # Find encoding columns for this role
-            enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_"]
+            enc_prefixes = _ENC_PREFIXES
             encoding_cols = [
                 c for c in self.df.columns
                 if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)

@@ -12,16 +12,12 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import norm as _norm
 from sklearn.neighbors import NearestNeighbors
-
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
 
 from LNPBO.optimization.optimizer import ENC_PREFIXES
 
@@ -205,66 +201,59 @@ def prepare_benchmark_data(
     chl_pcs = _should_encode("CHL", default_pcs if (is_raw or n_pcs is not None) else 3)
     peg_pcs = _should_encode("PEG", default_pcs if (is_raw or n_pcs is not None) else 3)
 
-    encode_kwargs = {}
+    def _role_pcs():
+        return [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]
+
+    enc = {}
     if is_ratios_only:
         print("  Ratios-only mode: no molecular encoding")
     elif is_concat:
-        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_morgan"] = n
-            encode_kwargs[f"{role}_n_pcs_unimol"] = n
+        for role, n in _role_pcs():
+            enc[role] = {"mfp": n, "unimol": n}
         print(f"  Concat (MFP+Uni-Mol) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
     elif is_lantern_mordred:
-        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
-            encode_kwargs[f"{role}_n_pcs_rdkit"] = n
-            encode_kwargs[f"{role}_n_pcs_mordred"] = n
+        for role, n in _role_pcs():
+            enc[role] = {"count_mfp": n, "rdkit": n, "mordred": n}
         print(
             f"  LANTERN+Mordred (count_mfp+rdkit+mordred) dims per role:"
             f" IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}"
         )
     elif is_lantern_unimol:
-        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
-            encode_kwargs[f"{role}_n_pcs_rdkit"] = n
-            encode_kwargs[f"{role}_n_pcs_unimol"] = n
+        for role, n in _role_pcs():
+            enc[role] = {"count_mfp": n, "rdkit": n, "unimol": n}
         print(
             f"  LANTERN+Uni-Mol (count_mfp+rdkit+unimol) dims per role:"
             f" IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}"
         )
     elif is_lantern:
-        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_count_mfp"] = n
-            encode_kwargs[f"{role}_n_pcs_rdkit"] = n
+        for role, n in _role_pcs():
+            enc[role] = {"count_mfp": n, "rdkit": n}
         print(f"  LANTERN (count_mfp+rdkit) dims per role: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
     elif feature_type == "lantern_il_only":
-        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
-        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
+        enc["IL"] = {"count_mfp": il_pcs, "rdkit": il_pcs}
         print(f"  LANTERN IL-only: IL={il_pcs} PCs (helpers get ratios only)")
     elif feature_type == "lantern_il_hl":
-        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
-        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
-        encode_kwargs["HL_n_pcs_count_mfp"] = hl_pcs
-        encode_kwargs["HL_n_pcs_rdkit"] = hl_pcs
+        enc["IL"] = {"count_mfp": il_pcs, "rdkit": il_pcs}
+        enc["HL"] = {"count_mfp": hl_pcs, "rdkit": hl_pcs}
         print(f"  LANTERN IL+HL: IL={il_pcs}, HL={hl_pcs} PCs (CHL/PEG get ratios only)")
     elif feature_type == "lantern_il_noratios":
-        encode_kwargs["IL_n_pcs_count_mfp"] = il_pcs
-        encode_kwargs["IL_n_pcs_rdkit"] = il_pcs
+        enc["IL"] = {"count_mfp": il_pcs, "rdkit": il_pcs}
         print(f"  LANTERN IL no-ratios: IL={il_pcs} PCs (no molar ratios)")
     elif is_chemeleon_il_only:
-        encode_kwargs["IL_n_pcs_chemeleon"] = il_pcs
+        enc["IL"] = {"chemeleon": il_pcs}
         print(f"  CheMeleon IL-only: IL={il_pcs} PCs (helpers get ratios only)")
     elif is_chemeleon_helper_only:
         for role, n in [("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_chemeleon"] = n
+            enc[role] = {"chemeleon": n}
         print(f"  CheMeleon helper-only: HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs} (IL gets ratios only)")
     else:
         base_type = feature_type.replace("raw_", "")
-        param_suffix = {
-            "mfp": "morgan", "mordred": "mordred", "unimol": "unimol",
+        enc_key = {
+            "mfp": "mfp", "mordred": "mordred", "unimol": "unimol",
             "count_mfp": "count_mfp", "rdkit": "rdkit", "chemeleon": "chemeleon",
         }[base_type]
-        for role, n in [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-            encode_kwargs[f"{role}_n_pcs_{param_suffix}"] = n
+        for role, n in _role_pcs():
+            enc[role] = {enc_key: n}
         print(f"  Encoding dims: IL={il_pcs}, HL={hl_pcs}, CHL={chl_pcs}, PEG={peg_pcs}")
 
     if is_ratios_only:
@@ -276,7 +265,7 @@ def prepare_benchmark_data(
         if fp_bits is not None:
             fp_kw["fp_bits"] = fp_bits
         encoded = dataset.encode_dataset(
-            **encode_kwargs,
+            enc,
             reduction=effective_reduction,
             **fp_kw,
         )
@@ -551,7 +540,7 @@ def main():
                 parser.error(f"Unknown strategy: {s}. Choose from: {ALL_STRATEGIES}")
 
     # Output path
-    results_dir = PROJECT_ROOT / "benchmark_results"
+    results_dir = Path(__file__).resolve().parent.parent / "benchmark_results"
     results_dir.mkdir(exist_ok=True)
     if args.output is None:
         output_prefix = str(results_dir / f"{'_'.join(strategies[:3])}")

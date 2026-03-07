@@ -110,28 +110,31 @@ def run_encode(args):
             "Use either --IL-n-pcs-lion OR --IL-n-pcs-morgan/--IL-n-pcs-mordred."
         )
 
+    enc = {
+        "IL": {
+            "mfp": args.IL_n_pcs_morgan, "mordred": args.IL_n_pcs_mordred,
+            "lion": args.IL_n_pcs_lion, "unimol": args.IL_n_pcs_unimol,
+            "count_mfp": args.IL_n_pcs_count_mfp, "rdkit": args.IL_n_pcs_rdkit,
+        },
+        "HL": {
+            "mfp": args.HL_n_pcs_morgan, "mordred": args.HL_n_pcs_mordred,
+            "unimol": args.HL_n_pcs_unimol, "count_mfp": args.HL_n_pcs_count_mfp,
+            "rdkit": args.HL_n_pcs_rdkit,
+        },
+        "CHL": {
+            "mfp": args.CHL_n_pcs_morgan, "mordred": args.CHL_n_pcs_mordred,
+            "unimol": args.CHL_n_pcs_unimol, "count_mfp": args.CHL_n_pcs_count_mfp,
+            "rdkit": args.CHL_n_pcs_rdkit,
+        },
+        "PEG": {
+            "mfp": args.PEG_n_pcs_morgan, "mordred": args.PEG_n_pcs_mordred,
+            "unimol": args.PEG_n_pcs_unimol, "count_mfp": args.PEG_n_pcs_count_mfp,
+            "rdkit": args.PEG_n_pcs_rdkit,
+        },
+    }
+
     encoded = dataset.encode_dataset(
-        IL_n_pcs_morgan=args.IL_n_pcs_morgan,
-        IL_n_pcs_mordred=args.IL_n_pcs_mordred,
-        IL_n_pcs_lion=args.IL_n_pcs_lion,
-        IL_n_pcs_count_mfp=args.IL_n_pcs_count_mfp,
-        IL_n_pcs_rdkit=args.IL_n_pcs_rdkit,
-        IL_n_pcs_unimol=args.IL_n_pcs_unimol,
-        HL_n_pcs_morgan=args.HL_n_pcs_morgan,
-        HL_n_pcs_mordred=args.HL_n_pcs_mordred,
-        HL_n_pcs_count_mfp=args.HL_n_pcs_count_mfp,
-        HL_n_pcs_rdkit=args.HL_n_pcs_rdkit,
-        HL_n_pcs_unimol=args.HL_n_pcs_unimol,
-        CHL_n_pcs_morgan=args.CHL_n_pcs_morgan,
-        CHL_n_pcs_mordred=args.CHL_n_pcs_mordred,
-        CHL_n_pcs_count_mfp=args.CHL_n_pcs_count_mfp,
-        CHL_n_pcs_rdkit=args.CHL_n_pcs_rdkit,
-        CHL_n_pcs_unimol=args.CHL_n_pcs_unimol,
-        PEG_n_pcs_morgan=args.PEG_n_pcs_morgan,
-        PEG_n_pcs_mordred=args.PEG_n_pcs_mordred,
-        PEG_n_pcs_count_mfp=args.PEG_n_pcs_count_mfp,
-        PEG_n_pcs_rdkit=args.PEG_n_pcs_rdkit,
-        PEG_n_pcs_unimol=args.PEG_n_pcs_unimol,
+        enc,
         encoding_csv_path=args.output,
         only_encodings=args.only_encodings,
         reduction=args.reduction,

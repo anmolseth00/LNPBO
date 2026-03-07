@@ -19,13 +19,7 @@ Requires the LNPDB repo cloned as a sibling directory or symlinked at data/LNPDB
 """
 
 import argparse
-import sys
 import time
-from pathlib import Path
-
-# Ensure the project is importable as a package
-PROJECT_ROOT = Path(__file__).resolve().parent
-sys.path.insert(0, str(PROJECT_ROOT.parent))
 
 import numpy as np
 
@@ -101,8 +95,8 @@ def main():
 
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
-    dataset = load_lnpdb_full()
-    df = dataset.df
+    full_dataset = load_lnpdb_full()
+    df = full_dataset.df.copy()
     print(f"  Loaded {len(df):,} rows, {df['IL_name'].nunique()} ILs")
 
     # Optional: filter to a specific study
@@ -122,7 +116,7 @@ def main():
     # Track training LNP_IDs for pool exclusion
     training_lnp_ids = set(df["LNP_ID"].dropna()) if "LNP_ID" in df.columns else set()
 
-    from LNPBO.data.dataset import Dataset, encode_kwargs_for_feature_type
+    from LNPBO.data.dataset import Dataset, encoders_for_feature_type
 
     dataset = Dataset(df, source="lnpdb", name="LNPDB_pipeline")
 
@@ -147,17 +141,15 @@ def main():
     chl_pcs = 3 if _has_variable_smiles("CHL") else 0
     peg_pcs = 3 if _has_variable_smiles("PEG") else 0
 
-    # Zero out PCs for non-variable roles
-    encode_kwargs = encode_kwargs_for_feature_type(args.feature_type, il_pcs=il_default_pcs, other_pcs=0)
+    enc = encoders_for_feature_type(args.feature_type, il_pcs=il_default_pcs, other_pcs=0)
     for role, n in [("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
-        for key in list(encode_kwargs):
-            if key.startswith(f"{role}_"):
-                encode_kwargs[key] = n
+        if role in enc:
+            enc[role] = {k: n for k in enc[role]}
 
     print(f"\nEncoding: {args.feature_type}, reduction={args.reduction}")
 
     encoded = dataset.encode_dataset(
-        **encode_kwargs,
+        enc,
         encoding_csv_path="pipeline_encodings.csv",
         reduction=args.reduction,
     )
@@ -196,14 +188,13 @@ def main():
             pool_df = pd.read_csv(args.pool)
             pool_dataset = Dataset(pool_df, source="lnpdb", name="candidate_pool")
             pool_encoded = pool_dataset.encode_dataset(
-                **encode_kwargs, reduction=args.reduction,
+                enc, reduction=args.reduction,
                 fitted_transformers_in=encoded.fitted_transformers,
             )
             candidate_pool = pool_encoded.df
         else:
-            # Load full LNPDB as candidate pool, exclude training rows
+            # Reuse already-loaded LNPDB as candidate pool, exclude training rows
             print("\n  Building candidate pool from full LNPDB...")
-            full_dataset = load_lnpdb_full()
             if training_lnp_ids and "LNP_ID" in full_dataset.df.columns:
                 pool_rows = full_dataset.df[~full_dataset.df["LNP_ID"].isin(training_lnp_ids)]
             else:
@@ -221,7 +212,7 @@ def main():
                 source="lnpdb", name="candidate_pool",
             )
             pool_encoded = pool_dataset.encode_dataset(
-                **encode_kwargs, reduction=args.reduction,
+                enc, reduction=args.reduction,
                 fitted_transformers_in=encoded.fitted_transformers,
             )
             candidate_pool = pool_encoded.df
