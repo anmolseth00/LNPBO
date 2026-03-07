@@ -51,37 +51,28 @@ def main() -> int:
         for seed in seeds:
             # Study-level split
             train_ids, test_ids = _study_split(df, seed=seed)
-            # Use train studies as seed pool, test studies as oracle
-            train_idx_in_full = df.index[df["study_id"].isin(train_ids)].tolist()
-            test_idx_in_full = df.index[df["study_id"].isin(test_ids)].tolist()
-
-            if len(test_idx_in_full) < 100:
-                print(f"  seed={seed}: too few test rows ({len(test_idx_in_full)}), skipping")
-                continue
-
             encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
-                n_seed=min(500, len(train_idx_in_full)),
+                n_seed=500,
                 random_seed=seed,
                 reduction="pca",
                 feature_type=config,
+                data_df=df,
             )
 
-            # Override: use study-split indices
-            # seed_idx = random subset of train studies
-            rng = np.random.RandomState(seed)
-            n_seed = min(500, len(train_idx_in_full))
-            seed_idx = sorted(rng.choice(train_idx_in_full, size=n_seed, replace=False).tolist())
+            # Partition encoded_df by study_id (indices are 0..N-1 after reset)
+            train_mask = encoded_df["study_id"].isin(train_ids)
+            test_mask = encoded_df["study_id"].isin(test_ids)
+            train_rows = encoded_df.index[train_mask].tolist()
+            test_rows = encoded_df.index[test_mask].tolist()
 
-            # oracle = test studies only
-            oracle_idx = sorted(test_idx_in_full)
-            # Filter to valid indices in encoded_df
-            valid = set(encoded_df.index)
-            seed_idx = [i for i in seed_idx if i in valid]
-            oracle_idx = [i for i in oracle_idx if i in valid]
-
-            if len(oracle_idx) < 50:
-                print(f"  seed={seed}: too few oracle rows ({len(oracle_idx)}), skipping")
+            if len(test_rows) < 50:
+                print(f"  seed={seed}: too few test rows ({len(test_rows)}), skipping")
                 continue
+
+            rng = np.random.RandomState(seed)
+            n_seed = min(500, len(train_rows))
+            seed_idx = sorted(rng.choice(train_rows, size=n_seed, replace=False).tolist())
+            oracle_idx = sorted(test_rows)
 
             # Recompute top-k from test pool (as index sets)
             test_series = encoded_df.loc[oracle_idx, "Experiment_value"]

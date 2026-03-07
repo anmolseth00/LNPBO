@@ -74,14 +74,12 @@ def main() -> int:
                 data_df=sdf,
             )
 
-            # Override with study-level split
+            # Partition encoded_df by study_id (indices are 0..N-1 after reset)
             rng = np.random.RandomState(seed)
-            train_rows = encoded_df.index[encoded_df.index.isin(
-                sdf[sdf["study_id"].isin(train_ids)].index
-            )].tolist()
-            test_rows = encoded_df.index[encoded_df.index.isin(
-                sdf[sdf["study_id"].isin(test_ids)].index
-            )].tolist()
+            train_mask = encoded_df["study_id"].isin(train_ids)
+            test_mask = encoded_df["study_id"].isin(test_ids)
+            train_rows = encoded_df.index[train_mask].tolist()
+            test_rows = encoded_df.index[test_mask].tolist()
 
             if len(train_rows) < 50 or len(test_rows) < 20:
                 print(f"  seed={seed}: insufficient rows (train={len(train_rows)}, test={len(test_rows)})")
