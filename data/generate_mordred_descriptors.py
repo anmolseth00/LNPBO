@@ -11,17 +11,7 @@ from tqdm import tqdm
 CACHE_DIR = Path(__file__).parent / "mordred_cache"
 
 
-def _load_cache(name: str) -> dict[str, np.ndarray]:
-    path = CACHE_DIR / f"{name}.npz"
-    if path.exists():
-        data = np.load(path, allow_pickle=True)
-        return dict(data)
-    return {}
-
-
-def _save_cache(name: str, cache: dict[str, np.ndarray]):
-    CACHE_DIR.mkdir(exist_ok=True)
-    np.savez_compressed(CACHE_DIR / f"{name}.npz", **cache)
+from .cache_utils import load_npz_cache, save_npz_cache
 
 
 def mordred_descriptors(
@@ -37,7 +27,7 @@ def mordred_descriptors(
     References: Moriwaki et al., J. Cheminformatics 10(1):4, 2018.
     """
     unique_smiles = list(dict.fromkeys(list_of_smiles))
-    cache = _load_cache(cache_name)
+    cache = load_npz_cache(CACHE_DIR, cache_name)
     todo = [s for s in unique_smiles if s not in cache]
 
     if todo:
@@ -55,7 +45,7 @@ def mordred_descriptors(
             else:
                 vals = np.zeros(len(calc.descriptors))
             cache[smi] = vals
-        _save_cache(cache_name, cache)
+        save_npz_cache(CACHE_DIR, cache_name, cache)
         print(f"  Cached {len(todo)} descriptors to {CACHE_DIR / cache_name}.npz")
     else:
         print(f"  Mordred: all {len(unique_smiles)} molecules found in cache")

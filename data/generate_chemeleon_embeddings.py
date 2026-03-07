@@ -49,17 +49,7 @@ def _get_chemeleon_model():
     return mp, agg
 
 
-def _load_cache(name: str) -> dict[str, np.ndarray]:
-    path = CACHE_DIR / f"{name}.npz"
-    if path.exists():
-        data = np.load(path, allow_pickle=True)
-        return dict(data)
-    return {}
-
-
-def _save_cache(name: str, cache: dict[str, np.ndarray]):
-    CACHE_DIR.mkdir(exist_ok=True)
-    np.savez_compressed(CACHE_DIR / f"{name}.npz", **cache)
+from .cache_utils import load_npz_cache, save_npz_cache
 
 
 def chemeleon_embeddings(
@@ -77,7 +67,7 @@ def chemeleon_embeddings(
     from chemprop.data.collate import BatchMolGraph
 
     unique_smiles = list(dict.fromkeys(list_of_smiles))
-    cache = _load_cache(cache_name)
+    cache = load_npz_cache(CACHE_DIR,cache_name)
     todo = [s for s in unique_smiles if s not in cache]
 
     if todo:
@@ -106,7 +96,7 @@ def chemeleon_embeddings(
             for smi in failed:
                 cache[smi] = np.zeros(EMBED_DIM)
 
-        _save_cache(cache_name, cache)
+        save_npz_cache(CACHE_DIR,cache_name, cache)
         print(f"  Cached {len(todo)} embeddings to {CACHE_DIR / cache_name}.npz")
     else:
         print(f"  CheMeleon: all {len(unique_smiles)} molecules found in cache")
