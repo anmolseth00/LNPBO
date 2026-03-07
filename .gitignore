@@ -92,6 +92,8 @@ data/LNPDB_repo
 # ==========================
 data/chemeleon_cache/
 data/mordred_cache/
+data/rdkit_cache/
+data/unimol_cache/
 
 # ==========================
 # Benchmark results (only clean-data results are tracked)

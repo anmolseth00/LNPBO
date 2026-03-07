@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import numpy as np
+from pathlib import Path
+
 from rdkit import Chem
 from rdkit.Chem import Descriptors
 from sklearn.preprocessing import StandardScaler
@@ -9,9 +11,18 @@ from tqdm import tqdm
 
 # All 2D RDKit descriptors (excludes 3D-dependent ones)
 _DESC_LIST = [(name, func) for name, func in Descriptors.descList if not name.startswith("PMI")]
+CACHE_DIR = Path(__file__).parent / "rdkit_cache"
 
 
-def rdkit_descriptors(list_of_smiles: list[str], scaler=None, keep_mask=None) -> tuple[np.ndarray, StandardScaler]:
+from .cache_utils import load_npz_cache, save_npz_cache
+
+
+def rdkit_descriptors(
+    list_of_smiles: list[str],
+    scaler=None,
+    keep_mask=None,
+    cache_name: str = "default",
+) -> tuple[np.ndarray, StandardScaler]:
     """Compute RDKit 2D molecular descriptors for a list of SMILES.
 
     Returns (scaled_descriptors, scaler) matching the fingerprint interface.
@@ -20,17 +31,26 @@ def rdkit_descriptors(list_of_smiles: list[str], scaler=None, keep_mask=None) ->
     a training set).
     """
     n_desc = len(_DESC_LIST)
-    result = np.zeros((len(list_of_smiles), n_desc))
+    unique_smiles = list(dict.fromkeys(list_of_smiles))
+    cache = load_npz_cache(CACHE_DIR, cache_name)
+    todo = [s for s in unique_smiles if s not in cache]
 
-    for i, smi in enumerate(tqdm(list_of_smiles, desc="RDKit descriptors")):
-        mol = Chem.MolFromSmiles(smi)
-        if mol is None:
-            continue
-        for j, (_, func) in enumerate(_DESC_LIST):
-            try:
-                result[i, j] = func(mol)
-            except Exception:
-                pass
+    if todo:
+        print(f"Computing RDKit descriptors for {len(todo)} new molecules (cache has {len(cache)})...")
+        for smi in tqdm(todo, desc="RDKit descriptors"):
+            mol = Chem.MolFromSmiles(smi)
+            vals = np.zeros(n_desc)
+            if mol is not None:
+                for j, (_, func) in enumerate(_DESC_LIST):
+                    try:
+                        vals[j] = func(mol)
+                    except Exception:
+                        pass
+            cache[smi] = vals
+        save_npz_cache(CACHE_DIR, cache_name, cache)
+        print(f"  Cached {len(todo)} descriptors to {CACHE_DIR / (cache_name + '.npz')}")
+
+    result = np.array([cache.get(s, np.zeros(n_desc)) for s in list_of_smiles])
 
     # Replace NaN/Inf with column medians
     for j in range(n_desc):

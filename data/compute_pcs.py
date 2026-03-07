@@ -28,7 +28,7 @@ def compute_pcs(
     58(2), 2001; Geladi & Kowalski, Analytica Chimica Acta, 185, 1986.
     """
     if feature_type == "lion" and experiment_values is None:
-        raise ValueError("experiment_values required for lion feature type")
+        experiment_values = [0.0] * len(list_of_smiles)
     if reduction == "pls" and experiment_values is None and fitted_reducer is None:
         raise ValueError("experiment_values required for PLS reduction")
 
@@ -54,7 +54,9 @@ def compute_pcs(
     elif feature_type == "rdkit":
         from .generate_rdkit_descriptors import rdkit_descriptors
 
-        fp_scaled, fp_scaler = rdkit_descriptors(list_of_smiles, scaler=fitted_scaler, keep_mask=_keep_mask)
+        fp_scaled, fp_scaler = rdkit_descriptors(
+            list_of_smiles, scaler=fitted_scaler, keep_mask=_keep_mask, cache_name=cache_name
+        )
     elif feature_type == "lion":
         from .generate_LiON_fingerprints import lion_fingerprints
 
