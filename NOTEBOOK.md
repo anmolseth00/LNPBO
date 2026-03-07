@@ -644,7 +644,10 @@ In the n<200 regime where surrogates are non-predictive, active learning-style u
 ### 22d. Mixed-Variable Bayesian Optimization
 CoCaBO (Ru et al., NeurIPS 2020) and CASMOPOLITAN (Wan et al., JMLR 2021) handle mixed categorical-continuous spaces, which could jointly optimize lipid selection and molar ratios in a single BO loop.
 
-### 22e. MD-Derived Features (Future Work)
+### 22e. Synthesizability Filtering (Future Work)
+MolQuery (Broadbent, Vymětal, Moayedpour et al., ACS Omega 2026, DOI: 10.1021/acsomega.5c09931) presents an active learning pipeline for predicting lipid synthesizability. CatBoost classifiers on ECFP fingerprints achieve 72% accuracy (vs 61-62% prior SOTA), and AL with expert chemist labeling converges faster than random sampling (68 vs 85 samples to plateau). The pipeline uses LLM-generated lipid pools (Claude Sonnet) as a generative source — directly complementary to our `propose-ils` SELFIES-based generation. Integrating a MolQuery-style synthesizability filter after `propose-ils` would prune candidates to those a chemist could actually make, improving the practical value of generative suggestions. GitHub: https://github.com/Sanofi-Public/MolQuery.
+
+### 22f. MD-Derived Features (Future Work)
 The LNPDB paper shows MD-derived critical packing parameter (CPP) achieves Pearson r = 0.530 on LM_2019 (protonated CPPV method), far exceeding LiON's r = 0.104 and our XGB+LANTERN r = 0.164 on the same study. MD simulations capture bilayer dynamics that no fingerprint-based method can access.
 
 **What's needed:**
