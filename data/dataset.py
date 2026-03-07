@@ -23,6 +23,9 @@ _FEATURE_TYPE_SUFFIX = {
     "mfp": ["morgan"],
     "count_mfp": ["count_mfp"],
     "rdkit": ["rdkit"],
+    "mordred": ["mordred"],
+    "unimol": ["unimol"],
+    "chemeleon": ["chemeleon"],
     "lantern": ["count_mfp", "rdkit"],
 }
 
@@ -137,25 +140,31 @@ class Dataset:
         IL_n_pcs_unimol: int = 0,
         IL_n_pcs_count_mfp: int = 0,
         IL_n_pcs_rdkit: int = 0,
+        IL_n_pcs_chemeleon: int = 0,
         HL_n_pcs_morgan: int = 0,
         HL_n_pcs_mordred: int = 0,
         HL_n_pcs_unimol: int = 0,
         HL_n_pcs_count_mfp: int = 0,
         HL_n_pcs_rdkit: int = 0,
+        HL_n_pcs_chemeleon: int = 0,
         CHL_n_pcs_morgan: int = 0,
         CHL_n_pcs_mordred: int = 0,
         CHL_n_pcs_unimol: int = 0,
         CHL_n_pcs_count_mfp: int = 0,
         CHL_n_pcs_rdkit: int = 0,
+        CHL_n_pcs_chemeleon: int = 0,
         PEG_n_pcs_morgan: int = 0,
         PEG_n_pcs_mordred: int = 0,
         PEG_n_pcs_unimol: int = 0,
         PEG_n_pcs_count_mfp: int = 0,
         PEG_n_pcs_rdkit: int = 0,
+        PEG_n_pcs_chemeleon: int = 0,
         encoding_csv_path: str | None = None,
         only_encodings: bool = False,
         reduction: str = "pca",
         fitted_transformers_in: dict | None = None,
+        fp_radius: int | None = None,
+        fp_bits: int | None = None,
     ) -> Dataset:
 
         df = self.df.copy()
@@ -263,6 +272,13 @@ class Dataset:
                             )
                         exp_vals.append(float(v))
 
+                fp_kw = {}
+                if enc_type in ("mfp", "count_mfp"):
+                    if fp_radius is not None:
+                        fp_kw["fp_radius"] = fp_radius
+                    if fp_bits is not None:
+                        fp_kw["fp_bits"] = fp_bits
+
                 pc_matrix, reducer_obj, scaler_obj, fp_scaled = compute_pcs(
                     smiles,
                     feature_type=enc_type,
@@ -272,6 +288,7 @@ class Dataset:
                     cache_name=role,
                     fitted_reducer=existing["reducer"] if existing else None,
                     fitted_scaler=existing["scaler"] if existing else None,
+                    **fp_kw,
                 )
 
                 fitted_transformers[f"{role}_{enc_type}"] = {
@@ -297,10 +314,10 @@ class Dataset:
             return pd.concat([lipid_df.reset_index(drop=True), *blocks], axis=1)
 
         encoders = {
-            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol, "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit},
-            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp, "rdkit": HL_n_pcs_rdkit},
-            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp, "rdkit": CHL_n_pcs_rdkit},
-            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp, "rdkit": PEG_n_pcs_rdkit},
+            "IL": {"mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred, "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol, "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit, "chemeleon": IL_n_pcs_chemeleon},
+            "HL": {"mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred, "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp, "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon},
+            "CHL": {"mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred, "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp, "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon},
+            "PEG": {"mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred, "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp, "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon},
         }
 
         encoding_tables = []

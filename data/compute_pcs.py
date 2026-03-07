@@ -16,6 +16,8 @@ def compute_pcs(
     cache_name: str = "default",
     fitted_reducer=None,
     fitted_scaler=None,
+    fp_radius: int | None = None,
+    fp_bits: int | None = None,
 ):
     """Compute reduced-dimensionality molecular fingerprint representations.
 
@@ -34,13 +36,21 @@ def compute_pcs(
     _keep_mask = getattr(fitted_scaler, "keep_mask_", None) if fitted_scaler is not None else None
 
     if feature_type == "mfp":
-        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, scaler=fitted_scaler)
+        kw = {}
+        if fp_radius is not None:
+            kw["radius"] = fp_radius
+        if fp_bits is not None:
+            kw["n_bits"] = fp_bits
+        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, scaler=fitted_scaler, **kw)
     elif feature_type == "count_mfp":
-        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, n_bits=2048, count=True, scaler=fitted_scaler)
+        kw = {"n_bits": fp_bits or 2048, "count": True}
+        if fp_radius is not None:
+            kw["radius"] = fp_radius
+        fp_scaled, fp_scaler = morgan_fingerprints(list_of_smiles, scaler=fitted_scaler, **kw)
     elif feature_type == "mordred":
         from .generate_mordred_descriptors import mordred_descriptors
 
-        fp_scaled, fp_scaler = mordred_descriptors(list_of_smiles)
+        fp_scaled, fp_scaler = mordred_descriptors(list_of_smiles, scaler=fitted_scaler, cache_name=cache_name)
     elif feature_type == "rdkit":
         from .generate_rdkit_descriptors import rdkit_descriptors
 
@@ -54,6 +64,10 @@ def compute_pcs(
         from .generate_unimol_embeddings import unimol_embeddings
 
         fp_scaled, fp_scaler = unimol_embeddings(list_of_smiles, cache_name=cache_name, scaler=fitted_scaler)
+    elif feature_type == "chemeleon":
+        from .generate_chemeleon_embeddings import chemeleon_embeddings
+
+        fp_scaled, fp_scaler = chemeleon_embeddings(list_of_smiles, cache_name=cache_name, scaler=fitted_scaler)
     else:
         raise ValueError("Type of feature not found")
 

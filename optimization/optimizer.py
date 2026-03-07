@@ -10,7 +10,7 @@ from .bayesopt import perform_bayesian_optimization
 from .doe import mixture_doe
 
 DISCRETE_SURROGATES = {"xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"}
-ENC_PREFIXES = ["mfp_pc", "mordred_pc", "unimol_pc", "lion_pc", "count_mfp_pc", "rdkit_pc"]
+ENC_PREFIXES = ["mfp_pc", "mordred_pc", "unimol_pc", "lion_pc", "count_mfp_pc", "rdkit_pc", "chemeleon_pc"]
 CTX_PREFIX = "ctx_"
 
 
@@ -298,6 +298,7 @@ class Optimizer:
                 or c.startswith(f"{role}_count_mfp_")
                 or c.startswith(f"{role}_rdkit_")
                 or c.startswith(f"{role}_unimol_")
+                or c.startswith(f"{role}_chemeleon_")
             ]
             ordered_cols += sorted(enc_cols)
 

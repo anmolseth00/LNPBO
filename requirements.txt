@@ -19,6 +19,7 @@ mapie==1.3.0
 
 # Molecular encoding
 rdkit==2025.09.6
+selfies==2.1.1
 # mordred==1.2.0 requires numpy<2; imported lazily only when feature_type="mordred"
 
 # Analysis
