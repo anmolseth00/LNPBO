@@ -30,10 +30,7 @@ def run_discrete_strategy(
 
         # Prospective PLS: re-fit using only training targets to avoid leakage.
         if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
-            encoded_dataset.refit_pls(training_idx)
-            for col in feature_cols:
-                if col in encoded_dataset.df.columns:
-                    encoded_df[col] = encoded_dataset.df[col]
+            encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
 
         X_train = encoded_df.loc[training_idx, feature_cols].values
         y_train = encoded_df.loc[training_idx, "Experiment_value"].values

@@ -382,7 +382,7 @@ class Dataset:
                 ]
 
                 encoding_cols = []
-                enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_"]
+                enc_prefixes = ["mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_", "chemeleon_"]
                 for role in ["IL", "HL", "CHL", "PEG"]:
                     role_cols = [
                         c for c in df.columns
@@ -492,12 +492,14 @@ class Dataset:
             raw_fingerprints=self.raw_fingerprints,
         )
 
-    def refit_pls(self, training_indices: list[int]) -> None:
+    def refit_pls(self, training_indices: list[int], external_df=None) -> None:
         """Re-fit PLS using only training-set targets (prospective PLS).
 
         Computes per-lipid average Experiment_value from training rows only,
         re-fits PLSRegression on stored raw fingerprints, and updates PC
-        columns in self.df in-place.
+        columns in self.df in-place. If ``external_df`` is provided, the
+        same PC columns are also updated there (avoids callers needing to
+        manually sync columns after calling this method).
 
         This avoids target leakage: PLS is fit on observed targets only,
         not on the full oracle dataset.
@@ -520,22 +522,30 @@ class Dataset:
             # Compute per-lipid average target from training data only
             train_means = train_df.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean()
 
-            exp_vals = []
+            train_mask = []
+            train_vals = []
             for name in lipid_names:
                 v = train_means.get(name)
                 if v is None:
-                    exp_vals.append(0.0)
+                    train_mask.append(False)
                 else:
-                    exp_vals.append(float(v))
+                    train_mask.append(True)
+                    train_vals.append(float(v))
 
-            y = np.asarray(exp_vals, dtype=float)
-            max_components = min(fp_scaled.shape[0], fp_scaled.shape[1])
+            train_mask = np.asarray(train_mask, dtype=bool)
+            if train_mask.sum() < 2:
+                # Not enough labeled lipids to refit PLS for this role
+                continue
+
+            fp_train = fp_scaled[train_mask]
+            y = np.asarray(train_vals, dtype=float)
+            max_components = min(fp_train.shape[0], fp_train.shape[1])
             max_components = max(max_components - 1, 1)
             n_comp = min(n_components, max_components)
 
             reducer = PLSRegression(n_components=n_comp, scale=False)
             try:
-                reducer.fit(fp_scaled, y)
+                reducer.fit(fp_train, y)
                 pc_matrix = reducer.transform(fp_scaled)
             except (ValueError, np.linalg.LinAlgError):
                 # PLS can fail with degenerate features (e.g., 3 unique PEG SMILES);
@@ -550,11 +560,13 @@ class Dataset:
             pc_lookup = {name: row for name, row in zip(lipid_names, pc_matrix)}
             cols = [f"{role}_{enc_type}_pc{i + 1}" for i in range(pc_matrix.shape[1])]
 
-            # Update PC columns in self.df
+            # Update PC columns in self.df (and external_df if provided)
+            col_map = {name: pc_lookup[name] for name in pc_lookup}
             for col_idx, col_name in enumerate(cols):
-                self.df[col_name] = self.df[name_col].map(
-                    {name: pc_lookup[name][col_idx] for name in pc_lookup}
-                )
+                mapping = {name: row[col_idx] for name, row in col_map.items()}
+                self.df[col_name] = self.df[name_col].map(mapping)
+                if external_df is not None and col_name in external_df.columns:
+                    external_df[col_name] = self.df[col_name]
 
     def to_csv(self, path: str):
         self.df.to_csv(path, index=False)

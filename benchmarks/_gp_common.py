@@ -34,6 +34,10 @@ def run_gp_strategy(
         if len(pool_idx) < batch_size:
             break
 
+        # Prospective PLS: re-fit using only training targets to avoid leakage.
+        if getattr(encoded_dataset, "raw_fingerprints", None):
+            encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
+
         train_df = encoded_df.loc[training_idx].copy().reset_index(drop=True)
         train_df["Formulation_ID"] = range(1, len(train_df) + 1)
         train_df["Round"] = 0
