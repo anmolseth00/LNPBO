@@ -1,4 +1,5 @@
 import random
+from typing import Self
 
 import numpy as np
 
@@ -155,7 +156,7 @@ class FormulationSpace:
         cls,
         dataset: Dataset,
         molratio_bounds_override: dict[str, tuple[float, float]] | None = None,
-    ) -> FormulationSpace:
+    ) -> Self:
 
         df = dataset.df
         meta = dataset.metadata

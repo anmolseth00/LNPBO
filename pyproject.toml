@@ -1,3 +1,51 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LNPBO"
+version = "0.1.0"
+description = "Bayesian Optimization for LNP Formulation Design"
+requires-python = ">=3.14"
+dependencies = [
+    "bayesian-optimization>=3.2",
+    "scikit-learn>=1.8",
+    "scipy>=1.17",
+    "numpy>=2.4",
+    "pandas>=3.0",
+    "joblib>=1.5",
+    "xgboost>=3.2",
+    "mapie>=1.3",
+    "rdkit>=2025.9",
+    "selfies>=2.1",
+    "shap>=0.51",
+    "matplotlib>=3.10",
+    "tqdm>=4.67",
+]
+
+[project.optional-dependencies]
+dev = ["ruff>=0.15"]
+mordred = ["mordredcommunity>=2.0"]
+
+[project.scripts]
+lnpbo = "LNPBO.cli.main:main"
+
+[tool.setuptools.package-dir]
+LNPBO = "."
+
+[tool.setuptools]
+packages = [
+    "LNPBO",
+    "LNPBO.data",
+    "LNPBO.cli",
+    "LNPBO.optimization",
+    "LNPBO.space",
+    "LNPBO.utils",
+    "LNPBO.benchmarks",
+    "LNPBO.models",
+    "LNPBO.generative",
+]
+
 [tool.ruff]
 target-version = "py314"
 line-length = 120

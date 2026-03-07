@@ -1,4 +1,5 @@
 import os
+from typing import Self
 
 import pandas as pd
 
@@ -83,7 +84,7 @@ class Dataset:
         self.raw_fingerprints = raw_fingerprints or {}
 
     @classmethod
-    def from_lnpdb_csv(cls, path: str) -> Dataset:
+    def from_lnpdb_csv(cls, path: str) -> Self:
         df = pd.read_csv(path)
         name = os.path.basename(path)
 
@@ -562,7 +563,7 @@ class Dataset:
             try:
                 reducer.fit(fp_train, y)
                 pc_matrix = reducer.transform(fp_scaled)
-            except ValueError, np.linalg.LinAlgError:
+            except (ValueError, np.linalg.LinAlgError):
                 # PLS can fail with degenerate features (e.g., 3 unique PEG SMILES);
                 # skip re-fitting for this role and keep existing PC values
                 continue
