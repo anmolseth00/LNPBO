@@ -3,7 +3,7 @@
 
 Reference:
     Searle, S.R., Casella, G. & McCulloch, C.E. (1992). "Variance Components."
-    Wiley Series in Probability and Statistics.
+    Wiley Series in Probability and Mathematical Statistics.
 """
 
 

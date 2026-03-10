@@ -156,14 +156,25 @@ def prepare_study_data(min_n: int = 5, reduction: str = "pca"):
     keep_ids = study_sizes[study_sizes >= min_n].index
     df = df[df["study_id"].isin(keep_ids)].reset_index(drop=True)
 
-    encoded, _ = encode_lantern_il(df, reduction=reduction)
-    feat_cols = lantern_il_feature_cols(encoded)
-
     study_to_type = build_study_type_map(df)
     train_ids, test_ids = study_split(df["study_id"].unique(), study_to_type, seed=42)
 
     train_mask = df["study_id"].isin(train_ids)
     test_mask = df["study_id"].isin(test_ids)
+
+    # Fit PCA on train studies only, then transform both splits
+    train_idx = np.flatnonzero(train_mask.values).tolist()
+    test_idx = np.flatnonzero(test_mask.values).tolist()
+    train_enc, test_enc, _ = encode_lantern_il(
+        df, train_idx=train_idx, test_idx=test_idx, reduction=reduction,
+    )
+
+    # Restore original df indices so concat+sort_index aligns with study_ids.
+    # encode_dataset uses pd.merge internally which resets indices to 0..n-1.
+    train_enc.index = train_idx
+    test_enc.index = test_idx
+    encoded = pd.concat([train_enc, test_enc]).sort_index()
+    feat_cols = lantern_il_feature_cols(encoded)
 
     X = encoded[feat_cols].values.astype(np.float32)
     y = encoded["Experiment_value"].values.astype(np.float32)

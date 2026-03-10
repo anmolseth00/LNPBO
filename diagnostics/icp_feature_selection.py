@@ -10,6 +10,22 @@ Reference: Peters et al. 2016, "Causal inference using invariant prediction",
 Since we have 10 PCs (5 count_mfp + 5 rdkit), exact ICP is feasible (2^10 = 1024).
 For each subset S: fit regression Y ~ X_S on each study, test whether residuals
 are distributionally equal across studies (Levene test for equal variance).
+
+Multiple-testing correction (2026-03-07):
+  Testing 1024 subsets at alpha=0.05 without correction inflates false invariance
+  claims. In ICP, a subset is "invariant" when we FAIL to reject (p >= alpha).
+  Multiple testing doesn't inflate p-values upward, but with many tests some
+  subsets will appear invariant by chance. We apply two corrections:
+
+  1. Bonferroni: raise the rejection threshold to alpha/n_tests. A subset is
+     invariant only if both p-values exceed alpha/n_tests. This is conservative.
+  2. Benjamini-Hochberg (BH) FDR: adjust p-values upward; a subset is invariant
+     only if both adjusted p-values still exceed alpha.
+
+  Both corrections are reported alongside uncorrected results.
+
+  Reference: Benjamini & Hochberg 1995, "Controlling the false discovery rate",
+             Journal of the Royal Statistical Society, Series B.
 """
 
 
@@ -22,6 +38,38 @@ from scipy.stats import f_oneway, levene
 from sklearn.linear_model import LinearRegression
 
 from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+
+
+def benjamini_hochberg(pvals):
+    """Benjamini-Hochberg adjusted p-values.
+
+    Reference: Benjamini & Hochberg 1995, JRSS-B, Theorem 1.
+    """
+    pvals = np.asarray(pvals, dtype=float)
+    n = len(pvals)
+    sorted_idx = np.argsort(pvals)
+    sorted_pvals = pvals[sorted_idx]
+    adjusted = np.minimum(1.0, sorted_pvals * n / np.arange(1, n + 1))
+    for i in range(n - 2, -1, -1):
+        adjusted[i] = min(adjusted[i], adjusted[i + 1])
+    result = np.empty(n)
+    result[sorted_idx] = adjusted
+    return result
+
+
+def compute_invariant_sets(all_results, feat_cols, key_suffix, invariant_key):
+    """Compute accepted sets and causal features for a given invariant key."""
+    accepted = []
+    for r in all_results:
+        if r[invariant_key]:
+            idx = [feat_cols.index(f) for f in r["features"]]
+            accepted.append(set(idx))
+    if accepted:
+        causal = accepted[0]
+        for s in accepted[1:]:
+            causal = causal & s
+        return [feat_cols[i] for i in sorted(causal)]
+    return []
 
 
 def test_invariance(X, y, study_ids, feature_subset, alpha=0.05):
@@ -79,7 +127,6 @@ def main() -> int:
     print(f"Total subsets to test: {2**n_features}")
 
     # Test all subsets (2^10 = 1024)
-    accepted_sets = []
     all_results = []
 
     for size in range(n_features + 1):
@@ -95,43 +142,89 @@ def main() -> int:
                 "p_means": p_means,
             }
             all_results.append(result)
-            if invariant:
-                accepted_sets.append(set(subset_list))
+
+    # --- Multiple-testing correction ---
+    n_tests = len(all_results)
+    alpha = 0.05
+    bonferroni_alpha = alpha / n_tests
+
+    all_p_levene = np.array([r["p_levene"] for r in all_results])
+    all_p_means = np.array([r["p_means"] for r in all_results])
+
+    p_levene_bh = benjamini_hochberg(all_p_levene)
+    p_means_bh = benjamini_hochberg(all_p_means)
+
+    for i, r in enumerate(all_results):
+        r["p_levene_bh"] = float(p_levene_bh[i])
+        r["p_means_bh"] = float(p_means_bh[i])
+        r["invariant_bh"] = bool(p_levene_bh[i] >= alpha and p_means_bh[i] >= alpha)
+        r["invariant_bonferroni"] = bool(
+            r["p_levene"] >= bonferroni_alpha and r["p_means"] >= bonferroni_alpha
+        )
 
     # Intersection of all accepted sets = invariant causal features
-    if accepted_sets:
-        causal_set = accepted_sets[0]
-        for s in accepted_sets[1:]:
-            causal_set = causal_set & s
-        causal_features = [feat_cols[i] for i in sorted(causal_set)]
-    else:
-        causal_features = []
+    causal_features = compute_invariant_sets(all_results, feat_cols, "", "invariant")
+    causal_features_bh = compute_invariant_sets(all_results, feat_cols, "_bh", "invariant_bh")
+    causal_features_bonf = compute_invariant_sets(
+        all_results, feat_cols, "_bonferroni", "invariant_bonferroni"
+    )
 
-    # Summary
-    n_invariant = sum(1 for r in all_results if r["invariant"])
-    invariant_by_size = {}
-    for r in all_results:
-        s = r["size"]
-        invariant_by_size.setdefault(s, {"total": 0, "invariant": 0})
-        invariant_by_size[s]["total"] += 1
-        if r["invariant"]:
-            invariant_by_size[s]["invariant"] += 1
+    # Summary by correction method
+    def summarize(key):
+        n_inv = sum(1 for r in all_results if r[key])
+        by_size = {}
+        for r in all_results:
+            s = r["size"]
+            by_size.setdefault(s, {"total": 0, "invariant": 0})
+            by_size[s]["total"] += 1
+            if r[key]:
+                by_size[s]["invariant"] += 1
+        return n_inv, by_size
+
+    n_invariant, invariant_by_size = summarize("invariant")
+    n_invariant_bh, invariant_by_size_bh = summarize("invariant_bh")
+    n_invariant_bonf, invariant_by_size_bonf = summarize("invariant_bonferroni")
 
     report = {
         "n_features": n_features,
-        "n_subsets_tested": len(all_results),
-        "n_invariant": n_invariant,
-        "causal_features": causal_features,
-        "invariant_by_size": invariant_by_size,
-        "accepted_examples": [r for r in all_results if r["invariant"]][:20],
+        "n_subsets_tested": n_tests,
+        "alpha": alpha,
+        "bonferroni_alpha": bonferroni_alpha,
+        "uncorrected": {
+            "n_invariant": n_invariant,
+            "causal_features": causal_features,
+            "invariant_by_size": invariant_by_size,
+        },
+        "bh_corrected": {
+            "n_invariant": n_invariant_bh,
+            "causal_features": causal_features_bh,
+            "invariant_by_size": invariant_by_size_bh,
+        },
+        "bonferroni_corrected": {
+            "n_invariant": n_invariant_bonf,
+            "causal_features": causal_features_bonf,
+            "invariant_by_size": invariant_by_size_bonf,
+        },
+        "accepted_examples_uncorrected": [r for r in all_results if r["invariant"]][:20],
     }
 
-    print(f"\nInvariant subsets: {n_invariant} / {len(all_results)}")
-    print(f"Causal features (intersection): {causal_features}")
-    print("\nInvariant by size:")
-    for size in sorted(invariant_by_size):
-        info = invariant_by_size[size]
-        print(f"  size={size}: {info['invariant']} / {info['total']}")
+    print(f"\n{'='*60}")
+    print(f"Multiple-testing correction (n_tests={n_tests}, alpha={alpha})")
+    print(f"Bonferroni alpha: {bonferroni_alpha:.2e}")
+    print(f"{'='*60}")
+
+    for label, n_inv, causal, by_size in [
+        ("Uncorrected", n_invariant, causal_features, invariant_by_size),
+        ("BH-corrected (FDR)", n_invariant_bh, causal_features_bh, invariant_by_size_bh),
+        ("Bonferroni-corrected", n_invariant_bonf, causal_features_bonf, invariant_by_size_bonf),
+    ]:
+        print(f"\n--- {label} ---")
+        print(f"Invariant subsets: {n_inv} / {n_tests}")
+        print(f"Causal features (intersection): {causal}")
+        print("Invariant by size:")
+        for size in sorted(by_size):
+            info = by_size[size]
+            print(f"  size={size}: {info['invariant']} / {info['total']}")
 
     out_path = Path("diagnostics") / "icp_results.json"
     out_path.write_text(json.dumps(report, indent=2))
