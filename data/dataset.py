@@ -1,5 +1,4 @@
 import os
-import warnings
 from typing import Self
 
 import pandas as pd
@@ -31,18 +30,6 @@ _FEATURE_TYPE_ENCODERS = {
     "lantern": ["count_mfp", "rdkit"],
 }
 
-# Maps encoder key -> flat kwarg suffix used in the deprecated API.
-# Most are identity; the exception is "mfp" -> "morgan".
-_ENCODER_TO_KWARG_SUFFIX = {
-    "mfp": "morgan",
-    "count_mfp": "count_mfp",
-    "rdkit": "rdkit",
-    "mordred": "mordred",
-    "unimol": "unimol",
-    "chemeleon": "chemeleon",
-    "lion": "lion",
-}
-
 _ROLES = ("IL", "HL", "CHL", "PEG")
 
 
@@ -67,42 +54,6 @@ def encoders_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
         enc[role] = {k: n for k in encoder_keys}
     return enc
 
-
-
-def _flat_kwargs_to_encoders(
-    IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
-    IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
-    HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
-    HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
-    CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
-    CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
-    PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
-    PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
-):
-    """Convert the 24 individual n_pcs kwargs into a nested encoders dict."""
-    return {
-        "IL": {
-            "mfp": IL_n_pcs_morgan, "mordred": IL_n_pcs_mordred,
-            "lion": IL_n_pcs_lion, "unimol": IL_n_pcs_unimol,
-            "count_mfp": IL_n_pcs_count_mfp, "rdkit": IL_n_pcs_rdkit,
-            "chemeleon": IL_n_pcs_chemeleon,
-        },
-        "HL": {
-            "mfp": HL_n_pcs_morgan, "mordred": HL_n_pcs_mordred,
-            "unimol": HL_n_pcs_unimol, "count_mfp": HL_n_pcs_count_mfp,
-            "rdkit": HL_n_pcs_rdkit, "chemeleon": HL_n_pcs_chemeleon,
-        },
-        "CHL": {
-            "mfp": CHL_n_pcs_morgan, "mordred": CHL_n_pcs_mordred,
-            "unimol": CHL_n_pcs_unimol, "count_mfp": CHL_n_pcs_count_mfp,
-            "rdkit": CHL_n_pcs_rdkit, "chemeleon": CHL_n_pcs_chemeleon,
-        },
-        "PEG": {
-            "mfp": PEG_n_pcs_morgan, "mordred": PEG_n_pcs_mordred,
-            "unimol": PEG_n_pcs_unimol, "count_mfp": PEG_n_pcs_count_mfp,
-            "rdkit": PEG_n_pcs_rdkit, "chemeleon": PEG_n_pcs_chemeleon,
-        },
-    }
 
 
 columns_to_check_for_duplicates = [
@@ -198,31 +149,9 @@ class Dataset:
         self,
         encoders: dict[str, dict[str, int]] | None = None,
         *,
-        IL_n_pcs_morgan: int = 0,
-        IL_n_pcs_mordred: int = 0,
-        IL_n_pcs_lion: int = 0,
-        IL_n_pcs_unimol: int = 0,
-        IL_n_pcs_count_mfp: int = 0,
-        IL_n_pcs_rdkit: int = 0,
-        IL_n_pcs_chemeleon: int = 0,
-        HL_n_pcs_morgan: int = 0,
-        HL_n_pcs_mordred: int = 0,
-        HL_n_pcs_unimol: int = 0,
-        HL_n_pcs_count_mfp: int = 0,
-        HL_n_pcs_rdkit: int = 0,
-        HL_n_pcs_chemeleon: int = 0,
-        CHL_n_pcs_morgan: int = 0,
-        CHL_n_pcs_mordred: int = 0,
-        CHL_n_pcs_unimol: int = 0,
-        CHL_n_pcs_count_mfp: int = 0,
-        CHL_n_pcs_rdkit: int = 0,
-        CHL_n_pcs_chemeleon: int = 0,
-        PEG_n_pcs_morgan: int = 0,
-        PEG_n_pcs_mordred: int = 0,
-        PEG_n_pcs_unimol: int = 0,
-        PEG_n_pcs_count_mfp: int = 0,
-        PEG_n_pcs_rdkit: int = 0,
-        PEG_n_pcs_chemeleon: int = 0,
+        feature_type: str | None = None,
+        il_pcs: int = 5,
+        other_pcs: int = 3,
         encoding_csv_path: str | None = None,
         only_encodings: bool = False,
         reduction: str = "pca",
@@ -230,46 +159,53 @@ class Dataset:
         fp_radius: int | None = None,
         fp_bits: int | None = None,
     ) -> Dataset:
+        """Encode molecular features for all lipid components.
 
-        # Build the canonical encoders dict. If ``encoders`` is provided, use
-        # it directly. Otherwise fall back to the individual kwargs (backward
-        # compat — these are deprecated but still functional).
-        any_kwarg_set = any(v != 0 for v in [
-            IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
-            IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
-            HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
-            HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
-            CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
-            CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
-            PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
-            PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
-        ])
+        Parameters
+        ----------
+        encoders : dict, optional
+            Nested dict ``{role: {encoder: n_pcs}}`` specifying exactly which
+            encodings and how many PCs per component role. Example::
 
-        if encoders is not None and any_kwarg_set:
+                {"IL": {"count_mfp": 5, "rdkit": 5}, "HL": {"count_mfp": 3}}
+
+        feature_type : str, optional
+            Convenience shorthand that builds the ``encoders`` dict
+            automatically. Supported values: ``"mfp"``, ``"count_mfp"``,
+            ``"rdkit"``, ``"mordred"``, ``"unimol"``, ``"chemeleon"``,
+            ``"lantern"`` (count_mfp + rdkit).
+            Cannot be combined with ``encoders``.
+
+        il_pcs : int
+            Number of PCs for the ionizable lipid role (default 5).
+            Used when ``feature_type`` is specified.
+
+        other_pcs : int
+            Number of PCs for helper lipid, cholesterol, and PEG-lipid
+            roles (default 3). Used when ``feature_type`` is specified.
+
+        reduction : str
+            Dimensionality reduction method: ``"pca"`` (default),
+            ``"pls"`` (supervised), or ``"none"`` (raw fingerprints).
+
+        fitted_transformers_in : dict, optional
+            Pre-fitted PCA/PLS transformers from a previous
+            ``encode_dataset()`` call. Used to encode a candidate pool
+            with the same transform as the training data.
+        """
+        if feature_type is not None and encoders is not None:
             raise ValueError(
-                "Cannot specify both 'encoders' and individual {ROLE}_n_pcs_{encoder} kwargs. "
+                "Cannot specify both 'feature_type' and 'encoders'. "
                 "Use one or the other."
             )
 
-        if encoders is None:
-            if any_kwarg_set:
-                warnings.warn(
-                    "Passing individual {ROLE}_n_pcs_{encoder} kwargs to encode_dataset() "
-                    "is deprecated. Use encoders=encoders_for_feature_type(...) or pass "
-                    "a dict[str, dict[str, int]] via the 'encoders' parameter instead.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-            encoders = _flat_kwargs_to_encoders(
-                IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
-                IL_n_pcs_count_mfp, IL_n_pcs_rdkit, IL_n_pcs_chemeleon,
-                HL_n_pcs_morgan, HL_n_pcs_mordred, HL_n_pcs_unimol,
-                HL_n_pcs_count_mfp, HL_n_pcs_rdkit, HL_n_pcs_chemeleon,
-                CHL_n_pcs_morgan, CHL_n_pcs_mordred, CHL_n_pcs_unimol,
-                CHL_n_pcs_count_mfp, CHL_n_pcs_rdkit, CHL_n_pcs_chemeleon,
-                PEG_n_pcs_morgan, PEG_n_pcs_mordred, PEG_n_pcs_unimol,
-                PEG_n_pcs_count_mfp, PEG_n_pcs_rdkit, PEG_n_pcs_chemeleon,
+        if feature_type is not None:
+            encoders = encoders_for_feature_type(
+                feature_type, il_pcs=il_pcs, other_pcs=other_pcs,
             )
+
+        if encoders is None:
+            encoders = {role: {} for role in _ROLES}
 
         df = self.df.copy()
 
