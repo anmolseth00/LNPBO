@@ -19,30 +19,13 @@ import numpy as np
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from LNPBO.models.data import (
-    SMILES_COLS,
     TABULAR_CONTINUOUS_COLS,
+    build_feature_matrix,
     encode_categoricals,
     learn_categorical_levels,
     load_lnpdb_dataframe,
     scaffold_split,
 )
-
-
-def compute_morgan_fingerprints(
-    smiles_list: list[str],
-    radius: int = 2,
-    n_bits: int = 1024,
-) -> np.ndarray:
-    from rdkit import Chem
-    from rdkit.Chem import rdFingerprintGenerator
-
-    gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
-    fps = np.zeros((len(smiles_list), n_bits), dtype=np.float32)
-    for i, smi in enumerate(smiles_list):
-        mol = Chem.MolFromSmiles(str(smi))
-        if mol is not None:
-            fps[i] = np.array(gen.GetFingerprint(mol), dtype=np.float32)
-    return fps
 
 
 def parse_args() -> argparse.Namespace:
@@ -121,49 +104,16 @@ def main():
     print(f"Split: train={len(df_train)}, val={len(df_val)}, test={len(df_test)}")
 
     # Build feature matrices
-    feature_parts_train = []
-    feature_parts_val = []
-    feature_parts_test = []
-    feature_names: list[str] = []
-
-    # Morgan fingerprints per component
-    if not args.no_fingerprint:
-        for comp in args.components:
-            smiles_col = SMILES_COLS[comp]
-            print(f"Computing Morgan FP ({comp}, radius={args.fp_radius}, bits={args.fp_bits})...")
-            t0 = time.time()
-            fp_train = compute_morgan_fingerprints(
-                df_train[smiles_col].tolist(), args.fp_radius, args.fp_bits
-            )
-            fp_val = compute_morgan_fingerprints(
-                df_val[smiles_col].tolist(), args.fp_radius, args.fp_bits
-            )
-            fp_test = compute_morgan_fingerprints(
-                df_test[smiles_col].tolist(), args.fp_radius, args.fp_bits
-            )
-            feature_parts_train.append(fp_train)
-            feature_parts_val.append(fp_val)
-            feature_parts_test.append(fp_test)
-            feature_names.extend([f"{comp}_fp_{i}" for i in range(args.fp_bits)])
-            print(f"  Done in {time.time() - t0:.1f}s")
-
-    # Continuous features
-    if cont_cols:
-        feature_parts_train.append(df_train[cont_cols].fillna(0).values.astype(np.float32))
-        feature_parts_val.append(df_val[cont_cols].fillna(0).values.astype(np.float32))
-        feature_parts_test.append(df_test[cont_cols].fillna(0).values.astype(np.float32))
-        feature_names.extend(cont_cols)
-
-    # Categorical features (already one-hot)
-    if cat_cols:
-        feature_parts_train.append(df_train[cat_cols].fillna(0).values.astype(np.float32))
-        feature_parts_val.append(df_val[cat_cols].fillna(0).values.astype(np.float32))
-        feature_parts_test.append(df_test[cat_cols].fillna(0).values.astype(np.float32))
-        feature_names.extend(cat_cols)
-
-    X_train = np.concatenate(feature_parts_train, axis=1)
-    X_val = np.concatenate(feature_parts_val, axis=1)
-    X_test = np.concatenate(feature_parts_test, axis=1)
+    X, feature_names = build_feature_matrix(
+        {"train": df_train, "val": df_val, "test": df_test},
+        cont_cols=cont_cols,
+        cat_cols=cat_cols,
+        components=args.components,
+        radius=args.fp_radius,
+        n_bits=args.fp_bits,
+        include_fingerprint=not args.no_fingerprint,
+    )
+    X_train, X_val, X_test = X["train"], X["val"], X["test"]
     y_train = df_train["Experiment_value"].values.astype(np.float32)
     y_val = df_val["Experiment_value"].values.astype(np.float32)
     y_test = df_test["Experiment_value"].values.astype(np.float32)

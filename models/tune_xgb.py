@@ -22,6 +22,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 from LNPBO.models.data import (
     TABULAR_CONTINUOUS_COLS,
+    build_feature_matrix,
     encode_categoricals,
     learn_categorical_levels,
     load_lnpdb_dataframe,
@@ -32,23 +33,6 @@ FP_BITS = 2048
 FP_RADIUS = 3
 SPLIT_SEED = 42
 SAVE_DIR = Path(__file__).resolve().parent / "runs" / "xgb_tuned"
-
-
-def compute_morgan_fingerprints(
-    smiles_list: list[str],
-    radius: int = FP_RADIUS,
-    n_bits: int = FP_BITS,
-) -> np.ndarray:
-    from rdkit import Chem
-    from rdkit.Chem import rdFingerprintGenerator
-
-    gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
-    fps = np.zeros((len(smiles_list), n_bits), dtype=np.float32)
-    for i, smi in enumerate(smiles_list):
-        mol = Chem.MolFromSmiles(str(smi))
-        if mol is not None:
-            fps[i] = np.array(gen.GetFingerprint(mol), dtype=np.float32)
-    return fps
 
 
 def build_features():
@@ -74,35 +58,16 @@ def build_features():
 
     print(f"Split: train={len(df_train)}, val={len(df_val)}, test={len(df_test)}")
 
-    feature_names: list[str] = []
+    X, feature_names = build_feature_matrix(
+        {"train": df_train, "val": df_val, "test": df_test},
+        cont_cols=cont_cols,
+        cat_cols=cat_cols,
+        components=["IL"],
+        radius=FP_RADIUS,
+        n_bits=FP_BITS,
+    )
 
-    print(f"Computing Morgan FP (radius={FP_RADIUS}, bits={FP_BITS})...")
-    t0 = time.time()
-    fp_train = compute_morgan_fingerprints(df_train["IL_SMILES"].tolist())
-    fp_val = compute_morgan_fingerprints(df_val["IL_SMILES"].tolist())
-    fp_test = compute_morgan_fingerprints(df_test["IL_SMILES"].tolist())
-    print(f"  Done in {time.time() - t0:.1f}s")
-    feature_names.extend([f"IL_fp_{i}" for i in range(FP_BITS)])
-
-    parts_train = [fp_train]
-    parts_val = [fp_val]
-    parts_test = [fp_test]
-
-    if cont_cols:
-        parts_train.append(df_train[cont_cols].fillna(0).values.astype(np.float32))
-        parts_val.append(df_val[cont_cols].fillna(0).values.astype(np.float32))
-        parts_test.append(df_test[cont_cols].fillna(0).values.astype(np.float32))
-        feature_names.extend(cont_cols)
-
-    if cat_cols:
-        parts_train.append(df_train[cat_cols].fillna(0).values.astype(np.float32))
-        parts_val.append(df_val[cat_cols].fillna(0).values.astype(np.float32))
-        parts_test.append(df_test[cat_cols].fillna(0).values.astype(np.float32))
-        feature_names.extend(cat_cols)
-
-    X_train = np.concatenate(parts_train, axis=1)
-    X_val = np.concatenate(parts_val, axis=1)
-    X_test = np.concatenate(parts_test, axis=1)
+    X_train, X_val, X_test = X["train"], X["val"], X["test"]
     y_train = df_train["Experiment_value"].values.astype(np.float32)
     y_val = df_val["Experiment_value"].values.astype(np.float32)
     y_test = df_test["Experiment_value"].values.astype(np.float32)
