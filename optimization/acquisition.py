@@ -8,6 +8,30 @@ from scipy.special import erfcx
 from scipy.stats import norm
 
 
+def _sample_f(gp, X, n_samples=1, random_state=None):
+    """Draw samples from the GP posterior over f (noise-free).
+
+    ``gp.sample_y`` draws from the posterior predictive y = f + noise.
+    For Thompson sampling and Randomized KB, we need samples from f
+    (the latent function) without observation noise.
+
+    Reference: Rasmussen & Williams (2006), Algorithm 2.1.
+    """
+    rng = np.random.RandomState(random_state)
+    mu, cov = gp.predict(X, return_cov=True)
+    # Jitter for numerical stability
+    cov += np.eye(len(X)) * 1e-10
+    try:
+        L = np.linalg.cholesky(cov)
+        z = rng.standard_normal((len(X), n_samples))
+        samples = mu[:, np.newaxis] + L @ z
+    except np.linalg.LinAlgError:
+        # Fallback: diagonal approximation
+        std = np.sqrt(np.maximum(np.diag(cov), 0.0))
+        samples = mu[:, np.newaxis] + std[:, np.newaxis] * rng.standard_normal((len(X), n_samples))
+    return samples
+
+
 class KrigingBeliever(acquisition.AcquisitionFunction):
     """Batch acquisition via the Kriging Believer heuristic.
 
@@ -15,22 +39,34 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
     as having a target equal to the GP posterior mean, then refitting the GP
     on the augmented dataset before selecting the next point.
 
-    Reference
-    ---------
+    When ``randomize=True``, dummy targets are drawn from the GP posterior
+    over f (noise-free) instead of the posterior mean. This adds diversity
+    to the batch and avoids corrupting the GP with deterministic fictitious
+    data, especially at larger batch sizes.
+
+    References
+    ----------
     Ginsbourger, D., Le Riche, R., & Carraro, L.
     "Kriging Is Well-Suited to Parallelize Optimization."
     Computational Intelligence in Expensive Optimization Problems,
     Springer, 2010, pp. 131-162.
+
+    Sugiura, S., Takeuchi, I., & Takeno, S. "Randomized Kriging Believer
+    for Parallel Bayesian Optimization with Regret Bounds."
+    arXiv:2603.01470, March 2026.
     """
 
     def __init__(
-        self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8
+        self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8,
+        randomize: bool = False,
     ) -> None:
         super().__init__(random_state)
         self.base_acquisition = base_acquisition
         self.dummies = []
         self.atol = atol
         self.rtol = rtol
+        self.randomize = randomize
+        self._sample_counter = 0
 
     def base_acq(self, *args, **kwargs):
         return self.base_acquisition.base_acq(*args, **kwargs)
@@ -55,7 +91,14 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         dummy_target_space = deepcopy(target_space)
 
         if self.dummies:
-            dummy_targets = gp.predict(np.array(self.dummies).reshape((len(self.dummies), -1)))
+            X_dummies = np.array(self.dummies).reshape((len(self.dummies), -1))
+            if self.randomize:
+                dummy_targets = _sample_f(
+                    gp, X_dummies, n_samples=1, random_state=self._sample_counter,
+                ).ravel()
+                self._sample_counter += 1
+            else:
+                dummy_targets = gp.predict(X_dummies)
             if dummy_target_space.constraint is not None:
                 dummy_constraints = target_space.constraint.approx(  # type: ignore[union-attr]
                     np.array(self.dummies).reshape((len(self.dummies), -1))
@@ -356,3 +399,75 @@ class LocalPenalization(acquisition.AcquisitionFunction):
 
     def set_acquisition_params(self, **params):
         self.lipschitz_scale = params.get("lipschitz_scale", self.lipschitz_scale)
+
+
+class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
+    """Batch acquisition via Thompson Sampling on the GP posterior.
+
+    For each batch point, draws a sample from the GP posterior using
+    ``gp.sample_y()``, optimizes it via random + local search, and adds
+    the maximizer to the batch. Each sample uses a different random state,
+    so the batch naturally explores diverse regions of input space.
+
+    Unlike Kriging Believer, TS batch does not corrupt the GP with
+    fictitious data. Unlike Local Penalization, it requires no Lipschitz
+    estimation. The only tunable is the number of random restarts.
+
+    References
+    ----------
+    Kandasamy, K., Krishnamurthy, A., Schneider, J., & Poczos, B.
+    "Parallelised Bayesian Optimisation via Thompson Sampling."
+    AISTATS 2018.
+    """
+
+    def __init__(self, random_state=None):
+        super().__init__(random_state)
+        self._sample_counter = 0
+        self.pending = []
+
+    def base_acq(self, mean, std):
+        return mean
+
+    def clear_pending(self):
+        self.pending = []
+
+    def suggest(
+        self, gp, target_space: TargetSpace, n_random=10_000, n_smart=10, fit_gp: bool = True, random_state=None
+    ) -> np.ndarray:
+        if len(target_space) == 0:
+            raise ValueError(
+                "Cannot suggest a point without previous samples. "
+                "Use target_space.random_sample() to generate a point."
+            )
+
+        if fit_gp:
+            self._fit_gp(gp, target_space)
+
+        sample_seed = self._sample_counter
+        self._sample_counter += 1
+
+        dim = gp.X_train_.shape[1]
+
+        def ts_acq(x):
+            x = np.atleast_2d(x).reshape(-1, dim)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                samples = _sample_f(gp, x, n_samples=1, random_state=sample_seed)
+            return -samples.ravel()
+
+        self.i += 1
+        x_max = self._acq_min(
+            ts_acq,
+            target_space,
+            n_random=n_random,
+            n_smart=n_smart,
+            random_state=np.random.RandomState(random_state) if isinstance(random_state, int) else random_state,
+        )
+        self.pending.append(x_max.copy())
+        return x_max
+
+    def get_acquisition_params(self):
+        return {}
+
+    def set_acquisition_params(self, **params):
+        pass
