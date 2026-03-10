@@ -252,7 +252,17 @@ The within-study benchmark (Section 3) supersedes these earlier analyses, which 
 
 **Cross-study generalization.** ICC = 0.006 globally (z-scoring removes batch effects). ICP found zero invariant causal features across studies. Top-50 recall dropped from 20.4% (formulation split) to 8.4% (study-level split). Conclusion: the model learns within-study scaffold identification, not transferable SAR rules.
 
-**Held-out study benchmark.** On Collins et al.'s 4 held-out studies (5-fold CV, matched protocol), XGB+LANTERN PCA achieved mean Spearman r=0.307, beating LiON D-MPNN (0.219) on all 4 studies. AGILE GNN was essentially random (Pearson r ~ 0). Key: aggressive PCA reduction to 10 features prevents overfitting.
+**Held-out study benchmark.** Direct comparison on the 4 held-out studies from Collins et al. Table 1, using 5-fold CV on non-held-out data (matched protocol). XGB+LANTERN PCA beats LiON on all 4 studies. Key: aggressive PCA reduction to 10 features prevents overfitting.
+
+| Study | n_test | XGB+LANTERN (Spearman r) | LiON D-MPNN (Spearman r) | AGILE GNN (Pearson r) |
+|-------|--------|--------------------------|--------------------------|------------------------|
+| BL_2023 | 773 | **0.088 ± 0.034** | 0.071 ± 0.036 | -0.022 |
+| LM_2019 | 1128 | **0.168 ± 0.038** | 0.095 ± 0.047 | -0.016 |
+| SL_2020 | 91 | **0.654 ± 0.022** | 0.633 ± 0.030 | -0.224 |
+| ZC_2023 | 131 | **0.319 ± 0.014** | 0.079 ± 0.079 | 0.217 |
+| **Mean** | — | **0.307** | 0.219 | -0.011 |
+
+Script: `scripts/benchmark_heldout.py`
 
 **Model training.** Best standalone model: XGBoost Optuna-tuned R^2=0.376 (scaffold split, seed 42). MPNN 4-component R^2=0.355. Tabular ML on fingerprints matches or exceeds end-to-end GNNs. The R^2 ceiling (~0.40) is driven by feature representation.
 
