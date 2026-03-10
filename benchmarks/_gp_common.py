@@ -4,7 +4,9 @@ import os
 import sys
 import warnings
 
-from .runner import LNPDBOracle, init_history, normalize_targets, update_history
+from LNPBO.optimization._normalize import normalize_targets
+
+from .runner import LNPDBOracle, init_history, update_history
 
 
 def run_gp_strategy(

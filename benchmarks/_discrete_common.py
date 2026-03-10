@@ -1,8 +1,9 @@
 """Shared discrete candidate pool strategy loop."""
 
+from LNPBO.optimization._normalize import copula_transform
 from LNPBO.optimization.discrete import score_candidate_pool, score_candidate_pool_ts_batch
 
-from .runner import copula_transform, init_history, update_history
+from .runner import init_history, update_history
 
 
 def run_discrete_strategy(

@@ -7,7 +7,9 @@ and nearest-neighbor matching.
 
 import numpy as np
 
-from .runner import init_history, normalize_targets, update_history
+from LNPBO.optimization._normalize import normalize_targets
+
+from .runner import init_history, update_history
 
 ACQ_TYPE_MAP = {
     "UCB":       ("UCB", "kb"),

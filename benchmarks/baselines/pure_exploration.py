@@ -25,11 +25,11 @@ from sklearn.preprocessing import MinMaxScaler
 
 from LNPBO.benchmarks.runner import (
     compute_metrics,
-    copula_transform,
     init_history,
     prepare_benchmark_data,
     update_history,
 )
+from LNPBO.optimization._normalize import copula_transform
 
 SEEDS = [42, 123, 456, 789, 2024]
 
@@ -105,7 +105,7 @@ def main():
     results_dir.mkdir(exist_ok=True)
 
     print(f"{'='*70}")
-    print(f"Pure Exploration Baseline (RF sigma-only)")
+    print("Pure Exploration Baseline (RF sigma-only)")
     print(f"n_seed={args.n_seed}, batch={args.batch_size}, rounds={args.rounds}")
     print(f"{'='*70}")
 
@@ -172,7 +172,7 @@ def main():
         "seed_results": seed_details,
     }
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     for k in [10, 50, 100]:
         r = recall_arrays[k]
         print(f"  Top-{k}: {r['mean']:.1%} +/- {r['std']:.1%}")

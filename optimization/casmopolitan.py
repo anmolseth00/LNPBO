@@ -38,7 +38,6 @@ from sklearn.gaussian_process.kernels import (
 )
 from sklearn.preprocessing import StandardScaler
 
-
 # ---------------------------------------------------------------------------
 # Categorical overlap kernel
 # ---------------------------------------------------------------------------
@@ -377,7 +376,6 @@ def optimize_mixed_acquisition(
         rng = np.random.RandomState()
 
     tr_cont_bounds = trust_region.get_cont_bounds()
-    n_cont_dims = trust_region.n_cont_dims
 
     # Filter categorical configs to those within trust region
     if unique_cats.shape[0] <= n_cat_samples:
@@ -404,8 +402,9 @@ def optimize_mixed_acquisition(
 
     for cat in cat_candidates:
         # Optimize continuous dims for this categorical config
-        def neg_acq(cont_x):
-            x = np.concatenate([cat, cont_x]).reshape(1, -1)
+        _cat = cat  # bind loop variable for closure
+        def neg_acq(cont_x, _cat=_cat):
+            x = np.concatenate([_cat, cont_x]).reshape(1, -1)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 mu, sigma = gp.predict(x, return_std=True)
@@ -493,7 +492,7 @@ def select_batch_casmopolitan(
     batch = []
     current_gp = gp
 
-    for b in range(batch_size):
+    for _b in range(batch_size):
         x_new = optimize_mixed_acquisition(
             current_gp,
             unique_cats,
@@ -586,8 +585,6 @@ def score_pool_casmopolitan(
     top_indices : array of shape (batch_size,)
     scores : array of shape (n_pool,)
     """
-    rng = np.random.RandomState(random_seed)
-
     n_cat = len(cat_feature_indices)
     n_cont = len(cont_feature_indices)
 
@@ -687,8 +684,9 @@ def run_casmopolitan_strategy(
     history : dict
         Compatible with benchmarks.runner.compute_metrics().
     """
-    from LNPBO.benchmarks.runner import copula_transform, init_history, update_history
+    from LNPBO.benchmarks.runner import init_history, update_history
     from LNPBO.data.compositional import ilr_transform
+    from LNPBO.optimization._normalize import copula_transform
 
     rng = np.random.RandomState(seed)
 
@@ -702,7 +700,6 @@ def run_casmopolitan_strategy(
     unique_il_names = np.unique(il_names)
     il_name_to_int = {name: i for i, name in enumerate(unique_il_names)}
     il_cat_all = np.array([il_name_to_int[n] for n in il_names])
-    n_unique_il = len(unique_il_names)
 
     # Continuous features: molecular encodings + ratios (+ optional ILR)
     ratio_indices = [feature_cols.index(c) for c in ratio_cols]
@@ -919,7 +916,6 @@ def main():
     from LNPBO.benchmarks.runner import (
         _run_random,
         compute_metrics,
-        init_history,
         prepare_benchmark_data,
     )
 

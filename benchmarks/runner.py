@@ -16,7 +16,6 @@ import time
 from pathlib import Path
 
 import numpy as np
-from scipy.stats import norm as _norm
 from sklearn.neighbors import NearestNeighbors
 
 from LNPBO.optimization.optimizer import ENC_PREFIXES
@@ -109,49 +108,6 @@ STRATEGY_COLORS = {
     "casmopolitan_ucb": "#00ced1",
     "casmopolitan_ei": "#8a2be2",
 }
-
-
-# ---------------------------------------------------------------------------
-# Target normalization
-# ---------------------------------------------------------------------------
-
-
-def copula_transform(values, x_new=None):
-    """Rank-based copula transform to standard normal.
-
-    When ``x_new`` is provided, the transform is fitted on ``values``
-    and applied to ``x_new`` (each new value is ranked relative to the
-    reference distribution).  This avoids scale mismatch when the model
-    was trained on the copula of ``values`` alone.
-
-    Reference: quantile normalization / probability integral transform.
-    """
-    import pandas as pd
-
-    if x_new is None:
-        n = len(values)
-        ranks = pd.Series(values).rank(method="average")
-        u = (ranks - 0.5) / n
-        return _norm.ppf(u)
-
-    ref = np.sort(values)
-    n = len(ref)
-    ranks = np.searchsorted(ref, x_new, side="right").astype(float)
-    u = np.clip((ranks + 0.5) / (n + 1), 1e-10, 1 - 1e-10)
-    return _norm.ppf(u)
-
-
-def normalize_targets(df, method):
-    """Apply target normalization to a dataframe in-place."""
-    if method == "none":
-        return
-    col = "Experiment_value"
-    if method == "copula":
-        df[col] = copula_transform(df[col].values)
-    elif method == "zscore":
-        mu, sigma = df[col].mean(), df[col].std()
-        if sigma > 0:
-            df[col] = (df[col] - mu) / sigma
 
 
 # ---------------------------------------------------------------------------
