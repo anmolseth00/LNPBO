@@ -22,7 +22,7 @@ from sklearn.neighbors import NearestNeighbors
 from LNPBO.optimization.optimizer import ENC_PREFIXES
 
 # Strategy configs: name -> (type, type-specific params)
-# "gp" strategies dispatch to _gp_common.run_gp_strategy with acq_type
+# "gp" strategies dispatch to _gp_bo_common.run_gp_strategy (GPyTorch/BoTorch)
 # "discrete" strategies dispatch to _discrete_common.run_discrete_strategy with surrogate
 # "random" is inlined below
 STRATEGY_CONFIGS = {
@@ -30,15 +30,26 @@ STRATEGY_CONFIGS = {
     "lnpbo_ucb": {"type": "gp", "acq_type": "UCB"},
     "lnpbo_ei": {"type": "gp", "acq_type": "EI"},
     "lnpbo_logei": {"type": "gp", "acq_type": "LogEI"},
+    "lnpbo_rkb_logei": {"type": "gp", "acq_type": "RKB_LogEI"},
     "lnpbo_lp_ei": {"type": "gp", "acq_type": "LP_EI"},
     "lnpbo_lp_logei": {"type": "gp", "acq_type": "LP_LogEI"},
     "lnpbo_pls_logei": {"type": "gp", "acq_type": "LogEI"},
+    "lnpbo_ts_batch": {"type": "gp", "acq_type": "TS_Batch"},
     "lnpbo_pls_lp_logei": {"type": "gp", "acq_type": "LP_LogEI"},
     "discrete_gp_ucb": {"type": "discrete", "surrogate": "gp_ucb"},
     "discrete_rf_ucb": {"type": "discrete", "surrogate": "rf_ucb"},
     "discrete_rf_ts": {"type": "discrete", "surrogate": "rf_ts"},
     "discrete_xgb_greedy": {"type": "discrete", "surrogate": "xgb"},
     "discrete_xgb_ucb": {"type": "discrete", "surrogate": "xgb_ucb"},
+    "discrete_ngboost_ucb": {"type": "discrete", "surrogate": "ngboost"},
+    "discrete_xgb_cqr": {"type": "discrete", "surrogate": "xgb_cqr"},
+    "discrete_deep_ensemble": {"type": "discrete", "surrogate": "deep_ensemble"},
+    "discrete_tabpfn": {"type": "discrete", "surrogate": "tabpfn"},
+    "discrete_rf_ts_batch": {"type": "discrete_ts_batch", "surrogate": "rf_ucb"},
+    "discrete_xgb_ucb_ts_batch": {"type": "discrete_ts_batch", "surrogate": "xgb_ucb"},
+    "discrete_xgb_online_conformal": {"type": "discrete_online_conformal"},
+    "casmopolitan_ucb": {"type": "casmopolitan", "acq_func": "ucb"},
+    "casmopolitan_ei": {"type": "casmopolitan", "acq_func": "ei"},
 }
 
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
@@ -50,15 +61,26 @@ STRATEGY_DISPLAY = {
     "lnpbo_ucb": "GP + KB (UCB)",
     "lnpbo_ei": "GP + KB (EI)",
     "lnpbo_logei": "GP + KB (LogEI)",
+    "lnpbo_rkb_logei": "GP + RKB (LogEI)",
     "lnpbo_lp_ei": "GP + LP (EI)",
     "lnpbo_lp_logei": "GP + LP (LogEI)",
     "lnpbo_pls_logei": "GP + KB (PLS+LogEI)",
+    "lnpbo_ts_batch": "GP + TS-Batch",
     "lnpbo_pls_lp_logei": "GP + LP (PLS+LogEI)",
     "discrete_gp_ucb": "Discrete GP-UCB",
     "discrete_rf_ucb": "Discrete RF-UCB",
     "discrete_rf_ts": "Discrete RF-TS",
     "discrete_xgb_greedy": "Discrete XGB",
     "discrete_xgb_ucb": "Discrete XGB-UCB (MAPIE)",
+    "discrete_ngboost_ucb": "Discrete NGBoost-UCB",
+    "discrete_xgb_cqr": "Discrete XGB-CQR",
+    "discrete_deep_ensemble": "Discrete Deep Ensemble UCB",
+    "discrete_tabpfn": "Discrete TabPFN-UCB",
+    "discrete_rf_ts_batch": "Discrete RF TS-Batch",
+    "discrete_xgb_ucb_ts_batch": "Discrete XGB-UCB TS-Batch",
+    "discrete_xgb_online_conformal": "Discrete XGB Online Conformal",
+    "casmopolitan_ucb": "CASMOPOLITAN (UCB)",
+    "casmopolitan_ei": "CASMOPOLITAN (EI)",
 }
 
 STRATEGY_COLORS = {
@@ -66,6 +88,8 @@ STRATEGY_COLORS = {
     "lnpbo_ucb": "#1f77b4",
     "lnpbo_ei": "#ff7f0e",
     "lnpbo_logei": "#2ca02c",
+    "lnpbo_rkb_logei": "#ff9896",
+    "lnpbo_ts_batch": "#aec7e8",
     "lnpbo_lp_ei": "#d62728",
     "lnpbo_lp_logei": "#9467bd",
     "lnpbo_pls_logei": "#8c564b",
@@ -75,6 +99,15 @@ STRATEGY_COLORS = {
     "discrete_rf_ts": "#7f7f7f",
     "discrete_xgb_greedy": "#e41a1c",
     "discrete_xgb_ucb": "#ff6600",
+    "discrete_ngboost_ucb": "#4daf4a",
+    "discrete_xgb_cqr": "#984ea3",
+    "discrete_deep_ensemble": "#8b4513",
+    "discrete_tabpfn": "#ff1493",
+    "discrete_rf_ts_batch": "#556b2f",
+    "discrete_xgb_ucb_ts_batch": "#b8860b",
+    "discrete_xgb_online_conformal": "#2f4f4f",
+    "casmopolitan_ucb": "#00ced1",
+    "casmopolitan_ei": "#8a2be2",
 }
 
 
@@ -83,13 +116,28 @@ STRATEGY_COLORS = {
 # ---------------------------------------------------------------------------
 
 
-def copula_transform(values):
-    """Rank-based copula transform to standard normal."""
+def copula_transform(values, x_new=None):
+    """Rank-based copula transform to standard normal.
+
+    When ``x_new`` is provided, the transform is fitted on ``values``
+    and applied to ``x_new`` (each new value is ranked relative to the
+    reference distribution).  This avoids scale mismatch when the model
+    was trained on the copula of ``values`` alone.
+
+    Reference: quantile normalization / probability integral transform.
+    """
     import pandas as pd
 
-    n = len(values)
-    ranks = pd.Series(values).rank(method="average")
-    u = (ranks - 0.5) / n
+    if x_new is None:
+        n = len(values)
+        ranks = pd.Series(values).rank(method="average")
+        u = (ranks - 0.5) / n
+        return _norm.ppf(u)
+
+    ref = np.sort(values)
+    n = len(ref)
+    ranks = np.searchsorted(ref, x_new, side="right").astype(float)
+    u = np.clip((ranks + 0.5) / (n + 1), 1e-10, 1 - 1e-10)
     return _norm.ppf(u)
 
 
@@ -145,8 +193,17 @@ class LNPDBOracle:
 def prepare_benchmark_data(
     n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp",
     n_pcs=None, context_features=False, fp_radius=None, fp_bits=None, data_df=None,
+    pca_train_indices=None,
 ):
-    """Load LNPDB, encode, split into seed/oracle."""
+    """Load LNPDB, encode, split into seed/oracle.
+
+    Parameters
+    ----------
+    pca_train_indices : array-like of int, optional
+        Row indices (into data_df) used to fit PCA/scaler. When provided,
+        PCA is fit on these rows only, then applied to the full dataset.
+        Prevents information leakage in study-level holdout benchmarks.
+    """
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
@@ -264,11 +321,24 @@ def prepare_benchmark_data(
             fp_kw["fp_radius"] = fp_radius
         if fp_bits is not None:
             fp_kw["fp_bits"] = fp_bits
-        encoded = dataset.encode_dataset(
-            enc,
-            reduction=effective_reduction,
-            **fp_kw,
-        )
+
+        if pca_train_indices is not None and effective_reduction != "none":
+            train_df = df.iloc[pca_train_indices].copy()
+            train_dataset = Dataset(train_df, source="lnpdb", name="LNPDB_pca_fit")
+            train_encoded = train_dataset.encode_dataset(
+                enc, reduction=effective_reduction, **fp_kw,
+            )
+            encoded = dataset.encode_dataset(
+                enc, reduction=effective_reduction,
+                fitted_transformers_in=train_encoded.fitted_transformers,
+                **fp_kw,
+            )
+        else:
+            encoded = dataset.encode_dataset(
+                enc,
+                reduction=effective_reduction,
+                **fp_kw,
+            )
 
     feature_cols = []
     enc_prefixes = ENC_PREFIXES
@@ -465,7 +535,6 @@ def plot_results(all_results, output_path="benchmark_output.png"):
 def main():
     parser = argparse.ArgumentParser(
         description="LNPBO Benchmark: Simulated closed-loop BO evaluation",
-        suggest_on_error=True,
     )
     parser.add_argument(
         "--strategies",
@@ -605,14 +674,41 @@ def main():
                 n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
                 normalize=args.normalize, encoded_dataset=s_dataset,
             )
+        elif config["type"] == "discrete_ts_batch":
+            from ._discrete_common import run_discrete_ts_batch_strategy
+            history = run_discrete_ts_batch_strategy(
+                s_df, s_fcols, s_seed, s_oracle,
+                surrogate=config["surrogate"], batch_size=args.batch_size,
+                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
+                normalize=args.normalize, encoded_dataset=s_dataset,
+            )
+        elif config["type"] == "discrete_online_conformal":
+            from ._discrete_common import run_discrete_online_conformal_strategy
+            history = run_discrete_online_conformal_strategy(
+                s_df, s_fcols, s_seed, s_oracle,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
+                normalize=args.normalize, encoded_dataset=s_dataset,
+            )
+        elif config["type"] == "casmopolitan":
+            from LNPBO.optimization.casmopolitan import run_casmopolitan_strategy
+            history = run_casmopolitan_strategy(
+                s_df, s_fcols, s_seed, s_oracle,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
+                normalize=args.normalize,
+                acq_func=config.get("acq_func", "ucb"),
+            )
         elif config["type"] == "gp":
-            from ._gp_common import run_gp_strategy
+            from ._gp_bo_common import run_gp_strategy
             history = run_gp_strategy(
                 s_dataset, s_df, s_fcols, s_seed, s_oracle,
                 acq_type=config["acq_type"], batch_size=args.batch_size,
                 n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
                 xi=args.xi, normalize=args.normalize,
             )
+        else:
+            raise ValueError(f"Unknown strategy type: {config['type']!r}")
 
         elapsed = time.time() - t0
         metrics = compute_metrics(history, s_topk, len(s_df))
@@ -667,13 +763,18 @@ def main():
         "results": {},
     }
     for name, result in all_results.items():
-        serializable["results"][name] = {
+        entry = {
             "metrics": result["metrics"],
             "elapsed": result["elapsed"],
             "best_so_far": result["history"]["best_so_far"],
             "round_best": result["history"]["round_best"],
             "n_evaluated": result["history"]["n_evaluated"],
         }
+        if "coverage" in result["history"]:
+            entry["coverage"] = result["history"]["coverage"]
+        if "conformal_quantile" in result["history"]:
+            entry["conformal_quantile"] = result["history"]["conformal_quantile"]
+        serializable["results"][name] = entry
     with open(json_path, "w") as f:
         json.dump(serializable, f, indent=2)
     print(f"\nResults saved to {json_path}")
