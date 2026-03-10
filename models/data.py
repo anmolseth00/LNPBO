@@ -98,7 +98,131 @@ def encode_categoricals(
     return df, new_cols
 
 
-from LNPBO.models.splits import _scaffold, scaffold_split  # noqa: F401
+from LNPBO.models.splits import scaffold_split  # noqa: F401
+
+
+def compute_morgan_fingerprints(
+    smiles_list: list[str],
+    radius: int = 3,
+    n_bits: int = 2048,
+) -> np.ndarray:
+    """Compute binary Morgan fingerprints for a list of SMILES strings.
+
+    Returns an (n_molecules, n_bits) float32 array.  Invalid or missing
+    SMILES yield all-zero rows.
+    """
+    from rdkit import Chem
+    from rdkit.Chem import rdFingerprintGenerator
+
+    gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
+    fps = np.zeros((len(smiles_list), n_bits), dtype=np.float32)
+    for i, smi in enumerate(smiles_list):
+        if pd.isna(smi) or str(smi).strip() in ("", "None", "nan"):
+            continue
+        mol = Chem.MolFromSmiles(str(smi))
+        if mol is not None:
+            fps[i] = np.array(gen.GetFingerprint(mol), dtype=np.float32)
+    return fps
+
+
+def build_feature_matrix(
+    df_splits: dict[str, pd.DataFrame],
+    cont_cols: list[str],
+    cat_cols: list[str],
+    components: list[str] | None = None,
+    smiles_col: str | None = None,
+    radius: int = 3,
+    n_bits: int = 2048,
+    include_fingerprint: bool = True,
+    verbose: bool = True,
+) -> tuple[dict[str, np.ndarray], list[str]]:
+    """Build concatenated feature matrices from split DataFrames.
+
+    Parameters
+    ----------
+    df_splits : dict[str, DataFrame]
+        Mapping of split name to DataFrame, e.g.
+        ``{"train": df_train, "val": df_val, "test": df_test}``.
+    cont_cols : list[str]
+        Continuous column names to include.
+    cat_cols : list[str]
+        One-hot encoded categorical column names to include.
+    components : list[str] | None
+        Lipid components whose SMILES get fingerprinted (e.g. ``["IL"]``).
+        Uses ``SMILES_COLS`` to look up the column name per component.
+        Mutually exclusive with *smiles_col*.
+    smiles_col : str | None
+        Explicit SMILES column to fingerprint (single component shortcut).
+        Mutually exclusive with *components*.
+    radius, n_bits : int
+        Morgan fingerprint parameters.
+    include_fingerprint : bool
+        If False, skip fingerprint computation entirely.
+    verbose : bool
+        Print progress messages.
+
+    Returns
+    -------
+    X : dict[str, np.ndarray]
+        Feature matrices keyed by split name, same order as *df_splits*.
+    feature_names : list[str]
+        Column names matching the feature matrix columns.
+    """
+    import time
+
+    if components is not None and smiles_col is not None:
+        raise ValueError("Specify components or smiles_col, not both")
+    if components is None and smiles_col is None:
+        components = ["IL"]
+
+    split_names = list(df_splits.keys())
+    feature_parts: dict[str, list[np.ndarray]] = {k: [] for k in split_names}
+    feature_names: list[str] = []
+
+    # Morgan fingerprints
+    if include_fingerprint:
+        if smiles_col is not None:
+            cols_to_fp = [("", smiles_col)]
+        else:
+            cols_to_fp = [(comp, SMILES_COLS[comp]) for comp in components]
+
+        for prefix, col in cols_to_fp:
+            label = prefix or col
+            if verbose:
+                print(f"Computing Morgan FP ({label}, radius={radius}, bits={n_bits})...")
+            t0 = time.time()
+            for name in split_names:
+                fp = compute_morgan_fingerprints(
+                    df_splits[name][col].tolist(), radius, n_bits,
+                )
+                feature_parts[name].append(fp)
+            name_prefix = f"{prefix}_fp_" if prefix else "fp_"
+            feature_names.extend([f"{name_prefix}{i}" for i in range(n_bits)])
+            if verbose:
+                print(f"  Done in {time.time() - t0:.1f}s")
+
+    # Continuous features
+    if cont_cols:
+        for name in split_names:
+            feature_parts[name].append(
+                df_splits[name][cont_cols].fillna(0).values.astype(np.float32)
+            )
+        feature_names.extend(cont_cols)
+
+    # Categorical features (already one-hot)
+    if cat_cols:
+        for name in split_names:
+            feature_parts[name].append(
+                df_splits[name][cat_cols].fillna(0).values.astype(np.float32)
+            )
+        feature_names.extend(cat_cols)
+
+    X = {
+        name: np.concatenate(feature_parts[name], axis=1)
+        for name in split_names
+    }
+
+    return X, feature_names
 
 
 class LNPDataset(Dataset):
