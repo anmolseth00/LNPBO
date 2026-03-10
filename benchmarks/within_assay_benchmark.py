@@ -62,12 +62,16 @@ def main() -> int:
 
             sdf = df[df["assay_type"] == assay_type].copy()
 
+            # PCA fit on train studies only to prevent leakage
+            # Use positional indices (for iloc) relative to sdf
+            pca_train_idx = np.flatnonzero(sdf["study_id"].isin(train_ids).values).tolist()
             encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
                 n_seed=min(500, int(0.8 * len(sdf))),
                 random_seed=seed,
                 reduction="pca",
                 feature_type="lantern_il_only",
                 data_df=sdf,
+                pca_train_indices=pca_train_idx,
             )
 
             # Partition encoded_df by study_id (indices are 0..N-1 after reset)

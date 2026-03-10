@@ -30,14 +30,17 @@ def main() -> int:
 
         per_seed = []
         for seed in seeds:
-            # Study-level split
+            # Study-level split — compute before encoding so PCA fits on train only
             train_ids, test_ids = study_split(all_study_ids, study_to_type, seed=seed)
+            # Use positional indices (for iloc) relative to df
+            pca_train_idx = np.flatnonzero(df["study_id"].isin(train_ids).values).tolist()
             encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
                 n_seed=500,
                 random_seed=seed,
                 reduction="pca",
                 feature_type=config,
                 data_df=df,
+                pca_train_indices=pca_train_idx,
             )
 
             # Partition encoded_df by study_id (indices are 0..N-1 after reset)
