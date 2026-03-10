@@ -29,6 +29,8 @@ import numpy as np
 import pandas as pd
 import xgboost as xgb
 
+from LNPBO.models.data import compute_morgan_fingerprints
+
 MODEL_DIR = Path(__file__).resolve().parent / "runs" / "xgb_tuned"
 MODEL_PATH = MODEL_DIR / "model.json"
 METRICS_PATH = MODEL_DIR / "test_metrics.json"
@@ -82,21 +84,6 @@ N_CAT_ONEHOT = sum(len(v) for v in CAT_LEVELS.values())  # 65
 N_FEATURES = FP_BITS + len(CONTINUOUS_COLS) + N_CAT_ONEHOT  # 2119
 
 
-def compute_morgan_fp(smiles_list, radius=FP_RADIUS, n_bits=FP_BITS):
-    from rdkit import Chem
-    from rdkit.Chem import rdFingerprintGenerator
-
-    gen = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
-    fps = np.zeros((len(smiles_list), n_bits), dtype=np.float32)
-    for i, smi in enumerate(smiles_list):
-        mol = Chem.MolFromSmiles(str(smi))
-        if mol is not None:
-            fps[i] = np.array(gen.GetFingerprint(mol), dtype=np.float32)
-        else:
-            print(f"WARNING: invalid SMILES at row {i}: {smi!r}", file=sys.stderr)
-    return fps
-
-
 def encode_categoricals(df):
     parts = []
     for col, levels in CAT_LEVELS.items():
@@ -107,7 +94,9 @@ def encode_categoricals(df):
 
 
 def featurize(df):
-    fps = compute_morgan_fp(df["IL_SMILES"].tolist())
+    fps = compute_morgan_fingerprints(
+        df["IL_SMILES"].tolist(), radius=FP_RADIUS, n_bits=FP_BITS,
+    )
 
     cont = np.zeros((len(df), len(CONTINUOUS_COLS)), dtype=np.float32)
     for i, col in enumerate(CONTINUOUS_COLS):
