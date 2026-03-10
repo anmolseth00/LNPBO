@@ -6,7 +6,7 @@ from ..space.formulation import FormulationSpace
 from .bayesopt import perform_bayesian_optimization
 from .doe import mixture_doe
 
-DISCRETE_SURROGATES = {"xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb"}
+DISCRETE_SURROGATES = {"xgb", "xgb_ucb", "rf_ucb", "rf_ts", "gp_ucb", "ngboost", "xgb_cqr", "deep_ensemble", "tabpfn"}
 ENC_PREFIXES = ["mfp_pc", "mordred_pc", "unimol_pc", "lion_pc", "count_mfp_pc", "rdkit_pc", "chemeleon_pc"]
 CTX_PREFIX = "ctx_"
 

@@ -9,7 +9,7 @@ from tqdm import tqdm
 from ..space.formulation import FormulationSpace
 from ..space.parameters import ComponentParameter, DiscreteParameter, MixtureRatiosParameter
 from ..utils.ordering import order_df_columns
-from .acquisition import KrigingBeliever, LocalPenalization, LogExpectedImprovement
+from .acquisition import KrigingBeliever, LocalPenalization, LogExpectedImprovement, ThompsonSamplingBatch
 from .serialization import save_surrogate
 
 
@@ -126,6 +126,33 @@ def perform_bayesian_optimization(
             ),
             random_state=BATCH_SEED,
         )
+    elif acq_type == "RKB_LogEI":
+        acq = KrigingBeliever(
+            LogExpectedImprovement(
+                xi=XI,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+            randomize=True,
+        )
+    elif acq_type == "RKB_UCB":
+        acq = KrigingBeliever(
+            acquisition.UpperConfidenceBound(
+                kappa=KAPPA,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+            randomize=True,
+        )
+    elif acq_type == "RKB_EI":
+        acq = KrigingBeliever(
+            acquisition.ExpectedImprovement(
+                xi=XI,
+                random_state=BATCH_SEED,
+            ),
+            random_state=BATCH_SEED,
+            randomize=True,
+        )
     elif acq_type == "LP_UCB":
         acq = LocalPenalization(
             acquisition.UpperConfidenceBound(
@@ -150,8 +177,15 @@ def perform_bayesian_optimization(
             ),
             random_state=BATCH_SEED,
         )
+    elif acq_type == "TS_Batch":
+        acq = ThompsonSamplingBatch(
+            random_state=BATCH_SEED,
+        )
     else:
-        raise ValueError(f"Unknown acq_type '{acq_type}'. Choose from: UCB, EI, LogEI, LP_UCB, LP_EI, LP_LogEI")
+        raise ValueError(
+            f"Unknown acq_type '{acq_type}'. Choose from: UCB, EI, LogEI, "
+            "RKB_UCB, RKB_EI, RKB_LogEI, LP_UCB, LP_EI, LP_LogEI, TS_Batch"
+        )
 
     # Optimizer
     with warnings.catch_warnings():
@@ -171,7 +205,7 @@ def perform_bayesian_optimization(
         for x, y in zip(X_train, y_train):
             optimizer.register(x, y)
 
-    if acq_type in ("EI", "LogEI") or acq_type in ("LP_EI", "LP_LogEI"):
+    if acq_type in ("EI", "LogEI", "RKB_EI", "RKB_LogEI") or acq_type in ("LP_EI", "LP_LogEI"):
         acq.base_acquisition.y_max = np.max(y_train)  # type: ignore[assignment]
 
     # Batch generation
