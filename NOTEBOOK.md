@@ -288,8 +288,10 @@ LNPBO implements GP-based Bayesian optimization with BoTorch/GPyTorch backends:
 ## 8. Future Work
 
 - **Statistical rigor:** Bootstrap confidence intervals on family rankings; mixed-effects model with study as random effect, strategy as fixed effect.
-- **Adaptive strategy selection:** Meta-learner that picks the optimization strategy based on study characteristics (size, ratio variability, IL diversity). No single method wins everywhere — an adaptive approach could outperform any fixed choice.
+- **Adaptive strategy selection:** Meta-learner that picks the optimization strategy based on study characteristics (size, ratio variability, IL diversity). No single method wins everywhere -- an adaptive approach could outperform any fixed choice.
 - **Tighter budget experiments:** Current budget is 28-34% of pool. Rankings may change under a 10% budget.
 - **Prospective validation:** All results are retrospective pool-based benchmarks. A real self-driving lab demonstration is needed.
 - **Ionizable lipid design:** Generative design of novel ionizable lipids guided by the optimization pipeline.
 - **Synthesizability filtering:** MolQuery-based filtering to constrain candidates to synthetically accessible molecules.
+- **Cost-aware acquisition:** Weight acquisition scores by per-candidate evaluation cost (reagent prices, synthesis time) using EI/cost with CArBO cooling (Lee et al., 2020) or Pandora's Box Gittins Index (Xie et al., NeurIPS 2024). Requires per-candidate cost data that LNPDB doesn't currently have.
+- **Feasibility constraints:** Learn black-box constraints (particle size, encapsulation, toxicity) via separate GP models in a ModelListGP, weight acquisition by probability of feasibility (Gardner et al., ICML 2014). Pre-filter known compositional constraints before BO. Requires multi-outcome measurement data.
