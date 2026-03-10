@@ -282,3 +282,4 @@ LNPBO implements GP-based Bayesian optimization with BoTorch/GPyTorch backends:
 - **Tighter budget experiments:** Current budget is 28-34% of pool. Rankings may change under a 10% budget.
 - **Prospective validation:** All results are retrospective pool-based benchmarks. A real self-driving lab demonstration is needed.
 - **Ionizable lipid design:** Generative design of novel ionizable lipids guided by the optimization pipeline.
+- **Synthesizability filtering:** MolQuery-based filtering to constrain candidates to synthetically accessible molecules.
