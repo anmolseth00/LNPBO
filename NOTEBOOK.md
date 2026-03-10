@@ -281,3 +281,4 @@ LNPBO implements GP-based Bayesian optimization with BoTorch/GPyTorch backends:
 - **Adaptive strategy selection:** Meta-learner that picks the optimization strategy based on study characteristics (size, ratio variability, IL diversity). No single method wins everywhere — an adaptive approach could outperform any fixed choice.
 - **Tighter budget experiments:** Current budget is 28-34% of pool. Rankings may change under a 10% budget.
 - **Prospective validation:** All results are retrospective pool-based benchmarks. A real self-driving lab demonstration is needed.
+- **Ionizable lipid design:** Generative design of novel ionizable lipids guided by the optimization pipeline.
