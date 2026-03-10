@@ -253,6 +253,9 @@ def main() -> int:
     feat_cols = lantern_il_feature_cols(train_encoded)
 
     import pandas as pd
+    # Restore original df indices so concat+sort_index aligns with study_ids
+    train_encoded.index = train_idx
+    test_encoded.index = test_idx
     encoded = pd.concat([train_encoded, test_encoded]).sort_index()
 
     X = encoded[feat_cols].values.astype(np.float32)

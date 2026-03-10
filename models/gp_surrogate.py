@@ -1,5 +1,11 @@
 #!/usr/bin/env python3
-"""GP surrogate with study-level random effect (marginalized as noise)."""
+"""GP surrogate with study-level random effect (marginalized as noise).
+
+Noise initialization uses REML-estimated variance components
+(random intercept per study) following:
+    Patterson, H.D. & Thompson, R. (1971). "Recovery of Inter-Block
+    Information when Block Sizes are Unequal." Biometrika, 58(3), 545-554.
+"""
 
 
 import json
@@ -44,8 +50,10 @@ def _train_gp(train_x, train_y, noise_init, fix_noise=False, kernel_name="rbf"):
 
     if kernel_name == "rbf":
         kernel = gpytorch.kernels.RBFKernel()
-    elif kernel_name == "matern":
+    elif kernel_name == "matern" or kernel_name == "matern52":
         kernel = gpytorch.kernels.MaternKernel(nu=2.5)
+    elif kernel_name == "matern32":
+        kernel = gpytorch.kernels.MaternKernel(nu=1.5)
     else:
         raise ValueError(f"Unknown kernel: {kernel_name}")
 
@@ -107,8 +115,10 @@ def _train_sparse_gp(train_x, train_y, noise_init, fix_noise=False, kernel_name=
 
     if kernel_name == "rbf":
         kernel = gpytorch.kernels.RBFKernel()
-    elif kernel_name == "matern":
+    elif kernel_name == "matern" or kernel_name == "matern52":
         kernel = gpytorch.kernels.MaternKernel(nu=2.5)
+    elif kernel_name == "matern32":
+        kernel = gpytorch.kernels.MaternKernel(nu=1.5)
     else:
         raise ValueError(f"Unknown kernel: {kernel_name}")
 

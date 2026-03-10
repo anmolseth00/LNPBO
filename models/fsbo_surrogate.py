@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Phase 5.2: Simplified FSBO surrogate for few-shot BO.
+"""Phase 5.2: Warm-started GP surrogate for few-shot BO.
 
-Implements a simplified version of Few-Shot Bayesian Optimization
-(Wistuba & Grabocka, ICLR 2021, arXiv:2101.07667) using warm-started
-GP hyperparameters from meta-training data.
+Warm-starts GP hyperparameters from meta-training data for few-shot
+transfer.  Inspired by FSBO (Wistuba & Grabocka, ICLR 2021,
+arXiv:2101.07667), but omits the paper's core deep kernel surrogate
+(neural network feature extractor feeding into the GP kernel).
+This implementation uses a plain SingleTaskGP from botorch.
 
 Architecture:
   1. Meta-train: fit a GP on a stratified subsample of training study
@@ -19,7 +21,8 @@ Uses the same study split as MAML (Phase 5.1):
   - 80/20 study-level split, stratified by assay type
 
 Reference: Wistuba, M. & Grabocka, J. "Few-Shot Bayesian Optimization
-with Deep Kernel Surrogates", ICLR 2021.
+with Deep Kernel Surrogates", ICLR 2021.  (Only hyperparameter
+warm-starting is implemented; deep kernel learning is not.)
 """
 
 
@@ -300,6 +303,9 @@ def main() -> int:
     feat_cols = lantern_il_feature_cols(train_encoded)
 
     import pandas as pd
+    # Restore original df indices so concat+sort_index aligns with study_ids
+    train_encoded.index = train_idx
+    test_encoded.index = test_idx
     encoded = pd.concat([train_encoded, test_encoded]).sort_index()
 
     X_raw = encoded[feat_cols].values.astype(np.float64)

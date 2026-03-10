@@ -1,0 +1,132 @@
+{
+  "description": "Multi-task GP with ICM kernel treating each study as a task. Compared against single-task GP and random intercept baselines. Study-level 80/20 split stratified by assay type.",
+  "citation": "Bonilla et al. (2007) 'Multi-task Gaussian Process Prediction', NIPS 2007. Alvarez et al. (2012) 'Kernels for Vector-Valued Functions: A Review'.",
+  "note": "MultiTaskGP is ExactGP (O(n^3)); training subsampled to n_max_train=1000 via stratified sampling across studies. Single-task GP and random intercept use SVGP (no size limit).",
+  "seeds": [
+    42,
+    123,
+    456,
+    789,
+    2024
+  ],
+  "multitask_gp": {
+    "42": {
+      "error": "'MultiTaskGP' object has no attribute 'task_covar_module'"
+    },
+    "123": {
+      "error": "'MultiTaskGP' object has no attribute 'task_covar_module'"
+    },
+    "456": {
+      "error": "'MultiTaskGP' object has no attribute 'task_covar_module'"
+    },
+    "789": {
+      "error": "'MultiTaskGP' object has no attribute 'task_covar_module'"
+    },
+    "2024": {
+      "error": "'MultiTaskGP' object has no attribute 'task_covar_module'"
+    }
+  },
+  "single_task_gp": {
+    "42": {
+      "r2": -0.010270237922668457,
+      "n_train": 15331,
+      "n_test": 3868,
+      "time_s": 17.2
+    },
+    "123": {
+      "r2": -0.037706732749938965,
+      "n_train": 16510,
+      "n_test": 2689,
+      "time_s": 18.0
+    },
+    "456": {
+      "r2": -0.008826375007629395,
+      "n_train": 12925,
+      "n_test": 6274,
+      "time_s": 56.1
+    },
+    "789": {
+      "r2": -0.00514674186706543,
+      "n_train": 13730,
+      "n_test": 5469,
+      "time_s": 15.1
+    },
+    "2024": {
+      "r2": -0.017038464546203613,
+      "n_train": 16862,
+      "n_test": 2337,
+      "time_s": 117.6
+    }
+  },
+  "random_intercept": {
+    "42": {
+      "r2": -0.0087965726852417,
+      "n_train": 15331,
+      "n_test": 3868,
+      "n_seen_studies": 0,
+      "n_unseen_studies": 9,
+      "mean_abs_intercept": 0.07505128567837263,
+      "time_s": 16.5
+    },
+    "123": {
+      "r2": -0.04653310775756836,
+      "n_train": 16510,
+      "n_test": 2689,
+      "n_seen_studies": 0,
+      "n_unseen_studies": 9,
+      "mean_abs_intercept": 0.07229116515813847,
+      "time_s": 24.0
+    },
+    "456": {
+      "r2": -0.010808229446411133,
+      "n_train": 12925,
+      "n_test": 6274,
+      "n_seen_studies": 0,
+      "n_unseen_studies": 9,
+      "mean_abs_intercept": 0.0610058345182827,
+      "time_s": 56.5
+    },
+    "789": {
+      "r2": -0.004918932914733887,
+      "n_train": 13730,
+      "n_test": 5469,
+      "n_seen_studies": 0,
+      "n_unseen_studies": 9,
+      "mean_abs_intercept": 0.05204292268943832,
+      "time_s": 16.4
+    },
+    "2024": {
+      "r2": -0.01705646514892578,
+      "n_train": 16862,
+      "n_test": 2337,
+      "n_seen_studies": 0,
+      "n_unseen_studies": 9,
+      "mean_abs_intercept": 0.06881182631618823,
+      "time_s": 119.6
+    }
+  },
+  "summary": {
+    "single_task_gp": {
+      "r2_mean": -0.0158,
+      "r2_std": 0.0116,
+      "r2_values": [
+        -0.0103,
+        -0.0377,
+        -0.0088,
+        -0.0051,
+        -0.017
+      ]
+    },
+    "random_intercept": {
+      "r2_mean": -0.0176,
+      "r2_std": 0.015,
+      "r2_values": [
+        -0.0088,
+        -0.0465,
+        -0.0108,
+        -0.0049,
+        -0.0171
+      ]
+    }
+  }
+}

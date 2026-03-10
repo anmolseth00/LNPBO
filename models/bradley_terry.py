@@ -25,7 +25,8 @@ def _sample_pairs(indices, y, max_pairs, rng):
         return [], []
     total_pairs = n * (n - 1) // 2
     n_pairs = min(max_pairs, total_pairs)
-    pairs = set()
+    pairs = []
+    seen = set()
     max_attempts = n_pairs * 20
     attempts = 0
     while len(pairs) < n_pairs and attempts < max_attempts:
@@ -33,12 +34,25 @@ def _sample_pairs(indices, y, max_pairs, rng):
         i, j = rng.choice(indices, size=2, replace=False)
         if y[i] == y[j]:
             continue
-        if y[i] > y[j]:
-            pairs.add((i, j, 1))
+        key = (min(i, j), max(i, j))
+        if key in seen:
+            continue
+        seen.add(key)
+        # Randomly assign order to avoid degenerate all-positive labels
+        if rng.random() < 0.5:
+            # winner first -> label 1
+            if y[i] > y[j]:
+                pairs.append((i, j, 1))
+            else:
+                pairs.append((j, i, 1))
         else:
-            pairs.add((j, i, 1))
+            # loser first -> label 0
+            if y[i] > y[j]:
+                pairs.append((j, i, 0))
+            else:
+                pairs.append((i, j, 0))
     X1 = [(i, j) for i, j, _ in pairs]
-    y1 = [1] * len(pairs)
+    y1 = [lbl for _, _, lbl in pairs]
     return X1, y1
 
 
@@ -82,14 +96,14 @@ def train_bt_model(X, y, study_ids, train_mask, epochs=20, batch_size=1024):
 
 
 def evaluate_pairs(model, X, y, study_ids, test_mask):
-    pairs, _labels = build_pair_dataset(X, y, study_ids, test_mask, max_pairs=500)
+    pairs, labels = build_pair_dataset(X, y, study_ids, test_mask, max_pairs=500)
     if len(pairs) == 0:
         return float("nan")
     with torch.no_grad():
         u = model(torch.tensor(X)).cpu().numpy()
     logits = u[pairs[:, 0]] - u[pairs[:, 1]]
-    probs = 1 / (1 + np.exp(-logits))
-    acc = float((probs >= 0.5).mean())
+    preds = (logits > 0).astype(float)
+    acc = float((preds == labels).mean())
     return acc
 
 
@@ -115,28 +129,28 @@ def main() -> int:
     acc = evaluate_pairs(model, X, y, study_ids, test_mask)
     rho = evaluate_rank_correlation(model, X, y, study_ids, test_mask)
 
-    # BO-style greedy ranking on test pool
+    # Per-study top-K recall (within-study ranking, then averaged)
     with torch.no_grad():
         u = model(torch.tensor(X)).cpu().numpy()
-    test_idx = np.where(test_mask)[0]
-    top10 = np.argsort(u[test_idx])[-10:]
-    top50 = np.argsort(u[test_idx])[-50:]
-    top100 = np.argsort(u[test_idx])[-100:]
-
-    y_test = y[test_idx]
-    top10_true = np.argsort(y_test)[-10:]
-    top50_true = np.argsort(y_test)[-50:]
-    top100_true = np.argsort(y_test)[-100:]
-
-    def recall(pred_idx, true_idx):
-        return len(set(pred_idx) & set(true_idx)) / len(set(true_idx))
+    per_study_recall = {"top10": [], "top50": [], "top100": []}
+    for sid in np.unique(study_ids[test_mask]):
+        idx = np.where(test_mask & (study_ids == sid))[0]
+        if len(idx) < 10:
+            continue
+        u_study = u[idx]
+        y_study = y[idx]
+        for k_name, k in [("top10", min(10, len(idx))), ("top50", min(50, len(idx))), ("top100", min(100, len(idx)))]:
+            pred_top = set(idx[np.argsort(u_study)[-k:]])
+            true_top = set(idx[np.argsort(y_study)[-k:]])
+            per_study_recall[k_name].append(len(pred_top & true_top) / len(true_top))
 
     results = {
         "pairwise_accuracy": acc,
         "rank_spearman_mean": rho,
-        "top10_recall": recall(top10, top10_true),
-        "top50_recall": recall(top50, top50_true),
-        "top100_recall": recall(top100, top100_true),
+        "top10_recall_mean": float(np.mean(per_study_recall["top10"])) if per_study_recall["top10"] else float("nan"),
+        "top50_recall_mean": float(np.mean(per_study_recall["top50"])) if per_study_recall["top50"] else float("nan"),
+        "top100_recall_mean": float(np.mean(per_study_recall["top100"])) if per_study_recall["top100"] else float("nan"),
+        "n_studies_evaluated": len(per_study_recall["top10"]),
     }
 
     out_path = Path("models") / "bradley_terry_results.json"
