@@ -255,6 +255,8 @@ def select_batch(
         "lp"    - Local Penalization (Gonzalez et al., 2016)
         "ts"    - Thompson Sampling (Kandasamy et al., 2018)
         "qlogei" - Joint q-LogEI (Ament et al., 2023, via BoTorch)
+        "gibbon" - GIBBON: information-theoretic + DPP diversity (Moss et al., 2021)
+        "jes"   - Joint Entropy Search (Hvarfner et al., 2022)
     kappa : UCB exploration parameter.
     xi : EI/LogEI improvement jitter.
     seed : Random seed.
@@ -276,9 +278,16 @@ def select_batch(
     y_best = float(y_train.max())
 
     strategy = batch_strategy.lower()
+    device = next(model.parameters()).device
     if strategy == "qlogei":
         return _batch_qlogei(model, X_train, X_pool, pool_indices, batch_size,
-                             device=next(model.parameters()).device)
+                             device=device)
+    elif strategy == "gibbon":
+        return _batch_gibbon(model, X_pool, pool_indices, batch_size,
+                             device=device)
+    elif strategy == "jes":
+        return _batch_jes(model, X_pool, pool_indices, batch_size, seed,
+                          device=device)
     elif strategy == "ts":
         return _batch_ts(model, X_pool, pool_indices, batch_size, seed)
     elif strategy == "kb":
@@ -299,7 +308,7 @@ def select_batch(
     else:
         raise ValueError(
             f"Unknown batch_strategy '{batch_strategy}'. "
-            "Choose from: kb, rkb, lp, ts, qlogei"
+            "Choose from: kb, rkb, lp, ts, qlogei, gibbon, jes"
         )
 
 
@@ -550,17 +559,142 @@ def _batch_qlogei(
             acqf, q=batch_size, choices=X_pool_t, unique=True,
         )
 
-    # optimize_acqf_discrete returns exact rows from choices, so match
-    # via element-wise equality instead of expensive distance computation.
+    return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)
+
+
+def _match_candidates_to_pool(
+    candidates: torch.Tensor,
+    X_pool_t: torch.Tensor,
+    X_pool: np.ndarray,
+    pool_indices: np.ndarray,
+) -> list[int]:
+    """Match optimize_acqf_discrete output back to pool indices.
+
+    optimize_acqf_discrete returns exact rows from choices, so match
+    via element-wise equality. Falls back to nearest-neighbor if needed.
+    """
     selected = []
     for cand in candidates:
         match = torch.all(X_pool_t == cand.unsqueeze(0), dim=1).nonzero(as_tuple=True)[0]
         if len(match) > 0:
             selected.append(int(pool_indices[int(match[0].item())]))
         else:
-            # Fallback to nearest-neighbor (should not happen)
             cand_np = cand.detach().cpu().numpy()
             dists = np.sum((X_pool - cand_np.reshape(1, -1)) ** 2, axis=1)
             selected.append(int(pool_indices[int(np.argmin(dists))]))
-
     return selected
+
+
+def _batch_gibbon(
+    model: GPModel,
+    X_pool: np.ndarray,
+    pool_indices: np.ndarray,
+    batch_size: int,
+    device: torch.device | None = None,
+    num_mv_samples: int = 10,
+) -> list[int]:
+    """GIBBON (General-purpose Information-Based Bayesian OptimisatioN).
+
+    Lower bound on batch Max-value Entropy Search. Maximizes mutual
+    information between observations and the optimal function value:
+
+        alpha_GIBBON(X_batch) = (1/2) log|C| + sum_i alpha_MES(x_i)
+
+    The log-determinant term is a DPP-like repulsion based on the
+    predictive correlation matrix, encouraging batch diversity. The
+    sum term rewards individual informativeness about the optimum.
+
+    Batch selection is greedy sequential via optimize_acqf_discrete.
+    When set_X_pending is called, GIBBON adds a repulsion term based
+    on predictive correlations (no fantasization, no GP refitting).
+
+    Reference
+    ---------
+    Moss, H.B., Leslie, D.S., Gonzalez, J., & Rayson, P.
+    "GIBBON: General-purpose Information-Based Bayesian OptimisatioN."
+    JMLR 22(235):1-49, 2021. arXiv:2102.03324.
+    """
+    from botorch.acquisition.max_value_entropy_search import qLowerBoundMaxValueEntropy
+    from botorch.optim.optimize import optimize_acqf_discrete
+
+    if device is None:
+        device = next(model.parameters()).device
+    X_pool_t = _to_tensor(X_pool, device)
+
+    acqf = qLowerBoundMaxValueEntropy(
+        model,
+        candidate_set=X_pool_t,
+        num_mv_samples=num_mv_samples,
+        use_gumbel=True,
+        maximize=True,
+    )
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        candidates, _ = optimize_acqf_discrete(
+            acqf, q=batch_size, choices=X_pool_t, unique=True,
+        )
+
+    return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)
+
+
+def _batch_jes(
+    model: GPModel,
+    X_pool: np.ndarray,
+    pool_indices: np.ndarray,
+    batch_size: int,
+    seed: int = 42,
+    device: torch.device | None = None,
+    num_optima: int = 64,
+) -> list[int]:
+    """Joint Entropy Search batch selection.
+
+    Maximizes mutual information between observations and the joint
+    optimal location-value pair (x*, f*). Tighter bound than GIBBON
+    since it conditions on both where and what the optimum is.
+
+    Optimal input-output samples are generated via Thompson sampling
+    on the discrete pool: draw posterior samples and take argmax per
+    sample. This avoids the continuous get_optimal_samples utility
+    which is inappropriate for discrete pool settings.
+
+    Reference
+    ---------
+    Hvarfner, C., Hutter, F., & Nardi, L.
+    "Joint Entropy Search for Maximally-Informed Bayesian Optimization."
+    NeurIPS 2022. arXiv:2206.04771.
+    """
+    from botorch.acquisition.joint_entropy_search import qJointEntropySearch
+    from botorch.optim.optimize import optimize_acqf_discrete
+
+    if device is None:
+        device = next(model.parameters()).device
+    X_pool_t = _to_tensor(X_pool, device)
+
+    # Generate optimal input-output samples via Thompson sampling
+    torch.manual_seed(seed)
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        posterior = model.posterior(X_pool_t)
+        samples = posterior.rsample(torch.Size([num_optima]))  # (num_optima, M, 1)
+        best_idx = samples.squeeze(-1).argmax(dim=-1)          # (num_optima,)
+        optimal_inputs = X_pool_t[best_idx]                    # (num_optima, D)
+        optimal_outputs = samples[                             # (num_optima, 1)
+            torch.arange(num_optima), best_idx, :
+        ]
+
+    acqf = qJointEntropySearch(
+        model,
+        optimal_inputs=optimal_inputs,
+        optimal_outputs=optimal_outputs,
+        condition_noiseless=True,
+        estimation_type="LB",
+        num_samples=min(num_optima, 32),
+    )
+
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore")
+        candidates, _ = optimize_acqf_discrete(
+            acqf, q=batch_size, choices=X_pool_t, unique=True,
+        )
+
+    return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)

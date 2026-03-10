@@ -28,6 +28,8 @@ Batch strategies (for ``surrogate_type="gp"``):
     ``"lp"``     Local Penalization (soft exclusion zones)
     ``"ts"``     Thompson Sampling (independent posterior draws)
     ``"qlogei"`` q-Log Noisy Expected Improvement (BoTorch native joint)
+    ``"gibbon"`` GIBBON: information-theoretic with DPP batch diversity (Moss et al., 2021)
+    ``"jes"``    Joint Entropy Search: information-theoretic (Hvarfner et al., 2022)
 
 Example::
 
@@ -87,7 +89,7 @@ SURROGATE_TYPES = {
 
 ACQUISITION_TYPES = {"UCB", "EI", "LogEI"}
 
-BATCH_STRATEGIES = {"kb", "rkb", "lp", "ts", "qlogei"}
+BATCH_STRATEGIES = {"kb", "rkb", "lp", "ts", "qlogei", "gibbon", "jes"}
 DISCRETE_BATCH_STRATEGIES = {"greedy", "ts"}
 ALL_BATCH_STRATEGIES = BATCH_STRATEGIES | DISCRETE_BATCH_STRATEGIES
 

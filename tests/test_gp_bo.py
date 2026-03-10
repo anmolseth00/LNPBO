@@ -371,6 +371,113 @@ class TestBatchSelectionQLogEI:
             pytest.skip("qLogEI batch strategy not implemented")
 
 
+class TestBatchSelectionGIBBON:
+    """GIBBON: information-theoretic batch selection with DPP diversity."""
+
+    def test_gibbon_correct_size(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=6, acq_type="UCB", batch_strategy="gibbon",
+            seed=42,
+        )
+        assert len(batch) == 6
+
+    def test_gibbon_no_duplicates(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=12, acq_type="UCB", batch_strategy="gibbon",
+            seed=42,
+        )
+        assert len(set(batch)) == len(batch), "GIBBON batch contains duplicate indices"
+
+    def test_gibbon_from_pool(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=6, acq_type="UCB", batch_strategy="gibbon",
+            seed=42,
+        )
+        pool_set = set(pool_indices.tolist())
+        for idx in batch:
+            assert idx in pool_set, f"Index {idx} not in pool_indices"
+
+    def test_gibbon_diversity_vs_random(self):
+        """GIBBON's DPP repulsion should produce diverse batches."""
+        rng = np.random.RandomState(77)
+        X_train = rng.randn(50, 5).astype(np.float64)
+        y_train = (X_train ** 2).sum(axis=1) + 0.1 * rng.randn(50)
+        X_pool = rng.randn(300, 5).astype(np.float64)
+        pool_indices = np.arange(300)
+
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=8, acq_type="UCB", batch_strategy="gibbon",
+            seed=42,
+        )
+        gibbon_div = pdist(X_pool[batch]).mean()
+
+        random_divs = []
+        for _ in range(20):
+            r = rng.choice(300, size=8, replace=False)
+            random_divs.append(pdist(X_pool[r]).mean())
+        random_mean = np.mean(random_divs)
+
+        assert gibbon_div > random_mean * 0.8, (
+            f"GIBBON diversity ({gibbon_div:.3f}) should be comparable to or better "
+            f"than random ({random_mean:.3f})"
+        )
+
+
+class TestBatchSelectionJES:
+    """JES: joint entropy search batch selection."""
+
+    def test_jes_correct_size(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=4, acq_type="UCB", batch_strategy="jes",
+            seed=42,
+        )
+        assert len(batch) == 4
+
+    def test_jes_no_duplicates(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=8, acq_type="UCB", batch_strategy="jes",
+            seed=42,
+        )
+        assert len(set(batch)) == len(batch), "JES batch contains duplicate indices"
+
+    def test_jes_from_pool(self):
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=4, acq_type="UCB", batch_strategy="jes",
+            seed=42,
+        )
+        pool_set = set(pool_indices.tolist())
+        for idx in batch:
+            assert idx in pool_set, f"Index {idx} not in pool_indices"
+
+    def test_jes_deterministic(self):
+        """Same seed should produce identical batches."""
+        X_train, y_train, X_pool, pool_indices = _make_synthetic_data()
+        batch_a = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=4, acq_type="UCB", batch_strategy="jes",
+            seed=42,
+        )
+        batch_b = select_batch(
+            X_train, y_train, X_pool, pool_indices,
+            batch_size=4, acq_type="UCB", batch_strategy="jes",
+            seed=42,
+        )
+        assert batch_a == batch_b, "JES with same seed should be deterministic"
+
+
 # ---------------------------------------------------------------------------
 # 4. Sparse GP Tests
 # ---------------------------------------------------------------------------
