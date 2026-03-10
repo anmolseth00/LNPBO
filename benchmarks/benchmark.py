@@ -99,6 +99,8 @@ GP_STRATEGIES = [
     "lnpbo_pls_logei",
     "lnpbo_ts_batch",
     "lnpbo_pls_lp_logei",
+    "lnpbo_gibbon",
+    "lnpbo_jes",
 ]
 
 ALL_WITHIN_STUDY_STRATEGIES = (

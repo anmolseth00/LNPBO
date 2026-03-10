@@ -21,7 +21,9 @@ ACQ_TYPE_MAP = {
     "LP_UCB":    ("UCB", "lp"),
     "LP_EI":     ("EI", "lp"),
     "LP_LogEI":  ("LogEI", "lp"),
-    "TS_Batch":  ("UCB", "ts"),  # TS ignores acq_type; UCB is placeholder
+    "TS_Batch":  ("UCB", "ts"),     # TS ignores acq_type; UCB is placeholder
+    "GIBBON":    ("UCB", "gibbon"),  # info-theoretic; acq_type ignored
+    "JES":       ("UCB", "jes"),    # info-theoretic; acq_type ignored
 }
 
 

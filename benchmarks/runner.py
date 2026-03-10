@@ -49,6 +49,8 @@ STRATEGY_CONFIGS = {
     "discrete_xgb_online_conformal": {"type": "discrete_online_conformal"},
     "casmopolitan_ucb": {"type": "casmopolitan", "acq_func": "ucb"},
     "casmopolitan_ei": {"type": "casmopolitan", "acq_func": "ei"},
+    "lnpbo_gibbon": {"type": "gp", "acq_type": "GIBBON"},
+    "lnpbo_jes": {"type": "gp", "acq_type": "JES"},
 }
 
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
@@ -80,6 +82,8 @@ STRATEGY_DISPLAY = {
     "discrete_xgb_online_conformal": "Discrete XGB Online Conformal",
     "casmopolitan_ucb": "CASMOPOLITAN (UCB)",
     "casmopolitan_ei": "CASMOPOLITAN (EI)",
+    "lnpbo_gibbon": "GP + GIBBON",
+    "lnpbo_jes": "GP + JES",
 }
 
 STRATEGY_COLORS = {
@@ -107,6 +111,8 @@ STRATEGY_COLORS = {
     "discrete_xgb_online_conformal": "#2f4f4f",
     "casmopolitan_ucb": "#00ced1",
     "casmopolitan_ei": "#8a2be2",
+    "lnpbo_gibbon": "#20b2aa",
+    "lnpbo_jes": "#daa520",
 }
 
 
