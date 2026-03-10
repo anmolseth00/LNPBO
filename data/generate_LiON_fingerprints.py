@@ -21,8 +21,9 @@ def lion_fingerprints(
 
     Extracts penultimate-layer embeddings from a trained LiON D-MPNN model.
 
-    Reference: Witten et al., "AI-guided design of lipid nanoparticles for
-    pulmonary gene therapy," Nature Biotechnology, 43(11), 1790-1799 (2025).
+    Reference: Witten et al., "Artificial intelligence-guided design of lipid
+    nanoparticles for pulmonary gene therapy," Nature Biotechnology, 43(11),
+    1790-1799 (2025).
     DOI: 10.1038/s41587-024-02490-y
     """
 

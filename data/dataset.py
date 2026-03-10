@@ -68,24 +68,6 @@ def encoders_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
     return enc
 
 
-def encode_kwargs_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
-    """Map feature type name to flat ``encode_dataset()`` keyword arguments.
-
-    .. deprecated::
-        Use :func:`encoders_for_feature_type` and pass the result as
-        ``encoders=`` to ``encode_dataset()`` instead.
-    """
-    encoder_keys = _FEATURE_TYPE_ENCODERS.get(feature_type)
-    if encoder_keys is None:
-        raise ValueError(f"Unknown feature type: {feature_type!r}")
-    kwargs = {}
-    for role in _ROLES:
-        n = il_pcs if role == "IL" else other_pcs
-        for k in encoder_keys:
-            kwarg_suffix = _ENCODER_TO_KWARG_SUFFIX[k]
-            kwargs[f"{role}_n_pcs_{kwarg_suffix}"] = n
-    return kwargs
-
 
 def _flat_kwargs_to_encoders(
     IL_n_pcs_morgan, IL_n_pcs_mordred, IL_n_pcs_lion, IL_n_pcs_unimol,
