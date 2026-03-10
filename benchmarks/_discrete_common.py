@@ -1,7 +1,6 @@
 """Shared discrete candidate pool strategy loop."""
 
-
-from LNPBO.optimization.discrete import score_candidate_pool
+from LNPBO.optimization.discrete import score_candidate_pool, score_candidate_pool_ts_batch
 
 from .runner import copula_transform, init_history, update_history
 
@@ -18,7 +17,18 @@ def run_discrete_strategy(
     kappa=5.0,
     normalize="copula",
     encoded_dataset=None,
+    use_ts_batch=False,
 ):
+    """Discrete candidate pool strategy loop.
+
+    Parameters
+    ----------
+    use_ts_batch : If True, use Thompson Sampling batch selection
+        (sequential TS draws per Kandasamy et al., AISTATS 2018)
+        instead of greedy top-K scoring.
+    """
+    scoring_fn = score_candidate_pool_ts_batch if use_ts_batch else score_candidate_pool
+
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
     history = init_history(encoded_df, training_idx)
@@ -44,7 +54,7 @@ def run_discrete_strategy(
 
         X_pool = encoded_df.loc[pool_idx, feature_cols].values
 
-        top_k, _ = score_candidate_pool(
+        top_k, _ = scoring_fn(
             X_train, y_train, X_pool,
             surrogate=surrogate,
             batch_size=batch_size,
@@ -63,6 +73,144 @@ def run_discrete_strategy(
         cum_best = history["best_so_far"][-1]
         print(
             f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, n_new={len(batch_idx)}",
+            flush=True,
+        )
+
+    return history
+
+
+def run_discrete_ts_batch_strategy(
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    surrogate,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    normalize="copula",
+    encoded_dataset=None,
+):
+    """Convenience wrapper: run_discrete_strategy with use_ts_batch=True."""
+    return run_discrete_strategy(
+        encoded_df, feature_cols, seed_idx, oracle_idx, surrogate,
+        batch_size, n_rounds, seed, kappa=kappa, normalize=normalize,
+        encoded_dataset=encoded_dataset, use_ts_batch=True,
+    )
+
+
+def run_discrete_online_conformal_strategy(
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    alpha=0.1,
+    normalize="copula",
+    encoded_dataset=None,
+):
+    """Discrete strategy with online conformal recalibration.
+
+    Fits XGBoost at each round, uses OnlineConformalCalibrator to
+    maintain a growing set of residuals and recompute the conformal
+    quantile after each batch evaluation. The quantile replaces the
+    fixed MAPIE split-conformal interval width.
+
+    UCB score = mu + kappa * conformal_quantile
+
+    Coverage is tracked per round and returned in history["coverage"].
+
+    References
+    ----------
+    Deshpande, S., Marx, C., & Kuleshov, V.
+    "Online Calibrated and Conformal Prediction Improves Bayesian
+    Optimization." AISTATS 2024. arXiv:2112.04620.
+    """
+    import numpy as np
+    from sklearn.preprocessing import MinMaxScaler
+    from xgboost import XGBRegressor
+
+    from LNPBO.optimization.online_conformal import OnlineConformalCalibrator
+
+    training_idx = list(seed_idx)
+    pool_idx = list(oracle_idx)
+    history = init_history(encoded_df, training_idx)
+    history["coverage"] = []
+    history["conformal_quantile"] = []
+
+    calibrator = OnlineConformalCalibrator(alpha=alpha)
+
+    for r in range(n_rounds):
+        if len(pool_idx) < batch_size:
+            break
+
+        if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
+            encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
+
+        X_train = encoded_df.loc[training_idx, feature_cols].values
+        y_train_raw = encoded_df.loc[training_idx, "Experiment_value"].values.copy()
+
+        if normalize == "copula":
+            y_train = copula_transform(y_train_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            y_train = (y_train_raw - mu_t) / sigma_t if sigma_t > 0 else y_train_raw.copy()
+        else:
+            y_train = y_train_raw.copy()
+
+        X_pool = encoded_df.loc[pool_idx, feature_cols].values
+
+        scaler = MinMaxScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        X_pool_s = scaler.transform(X_pool)
+
+        model = XGBRegressor(n_estimators=200, random_state=seed + r, n_jobs=-1, verbosity=0)
+        model.fit(X_train_s, y_train)
+        mu_pool = model.predict(X_pool_s)
+
+        q = calibrator.get_quantile()
+        if np.isinf(q):
+            scores = mu_pool
+        else:
+            scores = mu_pool + kappa * q
+
+        top_indices = np.argsort(scores)[-batch_size:][::-1]
+        batch_idx = [pool_idx[i] for i in top_indices]
+
+        batch_preds = mu_pool[top_indices]
+
+        batch_true_raw = encoded_df.loc[batch_idx, "Experiment_value"].values
+        if normalize == "copula":
+            # Transform batch values using training-set copula ranks
+            # so that batch_true is on the same scale as batch_preds.
+            batch_true = copula_transform(y_train_raw, x_new=batch_true_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            batch_true = (batch_true_raw - mu_t) / sigma_t if sigma_t > 0 else batch_true_raw.copy()
+        else:
+            batch_true = batch_true_raw.copy()
+
+        calibrator.update(batch_preds, batch_true)
+
+        coverage = calibrator.get_coverage(batch_preds, batch_true)
+        new_q = calibrator.get_quantile()
+        history["coverage"].append(float(coverage))
+        history["conformal_quantile"].append(float(new_q))
+
+        batch_set = set(batch_idx)
+        pool_idx = [i for i in pool_idx if i not in batch_set]
+        training_idx.extend(batch_idx)
+        update_history(history, encoded_df, training_idx, batch_idx, r)
+
+        batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
+        cum_best = history["best_so_far"][-1]
+        print(
+            f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
+            f"coverage={coverage:.2f}, q={new_q:.4f}, n_residuals={calibrator.n_residuals}",
             flush=True,
         )
 
