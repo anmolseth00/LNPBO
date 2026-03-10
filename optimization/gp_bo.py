@@ -113,7 +113,7 @@ def fit_gp(
             for _ in range(n_epochs):
                 optimizer.zero_grad()
                 output = model.model(X)
-                loss = -mll(output, y.squeeze(-1))
+                loss = -mll(output, y.squeeze(-1))  # type: ignore[operator]
                 loss.backward()
                 optimizer.step()
                 curr_loss = loss.item()
@@ -157,8 +157,8 @@ def predict(
 
     with torch.no_grad(), gpytorch.settings.fast_pred_var():
         posterior = model.posterior(X_t)
-        mean = posterior.mean.squeeze(-1).cpu().numpy()
-        std = posterior.variance.squeeze(-1).sqrt().cpu().numpy()
+        mean = posterior.mean.squeeze(-1).cpu().numpy()  # type: ignore[union-attr]
+        std = posterior.variance.squeeze(-1).sqrt().cpu().numpy()  # type: ignore[union-attr]
 
     return mean, std
 
@@ -214,11 +214,11 @@ def _estimate_lipschitz(model: GPModel) -> float:
             kernel = model.covar_module
 
         if hasattr(kernel, "base_kernel"):
-            outputscale = kernel.outputscale.detach().cpu().item()
-            lengthscale = kernel.base_kernel.lengthscale.detach().cpu().numpy().ravel()
+            outputscale = kernel.outputscale.detach().cpu().item()  # type: ignore[union-attr]
+            lengthscale = kernel.base_kernel.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
             return float(np.sqrt(outputscale) / np.min(lengthscale))
         elif hasattr(kernel, "lengthscale"):
-            lengthscale = kernel.lengthscale.detach().cpu().numpy().ravel()
+            lengthscale = kernel.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
             return float(1.0 / np.min(lengthscale))
     except Exception:
         pass
@@ -376,7 +376,7 @@ def _batch_kb(
                     y_fantasy = posterior.rsample().squeeze(-1)
             else:
                 with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                    y_fantasy = current_model.posterior(x_new).mean
+                    y_fantasy = current_model.posterior(x_new).mean  # type: ignore[union-attr]
 
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore")
