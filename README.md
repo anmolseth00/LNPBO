@@ -137,17 +137,16 @@ encoded_dataset = dataset.encode_dataset(
 space = FormulationSpace.from_dataset(encoded_dataset)
 ```
 
-Next, we will initialize the `Optimizer`. `space` specifies the `FormulationSpace`. `type` specifies the acquisition function type, either "UCB" (upper confidence bound) or "EI" (expected improvement). If `type="UCB"`, then its `kappa` value should be defined. If `type="EI"`, then its `xi` value should be defined. `kappa` and `xi` balance exploration vs. exploitation, with higher values favoring exploration, as outlined nicely [here](https://github.com/bayesian-optimization/BayesianOptimization/blob/master/examples/exploitation_vs_exploration.ipynb). `alpha` specifies a small constant added to the diagonal of the kernel matrix of the Gaussian Process (GP), modeling experimental noise, with higher values reflecting noisier data. `random_seed` specifies the random seed. `batch_size` specifies the number of LNPs to suggest for the next batch.
+Next, we will initialize the `Optimizer`. `acquisition_type` specifies the acquisition function: `"UCB"` (upper confidence bound), `"EI"` (expected improvement), or `"LogEI"` (log expected improvement). `kappa` (for UCB) and `xi` (for EI/LogEI) balance exploration vs. exploitation, with higher values favoring exploration. `batch_strategy` controls batch selection: `"kb"` (Kriging Believer), `"ts"` (Thompson sampling), `"lp"` (Local Penalization), or `"rkb"` (Resampling KB). `random_seed` specifies the random seed. `batch_size` specifies the number of LNPs to suggest per round.
 
 ```
 # Initialize Optimizer
 optimizer = Optimizer(
     space=space,
-    type="UCB",
+    acquisition_type="UCB",
     kappa=5.0,
-    alpha=1e-6,
     random_seed=42,
-    batch_size=24
+    batch_size=24,
 )
 ```
 
@@ -206,11 +205,10 @@ Next, we will initialize the `Optimizer`. See example 1 above for details about 
 # Initialize Optimizer
 optimizer = Optimizer(
     space=space,
-    type="UCB",
+    acquisition_type="UCB",
     kappa=5.0,
-    alpha=1e-6,
     random_seed=42,
-    batch_size=24
+    batch_size=24,
 )
 ```
 
@@ -233,7 +231,7 @@ encoded_dataset = dataset.encode_dataset(
     encoding_csv_path="example2_encodings_r2.csv",
 )
 space = FormulationSpace.from_dataset(encoded_dataset)
-optimizer = Optimizer(space=space, type="UCB", kappa=5.0, random_seed=42, batch_size=24)
+optimizer = Optimizer(space=space, acquisition_type="UCB", kappa=5.0, random_seed=42, batch_size=24)
 
 # Suggest round 2
 round2_suggestions = optimizer.suggest(output_csv="example2_round2.csv")
@@ -298,11 +296,10 @@ Next, we will initialize the `Optimizer`. See example 1 above for details about 
 # Initialize Optimizer
 optimizer = Optimizer(
     space=space,
-    type="UCB",
+    acquisition_type="UCB",
     kappa=5.0,
-    alpha=1e-6,
     random_seed=42,
-    batch_size=24
+    batch_size=24,
 )
 ```
 
