@@ -48,20 +48,12 @@ cd LNPBO
 ln -s ../../LNPDB data/LNPDB_repo
 ```
 
-We will next create the conda environment `lnpbo`.
+Next, create a virtual environment and install:
 
 ```
-conda create -n lnpbo python=3.11
-conda activate lnpbo
-conda install -c conda-forge chemprop=2.2.2 bayesian-optimization=3.2.0 mordred pandas jupyter
-```
-
-In order to use LiON fingerprint encodings, we will also need to create the conda environment `lnp_ml` as introduced in our [prior](https://github.com/evancollins1/LNPDB?tab=readme-ov-file#training--testing-lion-deep-learning-model) [repos](https://github.com/jswitten/LNP_ML?tab=readme-ov-file#install-python-dependencies). Make sure to `conda deactivate` from `lnpbo` before running the below chunk.
-
-```
-conda create -n lnp_ml python=3.8
-conda activate lnp_ml
-pip install chemprop==1.7.0
+uv venv --python 3.14
+source .venv/bin/activate
+uv pip install -e .
 ```
 
 ____
