@@ -24,6 +24,8 @@ from scipy.stats import norm
 
 from .acquisition import _log_h_stable
 
+KERNEL_TYPES = {"matern", "tanimoto"}
+
 # Type alias: covers SingleTaskGP, SingleTaskVariationalGP, and
 # BatchedMultiOutputGPyTorchModel (returned by condition_on_observations).
 type GPModel = SingleTaskGP | SingleTaskVariationalGP | Model
@@ -62,6 +64,7 @@ def fit_gp(
     n_inducing: int = 512,
     device: torch.device | None = None,
     _rng: np.random.RandomState | None = None,
+    kernel_type: str = "matern",
 ) -> SingleTaskGP | SingleTaskVariationalGP:
     """Fit a GP surrogate model.
 
@@ -76,16 +79,31 @@ def fit_gp(
     use_sparse : Use variational GP with inducing points.
     n_inducing : Number of inducing points for sparse GP.
     device : Torch device. Defaults to CPU.
+    kernel_type : Kernel function. "matern" (default) or "tanimoto".
 
     Returns
     -------
     Fitted GP model in eval mode.
     """
+    if kernel_type not in KERNEL_TYPES:
+        raise ValueError(
+            f"Unknown kernel_type {kernel_type!r}. "
+            f"Valid options: {sorted(KERNEL_TYPES)}"
+        )
+
     if device is None:
         device = get_device()
 
     X = _to_tensor(X_train, device)
     y = _to_tensor(y_train.ravel(), device).unsqueeze(-1)
+
+    covar_module = None
+    if kernel_type == "tanimoto":
+        from gpytorch.kernels import ScaleKernel
+
+        from .kernels import TanimotoKernel
+
+        covar_module = ScaleKernel(TanimotoKernel())
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
@@ -95,7 +113,9 @@ def fit_gp(
             _rng_local = _rng if _rng is not None else np.random.RandomState()
             idx = _rng_local.choice(len(X_train), n_ind, replace=False)
             inducing = X[idx].clone()
-            model = SingleTaskVariationalGP(X, y, inducing_points=inducing)
+            model = SingleTaskVariationalGP(
+                X, y, inducing_points=inducing, covar_module=covar_module,
+            )
             model.to(device)
 
             # Manual training loop for variational GP.
@@ -125,7 +145,7 @@ def fit_gp(
                     no_improve = 0
                 prev_loss = curr_loss
         else:
-            model = SingleTaskGP(X, y)
+            model = SingleTaskGP(X, y, covar_module=covar_module)
             model.to(device)
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
             fit_gpytorch_mll(mll)
@@ -204,8 +224,12 @@ def score_acquisition(
 def _estimate_lipschitz(model: GPModel) -> float:
     """Estimate Lipschitz constant L from kernel hyperparameters.
 
-    L = sqrt(outputscale) / min(lengthscale), a conservative upper bound
-    on ||d mu / dx|| for a Matern or RBF kernel.
+    For Matern/RBF: L = sqrt(outputscale) / min(lengthscale), a conservative
+    upper bound on ||d mu / dx||.
+
+    For kernels without lengthscale (e.g. Tanimoto): returns 1.0 as a
+    reasonable default. LP penalization still works but the exclusion
+    radius is not calibrated to the kernel geometry.
     """
     try:
         if isinstance(model, SingleTaskVariationalGP):
@@ -213,7 +237,7 @@ def _estimate_lipschitz(model: GPModel) -> float:
         else:
             kernel = model.covar_module
 
-        if hasattr(kernel, "base_kernel"):
+        if hasattr(kernel, "base_kernel") and hasattr(kernel.base_kernel, "lengthscale"):
             outputscale = kernel.outputscale.detach().cpu().item()  # type: ignore[union-attr]
             lengthscale = kernel.base_kernel.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
             return float(np.sqrt(outputscale) / np.min(lengthscale))
@@ -238,6 +262,7 @@ def select_batch(
     seed: int = 42,
     use_sparse: bool = False,
     n_inducing: int = 512,
+    kernel_type: str = "matern",
 ) -> list[int]:
     """Select a batch of points from a discrete candidate pool.
 
@@ -262,6 +287,7 @@ def select_batch(
     seed : Random seed.
     use_sparse : Use variational GP for large training sets.
     n_inducing : Number of inducing points for sparse GP.
+    kernel_type : Kernel function ("matern" or "tanimoto").
 
     Returns
     -------
@@ -274,7 +300,7 @@ def select_batch(
     torch.manual_seed(seed)
 
     model = fit_gp(X_train, y_train, use_sparse=use_sparse, n_inducing=n_inducing,
-                   _rng=rng)
+                   _rng=rng, kernel_type=kernel_type)
     y_best = float(y_train.max())
 
     strategy = batch_strategy.lower()
@@ -671,10 +697,23 @@ def _batch_jes(
         device = next(model.parameters()).device
     X_pool_t = _to_tensor(X_pool, device)
 
+    # Scale down for large pools to avoid OOM:
+    # - Reduce num_optima (Thompson samples for optimal set)
+    # - Subsample pool for optimize_acqf_discrete (JES forward pass
+    #   scales poorly with pool size due to fantasy model conditioning)
+    M = X_pool_t.shape[0]
+    max_pool = 256
+    if M > 1000:
+        num_optima = min(num_optima, 16)
+    elif M > 500:
+        num_optima = min(num_optima, 32)
+
     # Generate optimal input-output samples via Thompson sampling
+    # (uses full pool for better optima estimates — this is cheap)
+    # Sample from latent f (not noisy y) since JES conditions on f*
     torch.manual_seed(seed)
     with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        posterior = model.posterior(X_pool_t)
+        posterior = model.posterior(X_pool_t, observation_noise=False)
         samples = posterior.rsample(torch.Size([num_optima]))  # (num_optima, M, 1)
         best_idx = samples.squeeze(-1).argmax(dim=-1)          # (num_optima,)
         optimal_inputs = X_pool_t[best_idx]                    # (num_optima, D)
@@ -691,10 +730,24 @@ def _batch_jes(
         num_samples=min(num_optima, 32),
     )
 
+    # Subsample pool for acquisition optimization if too large
+    if max_pool < M:
+        rng = np.random.RandomState(seed)
+        sub_idx = rng.choice(M, max_pool, replace=False)
+        choices = X_pool_t[sub_idx]
+        sub_pool_indices = pool_indices[sub_idx]
+        sub_X_pool = X_pool[sub_idx]
+    else:
+        choices = X_pool_t
+        sub_pool_indices = pool_indices
+        sub_X_pool = X_pool
+
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         candidates, _ = optimize_acqf_discrete(
-            acqf, q=batch_size, choices=X_pool_t, unique=True,
+            acqf, q=batch_size, choices=choices, unique=True,
         )
 
-    return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)
+    return _match_candidates_to_pool(
+        candidates, choices, sub_X_pool, sub_pool_indices,
+    )
