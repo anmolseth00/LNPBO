@@ -178,7 +178,17 @@ Note: only 2 ratio-only studies -- treat these numbers with caution.
 
 - **Optimization gains scale with dataset size.** On large studies (>1000 formulations), the best methods achieve 1.62x lift vs random, compared to only 1.25x on small studies. This makes sense: larger pools mean random sampling covers less of the space, leaving more room for directed search.
 
-### 3e. Caveats
+### 3e. Statistical Analysis
+
+BH-FDR correction, stratified bootstrap (10,000 resamples), mixed-effects model. Script: `benchmarks/figures.py`. Figures: `benchmark_results/within_study/analysis/`.
+
+- **All 25 strategies beat random** (BH-FDR q < 0.05). 137/325 pairwise comparisons significant.
+- **RF-TS is the best strategy.** #1 in 99% of bootstrap resamples. Mean recall 0.731, 95% CI [0.68, 0.78].
+- **Variance decomposition (Type III SS):** Study 67.5%, Strategy 9.0%, Residual 23.4%.
+- **Tanimoto kernel on raw fingerprints: no improvement.** Tanimoto-TS 60.0% vs Matern-TS 68.1% (p = 0.183, d = -0.334). 2048-d count MFPs negate the kernel advantage.
+- **GP-tree gap (~0.08 recall) holds** across leave-one-study-out, bootstrap CIs, and mixed-effects model. ~60% surrogate quality, ~40% batch strategy. TS-Batch closes ~27% of the gap.
+
+### 3f. Caveats
 
 1. **Cross-study comparability.** Each study's values were z-scored before benchmarking. Top-5% recall is rank-based within each study, making it somewhat comparable, but the underlying assays, cell types, and readouts differ. Aggregate statistics weight all studies equally regardless of clinical relevance or assay quality.
 
@@ -282,12 +292,14 @@ LNPBO implements GP-based Bayesian optimization with BoTorch/GPyTorch backends:
 - **Sparse GP** uses manual Adam optimization with VariationalELBO (not `fit_gpytorch_mll`), which provides more control over convergence in the high-dimensional fingerprint space.
 - **LogEI** follows Ament et al., NeurIPS 2023 (arXiv:2310.20708, Eq. 9) for numerically stable log-space expected improvement.
 - **Simplex projection** for molar ratio constraints uses Michelot (1986) KKT + Brent root-finding.
+- **GIBBON** (`qLowerBoundMaxValueEntropy`, Moss et al., JMLR 2021) scales well to large discrete pools (tested up to N=2400).
+- **JES** (`qJointEntropySearch`, Hvarfner et al., NeurIPS 2022) does not scale to large discrete pools. Fantasy model conditioning via `condition_on_observations` at each batch-sequential step causes OOM (>1000 candidates) or segfaults in GPyTorch's native Cholesky decomposition on near-singular covariance matrices. Pool subsampling to 256 candidates is required for studies with N>500, limiting effectiveness. This instability is consistent with published findings: Ament et al. (NeurIPS 2023) documented unexplained JES failures on Michalewicz and ~100x slower runtime vs. EI; OpenReview reviewers of the original paper flagged infinite information gain at sampled optimal points as a theoretical artifact (Reviewer 7H23). The BoTorch implementation uses raw `torch.logdet` (not `psd_safe_cholesky`, which was added to MES in PR #518 but not JES). GIBBON is preferred for production use.
 
 ---
 
 ## 8. Future Work
 
-- **Statistical rigor:** Bootstrap confidence intervals on family rankings; mixed-effects model with study as random effect, strategy as fixed effect.
+- **Overfitting / selection bias:** Winner's curse — the top-ranked strategy's observed performance is upward-biased when selecting from 25+ strategies. Mitigate with: (1) held-out study set for final evaluation (train rankings on ~15 studies, evaluate on 8), (2) nested cross-validation across studies, (3) pre-registration of strategy set before evaluation.
 - **Adaptive strategy selection:** Meta-learner that picks the optimization strategy based on study characteristics (size, ratio variability, IL diversity). No single method wins everywhere -- an adaptive approach could outperform any fixed choice.
 - **Tighter budget experiments:** Current budget is 28-34% of pool. Rankings may change under a 10% budget.
 - **Prospective validation:** All results are retrospective pool-based benchmarks. A real self-driving lab demonstration is needed.
