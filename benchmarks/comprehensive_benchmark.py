@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Unified Comprehensive Benchmark Suite.
+"""Benchmark.
 
 Runs all implemented surrogates and strategies through the benchmark
 harness with unified settings, computes statistical comparisons, and
-produces a comprehensive JSON + markdown summary table.
+produces a JSON + markdown summary table.
 
 Settings: n_seed=500, batch_size=12, 15 rounds, 5 seeds.
 Feature type: lantern_il_only with PCA reduction (default).
@@ -708,7 +708,7 @@ def main():
     total_runs = len(runs_needed)
 
     print("=" * 70)
-    print("COMPREHENSIVE BENCHMARK SUITE")
+    print("BENCHMARK")
     print("=" * 70)
     print(f"Strategies: {strategies}")
     print(f"Seeds: {seeds}")

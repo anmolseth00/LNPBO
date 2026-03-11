@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Comprehensive analysis of within-study Bayesian optimization benchmark results.
+Analysis of within-study Bayesian optimization benchmark results.
 
 Reads JSON result files from benchmark_results/within_study/<PMID>/<strategy>_s<seed>.json
 and produces a structured analysis suitable for a research notebook.
@@ -42,6 +42,10 @@ STRATEGY_FAMILY = {
     "discrete_ngboost_ucb": "NGBoost",
     "discrete_deep_ensemble": "Deep Ensemble",
     "discrete_gp_ucb": "GP (sklearn)",
+    "lnpbo_gibbon": "LNPBO",
+    "lnpbo_jes": "LNPBO",
+    "lnpbo_tanimoto_ts": "LNPBO",
+    "lnpbo_tanimoto_logei": "LNPBO",
 }
 
 STRATEGY_SHORT = {
@@ -68,11 +72,14 @@ STRATEGY_SHORT = {
     "discrete_ngboost_ucb": "NGBoost-UCB",
     "discrete_deep_ensemble": "DeepEnsemble",
     "discrete_gp_ucb": "GP-UCB (sklearn)",
+    "lnpbo_gibbon": "LNPBO-GIBBON",
+    "lnpbo_jes": "LNPBO-JES",
+    "lnpbo_tanimoto_ts": "LNPBO-Tani-TS",
+    "lnpbo_tanimoto_logei": "LNPBO-Tani-LogEI",
 }
 
 
 def load_all_results():
-    """Load all result JSON files into a flat list of dicts."""
     results = []
     for pmid_dir in sorted(RESULTS_DIR.iterdir()):
         if not pmid_dir.is_dir():
@@ -87,7 +94,6 @@ def load_all_results():
 
 
 def extract_strategy_name(filename):
-    """Extract strategy name from filename like 'lnpbo_ucb_s42.json'."""
     name = filename.replace(".json", "")
     for seed in SEEDS:
         name = name.replace(f"_s{seed}", "")
@@ -95,7 +101,6 @@ def extract_strategy_name(filename):
 
 
 def build_tables(results):
-    """Organize results into lookup structures."""
     # study_info keyed by pmid
     study_info = {}
     # (pmid, strategy, seed) -> result dict
@@ -116,18 +121,11 @@ def build_tables(results):
 
 
 def section(title):
-    width = 100
-    print()
-    print("=" * width)
-    print(f"  {title}")
-    print("=" * width)
-    print()
+    print(f"\n{title}\n")
 
 
 def subsection(title):
-    print()
-    print(f"--- {title} ---")
-    print()
+    print(f"\n{title}")
 
 
 def print_study_landscape(study_info, pmids):

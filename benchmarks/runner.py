@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
-"""
-LNPBO Benchmark Runner
-======================
-Simulated closed-loop evaluation using LNPDB as a ground-truth oracle.
+"""Benchmark runner. Simulated closed-loop evaluation using LNPDB as oracle.
 
 Usage:
     python -m benchmarks.runner --strategies random,discrete_xgb_greedy --rounds 5
@@ -20,10 +17,6 @@ from sklearn.neighbors import NearestNeighbors
 
 from LNPBO.optimization.optimizer import ENC_PREFIXES
 
-# Strategy configs: name -> (type, type-specific params)
-# "gp" strategies dispatch to _gp_bo_common.run_gp_strategy (GPyTorch/BoTorch)
-# "discrete" strategies dispatch to _discrete_common.run_discrete_strategy with surrogate
-# "random" is inlined below
 STRATEGY_CONFIGS = {
     "random": {"type": "random"},
     "lnpbo_ucb": {"type": "gp", "acq_type": "UCB"},

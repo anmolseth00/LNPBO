@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Within-Study Benchmark Suite.
+"""Within-Study Benchmark.
 
 Runs all strategies within individual LNPDB studies to evaluate optimization
 performance under realistic conditions — same lab, same assay, same readout.
@@ -657,7 +657,7 @@ def main():
     total_runs = len(runs_needed)
 
     print(f"\n{'=' * 70}")
-    print("WITHIN-STUDY BENCHMARK SUITE")
+    print("WITHIN-STUDY BENCHMARK")
     print(f"{'=' * 70}")
     print(f"Studies: {len(study_infos)}")
     print(f"Strategies: {len(strategies)}")

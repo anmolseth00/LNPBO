@@ -1,6 +1,6 @@
 # LNPBO: Bayesian Optimization for LNP Formulation Design
 
-**Headline result:** In a within-study benchmark across 23 LNPDB studies, all 22 optimization strategies significantly outperform random screening (p < 0.001, paired Wilcoxon). Tree-based models (NGBoost 1.39x, RF 1.37x) lead overall, but no single method wins everywhere -- CASMOPolitan wins 30% of individual studies, NGBoost 26%, RF 17%. The dominant source of performance variation is which study the data comes from (57%), not which algorithm is used (8%). LNPBO's GP-based optimizer shows its greatest advantage on ratio-only optimization (1.58x vs random), but trails tree models on lipid screening (1.17x vs 1.40x).
+**Main result:** In a within-study benchmark across 23 LNPDB studies, all 22 optimization strategies significantly outperform random screening (p < 0.001, paired Wilcoxon). Tree-based models (NGBoost 1.39x, RF 1.37x) lead overall, but no single method wins everywhere -- CASMOPolitan wins 30% of individual studies, NGBoost 26%, RF 17%. The dominant source of performance variation is which study the data comes from (57%), not which algorithm is used (8%). LNPBO's GP-based optimizer shows its greatest advantage on ratio-only optimization (1.58x vs random), but trails tree models on lipid screening (1.17x vs 1.40x).
 
 ---
 

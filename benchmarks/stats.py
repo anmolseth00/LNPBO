@@ -2,7 +2,7 @@
 
 Provides bootstrap confidence intervals, paired Wilcoxon signed-rank
 tests, acceleration factors, enhancement factors, and result formatting
-for rigorous comparison of benchmark strategies.
+for comparing benchmark strategies.
 
 Bootstrap CI:
     Efron, B. & Tibshirani, R.J. (1993). "An Introduction to the
