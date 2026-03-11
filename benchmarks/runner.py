@@ -51,11 +51,16 @@ STRATEGY_CONFIGS = {
     "casmopolitan_ei": {"type": "casmopolitan", "acq_func": "ei"},
     "lnpbo_gibbon": {"type": "gp", "acq_type": "GIBBON"},
     "lnpbo_jes": {"type": "gp", "acq_type": "JES"},
+    "lnpbo_tanimoto_ts": {"type": "gp", "acq_type": "Tanimoto_TS"},
+    "lnpbo_tanimoto_logei": {"type": "gp", "acq_type": "Tanimoto_LogEI"},
 }
 
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
 
 PLS_STRATEGIES = {"lnpbo_pls_logei", "lnpbo_pls_lp_logei"}
+
+# Tanimoto strategies require raw count_mfp fingerprints (no PCA reduction)
+TANIMOTO_STRATEGIES = {"lnpbo_tanimoto_ts", "lnpbo_tanimoto_logei"}
 
 STRATEGY_DISPLAY = {
     "random": "Random",
@@ -84,6 +89,8 @@ STRATEGY_DISPLAY = {
     "casmopolitan_ei": "CASMOPOLITAN (EI)",
     "lnpbo_gibbon": "GP + GIBBON",
     "lnpbo_jes": "GP + JES",
+    "lnpbo_tanimoto_ts": "GP-Tanimoto + TS-Batch",
+    "lnpbo_tanimoto_logei": "GP-Tanimoto + KB (LogEI)",
 }
 
 STRATEGY_COLORS = {
@@ -113,6 +120,8 @@ STRATEGY_COLORS = {
     "casmopolitan_ei": "#8a2be2",
     "lnpbo_gibbon": "#20b2aa",
     "lnpbo_jes": "#daa520",
+    "lnpbo_tanimoto_ts": "#ff4500",
+    "lnpbo_tanimoto_logei": "#6a0dad",
 }
 
 
@@ -612,6 +621,17 @@ def main():
             context_features=args.context_features,
         )
 
+    tanimoto_data = None
+    if any(s in TANIMOTO_STRATEGIES for s in strategies):
+        tanimoto_data = prepare_benchmark_data(
+            n_seed=args.n_seeds,
+            random_seed=args.seed,
+            subset=args.subset,
+            reduction="none",
+            feature_type="count_mfp",
+            context_features=args.context_features,
+        )
+
     # Run strategies
     all_results = {}
     for strategy in strategies:
@@ -620,7 +640,9 @@ def main():
         print(f"{'=' * 70}")
         t0 = time.time()
 
-        if strategy in PLS_STRATEGIES and pls_data is not None:
+        if strategy in TANIMOTO_STRATEGIES and tanimoto_data is not None:
+            s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = tanimoto_data
+        elif strategy in PLS_STRATEGIES and pls_data is not None:
             s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = pls_data
         else:
             s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = pca_data

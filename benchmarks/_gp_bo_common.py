@@ -12,18 +12,20 @@ from LNPBO.optimization._normalize import normalize_targets
 from .runner import init_history, update_history
 
 ACQ_TYPE_MAP = {
-    "UCB":       ("UCB", "kb"),
-    "EI":        ("EI", "kb"),
-    "LogEI":     ("LogEI", "kb"),
-    "RKB_LogEI": ("LogEI", "rkb"),
-    "RKB_UCB":   ("UCB", "rkb"),
-    "RKB_EI":    ("EI", "rkb"),
-    "LP_UCB":    ("UCB", "lp"),
-    "LP_EI":     ("EI", "lp"),
-    "LP_LogEI":  ("LogEI", "lp"),
-    "TS_Batch":  ("UCB", "ts"),     # TS ignores acq_type; UCB is placeholder
-    "GIBBON":    ("UCB", "gibbon"),  # info-theoretic; acq_type ignored
-    "JES":       ("UCB", "jes"),    # info-theoretic; acq_type ignored
+    "UCB":       ("UCB", "kb", "matern"),
+    "EI":        ("EI", "kb", "matern"),
+    "LogEI":     ("LogEI", "kb", "matern"),
+    "RKB_LogEI": ("LogEI", "rkb", "matern"),
+    "RKB_UCB":   ("UCB", "rkb", "matern"),
+    "RKB_EI":    ("EI", "rkb", "matern"),
+    "LP_UCB":    ("UCB", "lp", "matern"),
+    "LP_EI":     ("EI", "lp", "matern"),
+    "LP_LogEI":  ("LogEI", "lp", "matern"),
+    "TS_Batch":  ("UCB", "ts", "matern"),     # TS ignores acq_type; UCB is placeholder
+    "GIBBON":    ("UCB", "gibbon", "matern"),  # info-theoretic; acq_type ignored
+    "JES":       ("UCB", "jes", "matern"),     # info-theoretic; acq_type ignored
+    "Tanimoto_TS":    ("UCB", "ts", "tanimoto"),      # Tanimoto kernel + TS batch
+    "Tanimoto_LogEI": ("LogEI", "kb", "tanimoto"),    # Tanimoto kernel + KB-LogEI
 }
 
 
@@ -48,7 +50,7 @@ def run_gp_strategy(
             f"Unknown acq_type {acq_type!r}. "
             f"Valid options: {list(ACQ_TYPE_MAP)}"
         )
-    base_acq, batch_strategy = ACQ_TYPE_MAP[acq_type]
+    base_acq, batch_strategy, kernel_type = ACQ_TYPE_MAP[acq_type]
 
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
@@ -95,6 +97,7 @@ def run_gp_strategy(
                 batch_strategy=batch_strategy,
                 kappa=kappa, xi=xi, seed=seed + r,
                 use_sparse=use_sparse,
+                kernel_type=kernel_type,
             )
         except Exception as e:
             print(f"  Round {r+1}: BO failed ({e})", flush=True)

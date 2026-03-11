@@ -44,6 +44,7 @@ import numpy as np
 from .runner import (
     STRATEGY_CONFIGS,
     STRATEGY_DISPLAY,
+    TANIMOTO_STRATEGIES,
     _run_random,
     compute_metrics,
     prepare_benchmark_data,
@@ -101,6 +102,8 @@ GP_STRATEGIES = [
     "lnpbo_pls_lp_logei",
     "lnpbo_gibbon",
     "lnpbo_jes",
+    "lnpbo_tanimoto_ts",
+    "lnpbo_tanimoto_logei",
 ]
 
 ALL_WITHIN_STUDY_STRATEGIES = (
@@ -345,6 +348,41 @@ def prepare_study_data(df, study_info, random_seed):
     encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _ = pca_data
 
     # Recompute top-k on the encoded (valid-rows) df
+    top_k_values_clean = {}
+    for pct, k in study_info["top_k_pct"].items():
+        actual_k = min(k, len(encoded_df))
+        top_k_values_clean[pct] = set(encoded_df.nlargest(actual_k, "Experiment_value").index)
+
+    return encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values_clean
+
+
+def prepare_study_data_raw(df, study_info, random_seed):
+    """Like prepare_study_data but with reduction='none' for raw fingerprints.
+
+    Used by Tanimoto kernel strategies that need the full-dimensional
+    count Morgan fingerprint space (2048-d) rather than PCA-reduced features.
+    """
+    pmid = study_info["pmid"]
+    study_df = df[df["Publication_PMID"] == pmid].copy().reset_index(drop=True)
+    study_df["Formulation_ID"] = range(1, len(study_df) + 1)
+
+    n_seed = study_info["n_seed"]
+    feature_type = study_info["feature_type"]
+
+    top_k_values = {}
+    for pct, k in study_info["top_k_pct"].items():
+        top_k_values[pct] = set(study_df.nlargest(k, "Experiment_value").index)
+
+    raw_data = prepare_benchmark_data(
+        n_seed=n_seed,
+        random_seed=random_seed,
+        reduction="none",
+        feature_type=feature_type,
+        data_df=study_df,
+    )
+
+    encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _ = raw_data
+
     top_k_values_clean = {}
     for pct, k in study_info["top_k_pct"].items():
         actual_k = min(k, len(encoded_df))
@@ -680,13 +718,29 @@ def main():
                 except Exception as e:
                     print(f"  GP data prep failed (expected for single-component studies): {e}")
 
+            # Tanimoto strategies need raw count_mfp fingerprints (no PCA)
+            tanimoto_strats = [s for _, s in run_list if s in TANIMOTO_STRATEGIES]
+            tanimoto_data = None
+            if tanimoto_strats:
+                tanimoto_si = {**si, "feature_type": "count_mfp"}
+                try:
+                    tanimoto_data = prepare_study_data_raw(df, tanimoto_si, seed)
+                except Exception as e:
+                    print(f"  Tanimoto data prep failed: {e}")
+
             for _, strategy in run_list:
                 completed += 1
                 print(f"\n[{completed}/{total_runs}] {strategy}")
                 print("-" * 40)
 
                 is_gp = STRATEGY_CONFIGS[strategy]["type"] == "gp"
-                data_for_run = gp_data if is_gp else pca_data
+                is_tanimoto = strategy in TANIMOTO_STRATEGIES
+                if is_tanimoto:
+                    data_for_run = tanimoto_data
+                elif is_gp:
+                    data_for_run = gp_data
+                else:
+                    data_for_run = pca_data
 
                 if data_for_run is None:
                     print("  SKIPPED: no compatible data for this strategy/study")
