@@ -28,7 +28,7 @@ from scipy import stats
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BASE = Path("/Users/aseth/Documents/GitHub/LNPBO/benchmark_results/within_study")
+BASE = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
 OUT = BASE / "gap_analysis"
 OUT.mkdir(exist_ok=True)
 

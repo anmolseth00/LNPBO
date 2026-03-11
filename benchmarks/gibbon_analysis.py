@@ -21,7 +21,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 # ── Paths ────────────────────────────────────────────────────────────────────
-BASE = Path("/Users/aseth/Documents/GitHub/LNPBO/benchmark_results/within_study")
+BASE = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
 OUT = BASE / "gibbon_analysis"
 OUT.mkdir(exist_ok=True)
 

@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
 
-BASE = Path("/Users/aseth/Documents/GitHub/LNPBO/benchmark_results/within_study")
+BASE = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
 OUT = BASE / "tsbatch_analysis"
 OUT.mkdir(exist_ok=True)
 
