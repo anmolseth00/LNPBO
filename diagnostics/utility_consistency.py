@@ -7,14 +7,17 @@ empirical test of whether ILs that perform well in one study also perform
 well in another — the real scientific question.
 """
 
-
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import spearmanr, ttest_1samp
 
-from LNPBO.diagnostics.utils import load_lnpdb_clean
+from LNPBO.benchmarks.stats import benjamini_hochberg
+from LNPBO.data.study_utils import load_lnpdb_clean
+
+logger = logging.getLogger("lnpbo")
 
 
 def main() -> int:
@@ -54,13 +57,22 @@ def main() -> int:
             v2 = np.array([il_mean2[s] for s in shared])
             rho, p = spearmanr(v1, v2)
             if np.isfinite(rho):
-                pair_results.append({
-                    "study_1": s1,
-                    "study_2": s2,
-                    "n_shared": len(shared),
-                    "spearman_rho": float(rho),
-                    "p_value": float(p),
-                })
+                pair_results.append(
+                    {
+                        "study_1": s1,
+                        "study_2": s2,
+                        "n_shared": len(shared),
+                        "spearman_rho": float(rho),
+                        "p_value": float(p),
+                    }
+                )
+
+    # BH-FDR correction across all pairwise p-values
+    if pair_results:
+        raw_ps = np.array([pr["p_value"] for pr in pair_results])
+        adj_ps, _ = benjamini_hochberg(raw_ps)
+        for i, pr in enumerate(pair_results):
+            pr["p_adjusted"] = float(adj_ps[i])
 
     rhos = np.array([p["spearman_rho"] for p in pair_results])
     if len(rhos) > 0:
@@ -80,8 +92,8 @@ def main() -> int:
 
     out_path = Path("diagnostics") / "utility_consistency.json"
     out_path.write_text(json.dumps(report, indent=2))
-    print(json.dumps({k: v for k, v in report.items() if k != "pair_details"}, indent=2))
-    print(f"Saved {out_path}")
+    logger.info(json.dumps({k: v for k, v in report.items() if k != "pair_details"}, indent=2))
+    logger.info("Saved %s", out_path)
     return 0
 
 

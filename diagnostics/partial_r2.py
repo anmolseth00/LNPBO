@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Partial R^2 decomposition: study vs chemistry."""
 
-
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
@@ -10,7 +10,9 @@ from sklearn.linear_model import LinearRegression
 from sklearn.metrics import r2_score
 from sklearn.preprocessing import OneHotEncoder
 
-from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, study_split
+from LNPBO.data.study_utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean, study_split
+
+logger = logging.getLogger("lnpbo")
 
 
 def main() -> int:
@@ -62,8 +64,8 @@ def main() -> int:
 
     out_path = Path("diagnostics") / "partial_r2.json"
     out_path.write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2))
-    print(f"Saved {out_path}")
+    logger.info(json.dumps(report, indent=2))
+    logger.info("Saved %s", out_path)
     return 0
 
 

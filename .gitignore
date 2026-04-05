@@ -104,6 +104,8 @@ benchmark_results/
 experiments/data_integrity/stratification_report.json
 experiments/data_integrity/stratification_report.md
 experiments/data_integrity/data_landscape.json
+diagnostics/*.json
+diagnostics/*.png
 
 # ==========================
 # Paper (LaTeX source, managed separately)

@@ -1,17 +1,35 @@
 #!/usr/bin/env python3
-"""Anchor IL rank consistency across studies."""
+"""Anchor IL rank consistency across studies.
 
+Computes pairwise Spearman and Kendall-tau correlations of IL percentile
+ranks between every study pair that shares at least 3 anchor ILs, then
+summarizes the distribution of correlation coefficients overall and
+stratified by assay-type pair.
+"""
 
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 from scipy.stats import kendalltau, spearmanr, ttest_1samp
 
-from LNPBO.diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
+from LNPBO.benchmarks.stats import benjamini_hochberg
+from LNPBO.data.study_utils import load_lnpdb_clean, summarize_study_assay_types
+
+logger = logging.getLogger("lnpbo")
 
 
 def main() -> int:
+    """Run the anchor-IL rank-consistency analysis and write results to disk.
+
+    Outputs:
+        ``diagnostics/anchor_analysis.json`` -- summary statistics.
+        ``diagnostics/anchor_pairwise_metrics.json`` -- per-pair results.
+
+    Returns:
+        Exit code (0 on success).
+    """
     df = load_lnpdb_clean(drop_duplicates=False)
 
     # Compute per-study IL percentile ranks
@@ -44,8 +62,8 @@ def main() -> int:
                 continue
             v1 = r1.loc[shared].values
             v2 = r2.loc[shared].values
-            rho, _ = spearmanr(v1, v2)
-            tau, _ = kendalltau(v1, v2)
+            rho, p_rho = spearmanr(v1, v2)
+            tau, p_tau = kendalltau(v1, v2)
             if not np.isfinite(rho) or not np.isfinite(tau):
                 continue
             t1 = study_types.get(s1, "unknown")
@@ -57,12 +75,22 @@ def main() -> int:
                     "study_2": s2,
                     "n_shared": len(shared),
                     "spearman_rho": float(rho),
+                    "spearman_p": float(p_rho),
                     "kendall_tau": float(tau),
+                    "kendall_p": float(p_tau),
                     "assay_pair": pair_key,
                 }
             )
 
     rhos = np.array([p["spearman_rho"] for p in pair_results])
+
+    # BH-FDR correction across all pairwise Spearman p-values
+    if pair_results:
+        raw_ps = np.array([p["spearman_p"] for p in pair_results])
+        adj_ps, _ = benjamini_hochberg(raw_ps)
+        for i, pr in enumerate(pair_results):
+            pr["p_adjusted"] = float(adj_ps[i])
+
     if len(rhos) > 0:
         mean_rho = float(np.mean(rhos))
         med_rho = float(np.median(rhos))
@@ -95,13 +123,13 @@ def main() -> int:
 
     out_path = Path("diagnostics") / "anchor_analysis.json"
     out_path.write_text(json.dumps(report, indent=2))
-    print(json.dumps(report, indent=2))
-    print(f"Saved {out_path}")
+    logger.info(json.dumps(report, indent=2))
+    logger.info("Saved %s", out_path)
 
     # Save distribution arrays for plotting
     dist_path = Path("diagnostics") / "anchor_pairwise_metrics.json"
     dist_path.write_text(json.dumps(pair_results, indent=2))
-    print(f"Saved {dist_path}")
+    logger.info("Saved %s", dist_path)
 
     return 0
 

@@ -6,8 +6,8 @@ Part 2: Seen vs novel scaffold hit rate across 5 seeds.
 Part 3: Partial correlation between prediction error and physicochemical descriptors.
 """
 
-
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -20,7 +20,9 @@ from scipy import stats
 from xgboost import XGBRegressor
 
 from LNPBO.benchmarks.runner import prepare_benchmark_data
-from LNPBO.diagnostics.utils import load_lnpdb_clean
+from LNPBO.data.study_utils import load_lnpdb_clean
+
+logger = logging.getLogger("lnpbo")
 
 SEEDS = [42, 123, 456, 789, 2024]
 N_SEED = 500
@@ -61,9 +63,9 @@ def compute_rdkit_descriptors(smiles: str) -> dict:
 
 def part1_scaffold_clustering(df: pd.DataFrame) -> tuple[dict, dict]:
     """Cluster ILs by Murcko scaffold (ring) or head group (acyclic)."""
-    print("\n" + "=" * 70)
-    print("PART 1: Scaffold Clustering of ILs")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("PART 1: Scaffold Clustering of ILs")
+    logger.info("=" * 70)
 
     head_col = "IL_head_name" if "IL_head_name" in df.columns else None
     il_df = df[["IL_SMILES"]].copy()
@@ -73,9 +75,7 @@ def part1_scaffold_clustering(df: pd.DataFrame) -> tuple[dict, dict]:
         il_df["IL_head_name"] = None
 
     il_unique = il_df.drop_duplicates(subset=["IL_SMILES"]).copy()
-    il_unique["scaffold"] = il_unique.apply(
-        lambda r: compute_scaffold(r["IL_SMILES"], r.get("IL_head_name")), axis=1
-    )
+    il_unique["scaffold"] = il_unique.apply(lambda r: compute_scaffold(r["IL_SMILES"], r.get("IL_head_name")), axis=1)
 
     ring_mask = il_unique["scaffold"].str.startswith("ring:")
     head_mask = il_unique["scaffold"].str.startswith("head:")
@@ -87,31 +87,37 @@ def part1_scaffold_clustering(df: pd.DataFrame) -> tuple[dict, dict]:
     n_ring_scaffolds = il_unique.loc[ring_mask, "scaffold"].nunique()
     n_head_groups = il_unique.loc[head_mask, "scaffold"].nunique()
 
-    print(f"\nUnique ILs: {len(il_unique)}")
-    print(f"  Ring-containing: {n_ring} ({100*n_ring/len(il_unique):.1f}%) across {n_ring_scaffolds} Murcko scaffolds")
-    print(f"  Acyclic (head group): {n_head} ({100*n_head/len(il_unique):.1f}%) across {n_head_groups} head groups")
-    print(f"  Acyclic (no head name): {n_other} ({100*n_other/len(il_unique):.1f}%)")
+    logger.info("Unique ILs: %d", len(il_unique))
+    logger.info(
+        "  Ring-containing: %d (%.1f%%) across %d Murcko scaffolds",
+        n_ring, 100 * n_ring / len(il_unique), n_ring_scaffolds,
+    )
+    logger.info(
+        "  Acyclic (head group): %d (%.1f%%) across %d head groups",
+        n_head, 100 * n_head / len(il_unique), n_head_groups,
+    )
+    logger.info("  Acyclic (no head name): %d (%.1f%%)", n_other, 100 * n_other / len(il_unique))
 
     scaffold_counts = il_unique["scaffold"].value_counts()
-    print("\nTop 10 scaffolds/head groups by IL count:")
+    logger.info("Top 10 scaffolds/head groups by IL count:")
     for i, (scaf, cnt) in enumerate(scaffold_counts.head(10).items()):
-        print(f"  {i+1}. {scaf}: {cnt} ILs")
+        logger.info("  %d. %s: %d ILs", i + 1, scaf, cnt)
 
     smi_to_scaffold = dict(zip(il_unique["IL_SMILES"], il_unique["scaffold"]))
     df_scaffolded = df.copy()
     df_scaffolded["scaffold"] = df_scaffolded["IL_SMILES"].map(smi_to_scaffold)
 
     scaffold_formulation_counts = df_scaffolded["scaffold"].value_counts()
-    print("\nTop 10 scaffolds by formulation count:")
+    logger.info("Top 10 scaffolds by formulation count:")
     for i, (scaf, cnt) in enumerate(scaffold_formulation_counts.head(10).items()):
         n_ils = il_unique[il_unique["scaffold"] == scaf].shape[0]
-        print(f"  {i+1}. {scaf}: {cnt} formulations ({n_ils} ILs)")
+        logger.info("  %d. %s: %d formulations (%d ILs)", i + 1, scaf, cnt, n_ils)
 
     mean_by_scaffold = df_scaffolded.groupby("scaffold")["Experiment_value"].agg(["mean", "std", "count"])
     mean_by_scaffold = mean_by_scaffold.sort_values("mean", ascending=False)
-    print("\nTop 10 scaffolds by mean Experiment_value:")
+    logger.info("Top 10 scaffolds by mean Experiment_value:")
     for i, (scaf, row) in enumerate(mean_by_scaffold.head(10).iterrows()):
-        print(f"  {i+1}. {scaf}: mean={row['mean']:.3f}, std={row['std']:.3f}, n={int(row['count'])}")
+        logger.info("  %d. %s: mean=%.3f, std=%.3f, n=%d", i + 1, scaf, row["mean"], row["std"], int(row["count"]))
 
     result = {
         "n_unique_ils": len(il_unique),
@@ -120,23 +126,21 @@ def part1_scaffold_clustering(df: pd.DataFrame) -> tuple[dict, dict]:
         "n_acyclic_other": int(n_other),
         "n_ring_scaffolds": int(n_ring_scaffolds),
         "n_head_groups": int(n_head_groups),
-        "top_scaffolds_by_formulations": {
-            str(k): int(v) for k, v in scaffold_formulation_counts.head(20).items()
-        },
+        "top_scaffolds_by_formulations": {str(k): int(v) for k, v in scaffold_formulation_counts.head(20).items()},
     }
     return result, smi_to_scaffold
 
 
 def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
     """Compare hit rate on seen vs novel scaffolds across 5 seeds."""
-    print("\n" + "=" * 70)
-    print("PART 2: Seen vs Novel Scaffold Hit Rate")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("PART 2: Seen vs Novel Scaffold Hit Rate")
+    logger.info("=" * 70)
 
     results_per_seed = {}
 
     for seed in SEEDS:
-        print(f"\n--- Seed {seed} ---")
+        logger.info("--- Seed %d ---", seed)
 
         _encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _top_k_values = prepare_benchmark_data(
             n_seed=N_SEED,
@@ -154,8 +158,8 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
         novel_scaffolds = test_scaffolds - seed_scaffolds
         seen_scaffolds = test_scaffolds & seed_scaffolds
 
-        print(f"  Seed scaffolds: {len(seed_scaffolds)}")
-        print(f"  Test scaffolds: {len(test_scaffolds)} ({len(seen_scaffolds)} seen, {len(novel_scaffolds)} novel)")
+        logger.info("  Seed scaffolds: %d", len(seed_scaffolds))
+        logger.info("  Test scaffolds: %d (%d seen, %d novel)", len(test_scaffolds), len(seen_scaffolds), len(novel_scaffolds))
 
         test_df = encoded_df.loc[oracle_idx].copy()
         test_df["is_seen"] = test_df["scaffold"].isin(seed_scaffolds)
@@ -200,12 +204,18 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
             novel_hit_rate = novel_hits / max(novel_actual_top, 1)
             total_hit_rate = total_hits / top_k
 
-            print(f"  Top-{top_k}:")
-            print(f"    Seen scaffolds:  {n_seen} test pts, {seen_actual_top} actual top, "
-                  f"{seen_predicted} predicted top, {seen_hits} hits ({100*seen_hit_rate:.1f}% recall)")
-            print(f"    Novel scaffolds: {n_novel} test pts, {novel_actual_top} actual top, "
-                  f"{novel_predicted} predicted top, {novel_hits} hits ({100*novel_hit_rate:.1f}% recall)")
-            print(f"    Overall: {total_hits}/{top_k} ({100*total_hit_rate:.1f}% recall)")
+            logger.info("  Top-%d:", top_k)
+            logger.info(
+                "    Seen scaffolds:  %d test pts, %d actual top, "
+                "%d predicted top, %d hits (%.1f%% recall)",
+                n_seen, seen_actual_top, seen_predicted, seen_hits, 100 * seen_hit_rate,
+            )
+            logger.info(
+                "    Novel scaffolds: %d test pts, %d actual top, "
+                "%d predicted top, %d hits (%.1f%% recall)",
+                n_novel, novel_actual_top, novel_predicted, novel_hits, 100 * novel_hit_rate,
+            )
+            logger.info("    Overall: %d/%d (%.1f%% recall)", total_hits, top_k, 100 * total_hit_rate)
 
             seed_result[f"top_{top_k}"] = {
                 "n_seen_test": int(n_seen),
@@ -223,7 +233,7 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
 
         results_per_seed[str(seed)] = seed_result
 
-    print("\n--- Aggregated across seeds ---")
+    logger.info("--- Aggregated across seeds ---")
     agg = {}
     for top_k in [50, 100]:
         key = f"top_{top_k}"
@@ -231,10 +241,10 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
         novel_recalls = [results_per_seed[str(s)][key]["novel_recall"] for s in SEEDS]
         total_recalls = [results_per_seed[str(s)][key]["total_recall"] for s in SEEDS]
 
-        print(f"  Top-{top_k} recall:")
-        print(f"    Seen:  {100*np.mean(seen_recalls):.1f} +/- {100*np.std(seen_recalls):.1f}%")
-        print(f"    Novel: {100*np.mean(novel_recalls):.1f} +/- {100*np.std(novel_recalls):.1f}%")
-        print(f"    Total: {100*np.mean(total_recalls):.1f} +/- {100*np.std(total_recalls):.1f}%")
+        logger.info("  Top-%d recall:", top_k)
+        logger.info("    Seen:  %.1f +/- %.1f%%", 100 * np.mean(seen_recalls), 100 * np.std(seen_recalls))
+        logger.info("    Novel: %.1f +/- %.1f%%", 100 * np.mean(novel_recalls), 100 * np.std(novel_recalls))
+        logger.info("    Total: %.1f +/- %.1f%%", 100 * np.mean(total_recalls), 100 * np.std(total_recalls))
 
         agg[key] = {
             "seen_recall_mean": float(np.mean(seen_recalls)),
@@ -250,16 +260,16 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
 
 def part3_partial_correlation(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
     """Partial correlation between XGB prediction error and physicochemical descriptors."""
-    print("\n" + "=" * 70)
-    print("PART 3: Partial Correlation with Physicochemical Descriptors")
-    print("=" * 70)
+    logger.info("=" * 70)
+    logger.info("PART 3: Partial Correlation with Physicochemical Descriptors")
+    logger.info("=" * 70)
 
     desc_names = ["MolLogP", "TPSA", "NumHDonors", "NumHAcceptors", "MolWt", "NumRotatableBonds", "QED"]
 
     all_seed_results = {}
 
     for seed in SEEDS:
-        print(f"\n--- Seed {seed} ---")
+        logger.info("--- Seed %d ---", seed)
 
         _encoded, encoded_df, feature_cols, seed_idx, oracle_idx, _top_k_values = prepare_benchmark_data(
             n_seed=N_SEED,
@@ -327,22 +337,25 @@ def part3_partial_correlation(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
                 "n": int(n),
             }
             sig = "*" if (p_val is not None and not np.isnan(p_val) and p_val < 0.05) else ""
-            print(f"  {d:22s}: raw_rho={rho_xy:+.4f}, partial_rho={partial_rho:+.4f}, p={p_val:.4e} {sig}")
+            logger.info(f"  {d:22s}: raw_rho={rho_xy:+.4f}, partial_rho={partial_rho:+.4f}, p={p_val:.4e} {sig}")
 
         all_seed_results[str(seed)] = seed_corrs
 
-    print("\n--- Aggregated partial correlations (mean +/- std across 5 seeds) ---")
+    logger.info("--- Aggregated partial correlations (mean +/- std across 5 seeds) ---")
     agg = {}
     for d in desc_names:
-        partials = [all_seed_results[str(s)][d]["spearman_partial"] for s in SEEDS
-                     if all_seed_results[str(s)][d]["spearman_partial"] is not None]
+        partials = [
+            all_seed_results[str(s)][d]["spearman_partial"]
+            for s in SEEDS
+            if all_seed_results[str(s)][d]["spearman_partial"] is not None
+        ]
         raws = [all_seed_results[str(s)][d]["spearman_raw"] for s in SEEDS]
         if partials:
             mean_p = np.mean(partials)
             std_p = np.std(partials)
             mean_r = np.mean(raws)
             std_r = np.std(raws)
-            print(f"  {d:22s}: raw={mean_r:+.4f}+/-{std_r:.4f}, partial={mean_p:+.4f}+/-{std_p:.4f}")
+            logger.info(f"  {d:22s}: raw={mean_r:+.4f}+/-{std_r:.4f}, partial={mean_p:+.4f}+/-{std_p:.4f}")
             agg[d] = {
                 "raw_mean": float(mean_r),
                 "raw_std": float(std_r),
@@ -350,17 +363,17 @@ def part3_partial_correlation(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
                 "partial_std": float(std_p),
             }
         else:
-            print(f"  {d:22s}: no valid partial correlations")
+            logger.info("  %s: no valid partial correlations", d)
             agg[d] = None
 
     return {"per_seed": all_seed_results, "aggregated": agg}
 
 
 def main() -> int:
-    print("Loading clean LNPDB...")
+    logger.info("Loading clean LNPDB...")
     df = load_lnpdb_clean(drop_duplicates=False)
     df = df.dropna(subset=["IL_SMILES", "Experiment_value"]).reset_index(drop=True)
-    print(f"  {len(df)} formulations, {df['IL_SMILES'].nunique()} unique ILs")
+    logger.info("  %d formulations, %d unique ILs", len(df), df["IL_SMILES"].nunique())
 
     part1_result, smi_to_scaffold = part1_scaffold_clustering(df)
     part2_result = part2_seen_vs_novel(df, smi_to_scaffold)
@@ -375,7 +388,7 @@ def main() -> int:
     out_path = Path(__file__).resolve().parent / "scaffold_results.json"
     with open(out_path, "w") as f:
         json.dump(results, f, indent=2, default=str)
-    print(f"\nResults saved to {out_path}")
+    logger.info("Results saved to %s", out_path)
 
     return 0
 

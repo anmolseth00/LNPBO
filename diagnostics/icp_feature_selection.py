@@ -28,8 +28,8 @@ Multiple-testing correction (2026-03-07):
              Journal of the Royal Statistical Society, Series B.
 """
 
-
 import json
+import logging
 from itertools import combinations
 from pathlib import Path
 
@@ -37,7 +37,9 @@ import numpy as np
 from scipy.stats import f_oneway, levene
 from sklearn.linear_model import LinearRegression
 
-from LNPBO.diagnostics.utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+from LNPBO.data.study_utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
+
+logger = logging.getLogger("lnpbo")
 
 
 def benjamini_hochberg(pvals):
@@ -90,13 +92,13 @@ def test_invariance(X, y, study_ids, feature_subset, alpha=0.05):
     # Levene test for equal variance across studies
     try:
         _, p_levene = levene(*study_residuals)
-    except Exception:
+    except (ValueError, FloatingPointError):
         p_levene = 0.0
 
     # F-test for equal means across studies
     try:
         _, p_means = f_oneway(*study_residuals)
-    except Exception:
+    except (ValueError, FloatingPointError):
         p_means = 0.0
 
     # Both must not be rejected for invariance
@@ -121,10 +123,10 @@ def main() -> int:
     study_ids = df["study_id"].astype(str).values
 
     n_features = len(feat_cols)
-    print(f"Features ({n_features}): {feat_cols}")
-    print(f"Studies: {len(np.unique(study_ids))}")
-    print(f"Rows: {len(X)}")
-    print(f"Total subsets to test: {2**n_features}")
+    logger.info("Features (%d): %s", n_features, feat_cols)
+    logger.info("Studies: %d", len(np.unique(study_ids)))
+    logger.info("Rows: %d", len(X))
+    logger.info("Total subsets to test: %d", 2**n_features)
 
     # Test all subsets (2^10 = 1024)
     all_results = []
@@ -158,16 +160,12 @@ def main() -> int:
         r["p_levene_bh"] = float(p_levene_bh[i])
         r["p_means_bh"] = float(p_means_bh[i])
         r["invariant_bh"] = bool(p_levene_bh[i] >= alpha and p_means_bh[i] >= alpha)
-        r["invariant_bonferroni"] = bool(
-            r["p_levene"] >= bonferroni_alpha and r["p_means"] >= bonferroni_alpha
-        )
+        r["invariant_bonferroni"] = bool(r["p_levene"] >= bonferroni_alpha and r["p_means"] >= bonferroni_alpha)
 
     # Intersection of all accepted sets = invariant causal features
     causal_features = compute_invariant_sets(all_results, feat_cols, "", "invariant")
     causal_features_bh = compute_invariant_sets(all_results, feat_cols, "_bh", "invariant_bh")
-    causal_features_bonf = compute_invariant_sets(
-        all_results, feat_cols, "_bonferroni", "invariant_bonferroni"
-    )
+    causal_features_bonf = compute_invariant_sets(all_results, feat_cols, "_bonferroni", "invariant_bonferroni")
 
     # Summary by correction method
     def summarize(key):
@@ -208,27 +206,27 @@ def main() -> int:
         "accepted_examples_uncorrected": [r for r in all_results if r["invariant"]][:20],
     }
 
-    print(f"\n{'='*60}")
-    print(f"Multiple-testing correction (n_tests={n_tests}, alpha={alpha})")
-    print(f"Bonferroni alpha: {bonferroni_alpha:.2e}")
-    print(f"{'='*60}")
+    logger.info("=" * 60)
+    logger.info("Multiple-testing correction (n_tests=%d, alpha=%s)", n_tests, alpha)
+    logger.info("Bonferroni alpha: %.2e", bonferroni_alpha)
+    logger.info("=" * 60)
 
     for label, n_inv, causal, by_size in [
         ("Uncorrected", n_invariant, causal_features, invariant_by_size),
         ("BH-corrected (FDR)", n_invariant_bh, causal_features_bh, invariant_by_size_bh),
         ("Bonferroni-corrected", n_invariant_bonf, causal_features_bonf, invariant_by_size_bonf),
     ]:
-        print(f"\n--- {label} ---")
-        print(f"Invariant subsets: {n_inv} / {n_tests}")
-        print(f"Causal features (intersection): {causal}")
-        print("Invariant by size:")
+        logger.info("--- %s ---", label)
+        logger.info("Invariant subsets: %d / %d", n_inv, n_tests)
+        logger.info("Causal features (intersection): %s", causal)
+        logger.info("Invariant by size:")
         for size in sorted(by_size):
             info = by_size[size]
-            print(f"  size={size}: {info['invariant']} / {info['total']}")
+            logger.info("  size=%d: %d / %d", size, info["invariant"], info["total"])
 
     out_path = Path("diagnostics") / "icp_results.json"
     out_path.write_text(json.dumps(report, indent=2))
-    print(f"Saved {out_path}")
+    logger.info("Saved %s", out_path)
     return 0
 
 

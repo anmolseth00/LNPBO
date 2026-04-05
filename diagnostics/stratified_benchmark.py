@@ -1,22 +1,19 @@
 #!/usr/bin/env python3
 """Run LNPBO benchmark within each assay_type stratum."""
 
-
 import json
+import logging
 from pathlib import Path
 
 import numpy as np
 
-from LNPBO.benchmarks._discrete_common import run_discrete_strategy
+from LNPBO.benchmarks._optimizer_runner import OptimizerRunner
 from LNPBO.benchmarks.runner import compute_metrics, prepare_benchmark_data
-from LNPBO.diagnostics.utils import load_lnpdb_clean
+from LNPBO.data.context import ASSAY_TYPES
+from LNPBO.data.study_utils import load_lnpdb_clean
+from LNPBO.optimization.optimizer import Optimizer
 
-ASSAY_TYPES = [
-    "in_vitro_single_formulation",
-    "in_vitro_barcode_screen",
-    "in_vivo_liver",
-    "in_vivo_other",
-]
+logger = logging.getLogger("lnpbo")
 
 
 def main() -> int:
@@ -28,10 +25,10 @@ def main() -> int:
     for assay_type in ASSAY_TYPES:
         sdf = df[df["assay_type"] == assay_type].copy()
         if len(sdf) < 800 or sdf["study_id"].nunique() < 3:
-            print(f"Skipping {assay_type}: insufficient data ({len(sdf)} rows)")
+            logger.info("Skipping %s: insufficient data (%d rows)", assay_type, len(sdf))
             continue
 
-        print(f"\n=== {assay_type} ({len(sdf)} rows, {sdf['study_id'].nunique()} studies) ===")
+        logger.info("=== %s (%d rows, %d studies) ===", assay_type, len(sdf), sdf["study_id"].nunique())
         per_seed = []
         for seed in seeds:
             encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
@@ -42,22 +39,27 @@ def main() -> int:
                 feature_type="lantern_il_only",
                 data_df=sdf,
             )
-            history = run_discrete_strategy(
+            optimizer = Optimizer(
+                surrogate_type="xgb",
+                batch_strategy="greedy",
+                random_seed=seed,
+                kappa=5.0,
+                normalize="copula",
+                batch_size=12,
+            )
+            runner = OptimizerRunner(optimizer)
+            history = runner.run(
                 encoded_df,
                 feature_cols,
                 seed_idx,
                 oracle_idx,
-                surrogate="xgb",
-                batch_size=12,
                 n_rounds=15,
-                seed=seed,
-                kappa=5.0,
-                normalize="copula",
+                batch_size=12,
                 encoded_dataset=encoded,
             )
             metrics = compute_metrics(history, top_k_values, len(encoded_df))
             per_seed.append(metrics)
-            print(
+            logger.info(
                 f"  seed={seed} final_best={metrics['final_best']:.3f} "
                 f"top10={metrics['top_k_recall'][10]:.1%} top50={metrics['top_k_recall'][50]:.1%}"
             )
@@ -79,7 +81,7 @@ def main() -> int:
 
     out_path = Path("diagnostics") / "stratified_benchmark.json"
     out_path.write_text(json.dumps(results, indent=2))
-    print(f"Saved {out_path}")
+    logger.info("Saved %s", out_path)
     return 0
 
 

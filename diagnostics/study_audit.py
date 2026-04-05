@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """Study-level metadata audit for LNPDB."""
 
-
+import logging
 from pathlib import Path
 
 import pandas as pd
 
-from LNPBO.diagnostics.utils import load_lnpdb_clean, summarize_study_assay_types
+from LNPBO.data.study_utils import load_lnpdb_clean, summarize_study_assay_types
+
+logger = logging.getLogger("lnpbo")
 
 
 def main() -> int:
@@ -34,14 +36,14 @@ def main() -> int:
     out_path = Path("data") / "study_metadata.csv"
     out_path.parent.mkdir(exist_ok=True)
     meta.to_csv(out_path, index=False)
-    print(f"Wrote {out_path}")
+    logger.info("Wrote %s", out_path)
 
-    print("\nTop-10 largest studies:")
-    print(meta.head(10).to_string(index=False))
+    logger.info("Top-10 largest studies:\n%s", meta.head(10).to_string(index=False))
 
     # Plots
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -53,7 +55,7 @@ def main() -> int:
         fig.tight_layout()
         hist_path = Path("diagnostics") / "study_size_hist.png"
         fig.savefig(hist_path, dpi=200)
-        print(f"Saved {hist_path}")
+        logger.info("Saved %s", hist_path)
         plt.close(fig)
 
         fig, ax = plt.subplots(figsize=(6, 4))
@@ -63,10 +65,10 @@ def main() -> int:
         fig.tight_layout()
         pie_path = Path("diagnostics") / "assay_type_pie.png"
         fig.savefig(pie_path, dpi=200)
-        print(f"Saved {pie_path}")
+        logger.info("Saved %s", pie_path)
         plt.close(fig)
     except Exception as exc:
-        print(f"Plotting skipped: {exc}")
+        logger.warning("Plotting skipped: %s", exc)
 
     return 0
 
