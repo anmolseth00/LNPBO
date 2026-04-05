@@ -12,6 +12,7 @@ Key speedups:
 from __future__ import annotations
 
 import warnings
+from typing import TYPE_CHECKING
 
 import gpytorch
 import numpy as np
@@ -24,25 +25,32 @@ from scipy.stats import norm
 
 from .acquisition import _log_h_stable
 
-KERNEL_TYPES = {"matern", "tanimoto"}
+KERNEL_TYPES = {"matern", "tanimoto", "aitchison", "dkl", "rf", "compositional", "robust"}
 
-# Type alias: covers SingleTaskGP, SingleTaskVariationalGP, and
-# BatchedMultiOutputGPyTorchModel (returned by condition_on_observations).
-type GPModel = SingleTaskGP | SingleTaskVariationalGP | Model
+if TYPE_CHECKING:
+    from typing import Union
+
+    # Type alias: covers SingleTaskGP, SingleTaskVariationalGP, and
+    # BatchedMultiOutputGPyTorchModel (returned by condition_on_observations).
+    GPModel = Union[SingleTaskGP, SingleTaskVariationalGP, Model]
 
 
 def get_device(use_mps: bool = False) -> torch.device:
-    """Select compute device.
+    """Select compute device: CUDA > CPU > MPS (opt-in).
 
-    MPS on Apple Silicon has limited float64 support. GPyTorch requires
-    float64 for numerical stability (Cholesky, kernel evaluations).
-    Default to CPU with float64; MPS uses float32 with stability caveats.
+    Priority:
+      1. CUDA if available — full float64 support, best performance.
+      2. CPU (default) — reliable float64, always works.
+      3. MPS (opt-in via use_mps=True) — Apple Silicon GPU, float32 only,
+         may cause numerical instability in GP fitting.
     """
+    if torch.cuda.is_available():
+        return torch.device("cuda")
     if use_mps and torch.backends.mps.is_available():
         warnings.warn(
             "MPS backend uses float32 which may cause numerical instability "
             "in GP fitting (Cholesky failures, poor hyperparameter optimization). "
-            "Use CPU (default) for reliable results.",
+            "Use CPU or CUDA for reliable results.",
             stacklevel=2,
         )
         return torch.device("mps")
@@ -50,11 +58,405 @@ def get_device(use_mps: bool = False) -> torch.device:
 
 
 def _to_tensor(
-    X: np.ndarray, device: torch.device, dtype: torch.dtype | None = None,
+    X: np.ndarray,
+    device: torch.device,
+    dtype: torch.dtype | None = None,
 ) -> torch.Tensor:
+    """Convert a NumPy array to a contiguous torch Tensor on the given device.
+
+    Args:
+        X: Input array.
+        device: Target torch device (CPU or MPS).
+        dtype: Torch dtype. Defaults to float32 on MPS, float64 on CPU.
+
+    Returns:
+        Contiguous Tensor on the specified device with the chosen dtype.
+    """
     if dtype is None:
         dtype = torch.float32 if device.type == "mps" else torch.float64
     return torch.tensor(np.ascontiguousarray(X), dtype=dtype, device=device)
+
+
+class _DKLFeatureExtractor(torch.nn.Module):
+    """MLP feature extractor for Deep Kernel Learning.
+
+    Maps D-dimensional inputs to a lower-dimensional learned representation
+    through a 3-layer MLP with ReLU activations.
+
+    Reference
+    ---------
+    Wilson, A.G., Hu, Z., Salakhutdinov, R., & Xing, E.P.
+    "Deep Kernel Learning." AISTATS 2016. arXiv:1511.02222.
+    """
+
+    def __init__(self, input_dim: int, output_dim: int = 16):
+        """Initialize a 3-layer MLP (input_dim -> 64 -> 32 -> output_dim).
+
+        Args:
+            input_dim: Dimensionality of the raw input features.
+            output_dim: Dimensionality of the learned representation.
+        """
+        super().__init__()
+        self.net = torch.nn.Sequential(
+            torch.nn.Linear(input_dim, 64),
+            torch.nn.ReLU(),
+            torch.nn.Linear(64, 32),
+            torch.nn.ReLU(),
+            torch.nn.Linear(32, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """Forward pass through the MLP feature extractor.
+
+        Args:
+            x: Input tensor of shape (..., input_dim).
+
+        Returns:
+            Learned representation of shape (..., output_dim).
+        """
+        return self.net(x)
+
+
+class _DKLInputTransform(torch.nn.Module):
+    """BoTorch-compatible InputTransform wrapping a frozen feature extractor.
+
+    Implements the minimal InputTransform interface so that SingleTaskGP
+    applies the DKL feature mapping transparently in posterior(),
+    condition_on_observations(), and all downstream BoTorch utilities.
+
+    Reference
+    ---------
+    Wilson, A.G., Hu, Z., Salakhutdinov, R., & Xing, E.P.
+    "Deep Kernel Learning." AISTATS 2016. arXiv:1511.02222.
+    """
+
+    is_one_to_many: bool = False
+    transform_on_train: bool = True
+    transform_on_eval: bool = True
+    transform_on_fantasize: bool = True
+
+    def __init__(self, feature_extractor: _DKLFeatureExtractor):
+        """Wrap a frozen feature extractor as a BoTorch InputTransform.
+
+        Args:
+            feature_extractor: Trained _DKLFeatureExtractor whose parameters
+                will be frozen (requires_grad=False).
+        """
+        super().__init__()
+        self.feature_extractor = feature_extractor
+        for p in self.feature_extractor.parameters():
+            p.requires_grad_(False)
+
+    def forward(self, X: torch.Tensor) -> torch.Tensor:
+        """Apply the frozen feature extractor to input X.
+
+        Args:
+            X: Input tensor of shape (..., input_dim).
+
+        Returns:
+            Transformed tensor of shape (..., output_dim).
+        """
+        return self.feature_extractor(X)
+
+    def transform(self, X: torch.Tensor) -> torch.Tensor:
+        """Apply the frozen feature extractor (BoTorch InputTransform API).
+
+        Args:
+            X: Input tensor of shape (..., input_dim).
+
+        Returns:
+            Transformed tensor of shape (..., output_dim).
+        """
+        return self.feature_extractor(X)
+
+    def preprocess_transform(self, X: torch.Tensor) -> torch.Tensor:
+        """Preprocess transform (delegates to transform).
+
+        Args:
+            X: Input tensor.
+
+        Returns:
+            Transformed tensor.
+        """
+        return self.transform(X)
+
+    def untransform(self, X: torch.Tensor) -> torch.Tensor:
+        """Inverse transform (not supported for DKL).
+
+        Raises:
+            NotImplementedError: DKL feature extraction is not invertible.
+        """
+        raise NotImplementedError("DKL transform is not invertible")
+
+    def equals(self, other) -> bool:
+        """Check if another transform is of the same type.
+
+        Args:
+            other: Another InputTransform instance.
+
+        Returns:
+            True if other is a _DKLInputTransform.
+        """
+        return isinstance(other, _DKLInputTransform)
+
+
+def _fit_dkl_gp(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    device: torch.device,
+    n_epochs: int = 200,
+    lr: float = 0.01,
+    output_dim: int = 16,
+) -> SingleTaskGP:
+    """Jointly train a DKL model (feature extractor + GP) with Adam.
+
+    Phase 1: Build a temporary SingleTaskGP with the feature extractor as
+    input_transform, then optimize the joint marginal log-likelihood over
+    all parameters (NN weights + GP hyperparameters) using Adam.
+
+    Phase 2: Freeze the feature extractor, transform training inputs once,
+    and construct a fresh SingleTaskGP on the transformed features. This
+    gives a clean model where condition_on_observations, posterior, etc.
+    all work via BoTorch's standard input_transform machinery.
+
+    Reference
+    ---------
+    Wilson, A.G., Hu, Z., Salakhutdinov, R., & Xing, E.P.
+    "Deep Kernel Learning." AISTATS 2016. arXiv:1511.02222.
+    """
+    input_dim = X.shape[-1]
+    feature_extractor = _DKLFeatureExtractor(input_dim, output_dim).to(device)
+    dtype = X.dtype
+    for p in feature_extractor.parameters():
+        p.data = p.data.to(dtype)
+
+    # Phase 1: joint training with a temporary model
+    # Build GP on transformed features for initialization
+    with torch.no_grad():
+        X_init = feature_extractor(X)
+    temp_model = SingleTaskGP(X_init, y)
+    temp_model.to(device)
+
+    temp_model.train()
+    temp_model.likelihood.train()
+    mll = ExactMarginalLogLikelihood(temp_model.likelihood, temp_model)
+
+    all_params = list(feature_extractor.parameters()) + list(temp_model.parameters())
+    optimizer = torch.optim.Adam(all_params, lr=lr)
+
+    prev_loss = float("inf")
+    patience, no_improve = 20, 0
+    for _ in range(n_epochs):
+        optimizer.zero_grad()
+        X_feat = feature_extractor(X)
+        # Manually set the training data to the current transformed inputs
+        # so the GP's forward pass uses updated features each step.
+        temp_model.set_train_data(X_feat, y.squeeze(-1), strict=False)
+        output = temp_model(X_feat)
+        loss = -mll(output, y.squeeze(-1))
+        loss.backward()
+        optimizer.step()
+        curr_loss = loss.item()
+        if prev_loss - curr_loss < 1e-6:
+            no_improve += 1
+            if no_improve >= patience:
+                break
+        else:
+            no_improve = 0
+        prev_loss = curr_loss
+
+    # Phase 2: freeze NN and build final model with input_transform
+    feature_extractor.eval()
+    for p in feature_extractor.parameters():
+        p.requires_grad_(False)
+
+    input_transform = _DKLInputTransform(feature_extractor)
+    model = SingleTaskGP(X, y, input_transform=input_transform)
+    model.to(device)
+
+    # Copy learned GP hyperparameters from the jointly trained temp model
+    # (the fresh SingleTaskGP has default hyperparameters)
+    with torch.no_grad():
+        for name, param in temp_model.named_parameters():
+            target = dict(model.named_parameters()).get(name)
+            if target is not None and target.shape == param.shape:
+                target.copy_(param)
+
+    import contextlib
+
+    mll_final = ExactMarginalLogLikelihood(model.likelihood, model)
+    # Short L-BFGS polish on GP hyperparameters only (NN is frozen)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        with contextlib.suppress(RuntimeError, ValueError):
+            fit_gpytorch_mll(mll_final)
+
+    model.eval()
+    return model
+
+
+def _fit_rf_kernel_gp(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    device: torch.device,
+    n_estimators: int = 500,
+    rf_seed: int = 42,
+) -> SingleTaskGP:
+    """Fit an exact GP with a Random Forest proximity kernel.
+
+    The RF kernel K(x_i, x_j) = fraction of trees where x_i and x_j
+    land in the same leaf. This is data-adaptive and PSD (Scornet 2016).
+    The RF is fit once on (X, y); the resulting kernel matrix is used
+    as the GP's covariance function.
+
+    Because the RF kernel has no differentiable hyperparameters, GP
+    hyperparameter optimization is limited to the noise variance and
+    output scale (via the wrapping ScaleKernel). L-BFGS fitting may
+    converge quickly or fail silently — both are acceptable since the
+    kernel's expressiveness comes from the RF, not from GP hyperparams.
+
+    Reference
+    ---------
+    Scornet, E. (2016). "Random Forests and Kernel Methods."
+        IEEE Transactions on Information Theory, 62(3), 1485-1500.
+    """
+    from gpytorch.kernels import ScaleKernel
+
+    from .rf_kernel import RandomForestKernel
+
+    rf_kernel = RandomForestKernel(
+        X,
+        y,
+        n_estimators=n_estimators,
+        random_state=rf_seed,
+    )
+    covar_module = ScaleKernel(rf_kernel)
+
+    model = SingleTaskGP(X, y, covar_module=covar_module)
+    model.to(device)
+
+    import contextlib
+
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        with contextlib.suppress(RuntimeError, ValueError):
+            fit_gpytorch_mll(mll)
+
+    model.eval()
+    return model
+
+
+def _fit_robust_gp(
+    X: torch.Tensor,
+    y: torch.Tensor,
+    device: torch.device,
+) -> SingleTaskGP:
+    """Fit a Robust GP via BoTorch's RobustRelevancePursuitSingleTaskGP.
+
+    Automatically identifies and downweights unreliable observations via
+    Bayesian model selection (Relevance Pursuit), without manual outlier
+    removal.
+
+    Reference
+    ---------
+    Ament, S. et al. (2024). "Robust Gaussian Processes via Relevance Pursuit."
+    arXiv:2410.24222.
+    """
+    from botorch.models.robust_relevance_pursuit_model import (
+        RobustRelevancePursuitSingleTaskGP,
+    )
+
+    model = RobustRelevancePursuitSingleTaskGP(
+        train_X=X,
+        train_Y=y,
+        cache_model_trace=True,
+    )
+    model.to(device)
+
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        import contextlib
+        with contextlib.suppress(RuntimeError, ValueError):
+            fit_gpytorch_mll(
+                mll,
+                fractions_of_outliers=[0.0, 0.05, 0.1, 0.2],
+                timeout_sec=300.0,
+            )
+
+    model.eval()
+    return model
+
+
+def fit_multitask_gp(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    task_indices: np.ndarray,
+    device: torch.device | None = None,
+    rank: int = 3,
+) -> "Model":
+    """Fit a Multi-Task GP with low-rank ICM coregionalization.
+
+    Each task/study shares a base kernel but has a learned inter-task
+    covariance, allowing the GP to transfer information across studies.
+
+    Parameters
+    ----------
+    X_train : (N, D) feature matrix.
+    y_train : (N,) targets.
+    task_indices : (N,) integer task/study IDs.
+    device : Torch device. Defaults to CPU.
+    rank : Rank of the ICM task covariance matrix.
+
+    Returns
+    -------
+    Fitted MultiTaskGP model in eval mode.
+
+    Reference
+    ---------
+    Bonilla, E.V., Chai, K.M.A., & Williams, C.K.I. (2007).
+    "Multi-task Gaussian Process Prediction." NIPS 2007.
+    """
+    import contextlib
+
+    import gpytorch
+    from botorch.models import MultiTaskGP
+
+    if device is None:
+        device = get_device()
+
+    # Append task index as last column (BoTorch MultiTaskGP convention)
+    X_aug = np.column_stack([X_train, task_indices.reshape(-1, 1)])
+    X = _to_tensor(X_aug, device)
+    y = _to_tensor(y_train.ravel(), device).unsqueeze(-1)
+
+    n_tasks = len(np.unique(task_indices))
+    effective_rank = min(rank, n_tasks)
+
+    likelihood = gpytorch.likelihoods.GaussianLikelihood(
+        noise_constraint=gpytorch.constraints.GreaterThan(1e-4),
+    )
+    likelihood.noise = 0.5
+
+    model = MultiTaskGP(
+        train_X=X,
+        train_Y=y,
+        task_feature=-1,
+        rank=effective_rank,
+        likelihood=likelihood,
+        all_tasks=sorted(set(task_indices.tolist())),
+    )
+    model.to(device)
+
+    mll = ExactMarginalLogLikelihood(model.likelihood, model)
+    with warnings.catch_warnings():
+        warnings.filterwarnings("ignore", category=UserWarning)
+        with contextlib.suppress(RuntimeError, ValueError):
+            fit_gpytorch_mll(mll)
+
+    model.eval()
+    return model
 
 
 def fit_gp(
@@ -65,6 +467,7 @@ def fit_gp(
     device: torch.device | None = None,
     _rng: np.random.RandomState | None = None,
     kernel_type: str = "matern",
+    kernel_kwargs: dict | None = None,
 ) -> SingleTaskGP | SingleTaskVariationalGP:
     """Fit a GP surrogate model.
 
@@ -79,23 +482,34 @@ def fit_gp(
     use_sparse : Use variational GP with inducing points.
     n_inducing : Number of inducing points for sparse GP.
     device : Torch device. Defaults to CPU.
-    kernel_type : Kernel function. "matern" (default) or "tanimoto".
+    kernel_type : Kernel function. "matern" (default), "tanimoto",
+        "aitchison", "dkl", "rf", "compositional", or "robust".
+    kernel_kwargs : dict, optional
+        Extra arguments passed to kernel constructors. For
+        ``kernel_type="compositional"``, must include ``fp_indices``,
+        ``ratio_indices``, and ``synth_indices`` (lists of int).
 
     Returns
     -------
     Fitted GP model in eval mode.
     """
     if kernel_type not in KERNEL_TYPES:
-        raise ValueError(
-            f"Unknown kernel_type {kernel_type!r}. "
-            f"Valid options: {sorted(KERNEL_TYPES)}"
-        )
+        raise ValueError(f"Unknown kernel_type {kernel_type!r}. Valid options: {sorted(KERNEL_TYPES)}")
 
     if device is None:
         device = get_device()
 
     X = _to_tensor(X_train, device)
     y = _to_tensor(y_train.ravel(), device).unsqueeze(-1)
+
+    if kernel_type == "dkl":
+        return _fit_dkl_gp(X, y, device)
+
+    if kernel_type == "rf":
+        return _fit_rf_kernel_gp(X, y, device)
+
+    if kernel_type == "robust":
+        return _fit_robust_gp(X, y, device)
 
     covar_module = None
     if kernel_type == "tanimoto":
@@ -104,6 +518,29 @@ def fit_gp(
         from .kernels import TanimotoKernel
 
         covar_module = ScaleKernel(TanimotoKernel())
+    elif kernel_type == "aitchison":
+        from gpytorch.kernels import ScaleKernel
+
+        from .kernels import AitchisonKernel
+
+        covar_module = ScaleKernel(AitchisonKernel())
+    elif kernel_type == "compositional":
+        from .kernels import CompositionalProductKernel
+
+        kw = kernel_kwargs or {}
+        fp_idx = kw.get("fp_indices", [])
+        ratio_idx = kw.get("ratio_indices", [])
+        synth_idx = kw.get("synth_indices", [])
+        if not fp_idx and not ratio_idx and not synth_idx:
+            raise ValueError(
+                "kernel_type='compositional' requires at least one non-empty "
+                "index list in kernel_kwargs (fp_indices, ratio_indices, synth_indices)."
+            )
+        covar_module = CompositionalProductKernel(
+            fp_indices=fp_idx,
+            ratio_indices=ratio_idx,
+            synth_indices=synth_idx,
+        )
 
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
@@ -114,7 +551,10 @@ def fit_gp(
             idx = _rng_local.choice(len(X_train), n_ind, replace=False)
             inducing = X[idx].clone()
             model = SingleTaskVariationalGP(
-                X, y, inducing_points=inducing, covar_module=covar_module,
+                X,
+                y,
+                inducing_points=inducing,
+                covar_module=covar_module,
             )
             model.to(device)
 
@@ -122,7 +562,9 @@ def fit_gp(
             # fit_gpytorch_mll uses L-BFGS-B which is inappropriate for
             # variational parameters — use Adam with VariationalELBO instead.
             mll = VariationalELBO(
-                model.likelihood, model.model, num_data=len(X_train),
+                model.likelihood,
+                model.model,
+                num_data=len(X_train),
             )
             model.train()
             model.likelihood.train()
@@ -229,23 +671,28 @@ def _estimate_lipschitz(model: GPModel) -> float:
 
     For kernels without lengthscale (e.g. Tanimoto): returns 1.0 as a
     reasonable default. LP penalization still works but the exclusion
-    radius is not calibrated to the kernel geometry.
+    radius is not calibrated to the kernel geometry. For Tanimoto
+    kernels, prefer TS-Batch over LP for more reliable batch diversity.
     """
-    try:
-        if isinstance(model, SingleTaskVariationalGP):
-            kernel = model.model.covar_module
-        else:
-            kernel = model.covar_module
+    kernel = getattr(model, "covar_module", None)
+    if kernel is None:
+        # SingleTaskVariationalGP wraps the kernel
+        inner = getattr(model, "model", None)
+        kernel = getattr(inner, "covar_module", None) if inner is not None else None
+    if kernel is None:
+        return 1.0
 
-        if hasattr(kernel, "base_kernel") and hasattr(kernel.base_kernel, "lengthscale"):
-            outputscale = kernel.outputscale.detach().cpu().item()  # type: ignore[union-attr]
-            lengthscale = kernel.base_kernel.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
-            return float(np.sqrt(outputscale) / np.min(lengthscale))
-        elif hasattr(kernel, "lengthscale"):
-            lengthscale = kernel.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
-            return float(1.0 / np.min(lengthscale))
-    except Exception:
-        pass
+    base = getattr(kernel, "base_kernel", None)
+    if base is not None and getattr(base, "lengthscale", None) is not None:
+        outputscale = kernel.outputscale.detach().cpu().item()  # type: ignore[union-attr]
+        lengthscale = base.lengthscale.detach().cpu().numpy().ravel()  # type: ignore[union-attr]
+        return float(np.sqrt(outputscale) / np.min(lengthscale))
+
+    ls = getattr(kernel, "lengthscale", None)
+    if ls is not None:
+        lengthscale = ls.detach().cpu().numpy().ravel()
+        return float(1.0 / np.min(lengthscale))
+
     return 1.0
 
 
@@ -263,6 +710,7 @@ def select_batch(
     use_sparse: bool = False,
     n_inducing: int = 512,
     kernel_type: str = "matern",
+    kernel_kwargs: dict | None = None,
 ) -> list[int]:
     """Select a batch of points from a discrete candidate pool.
 
@@ -281,13 +729,15 @@ def select_batch(
         "ts"    - Thompson Sampling (Kandasamy et al., 2018)
         "qlogei" - Joint q-LogEI (Ament et al., 2023, via BoTorch)
         "gibbon" - GIBBON: information-theoretic + DPP diversity (Moss et al., 2021)
-        "jes"   - Joint Entropy Search (Hvarfner et al., 2022)
     kappa : UCB exploration parameter.
     xi : EI/LogEI improvement jitter.
     seed : Random seed.
     use_sparse : Use variational GP for large training sets.
     n_inducing : Number of inducing points for sparse GP.
-    kernel_type : Kernel function ("matern" or "tanimoto").
+    kernel_type : Kernel function ("matern", "tanimoto", "compositional", etc.).
+    kernel_kwargs : dict, optional
+        Extra arguments for kernel construction (e.g., index lists for
+        ``kernel_type="compositional"``).
 
     Returns
     -------
@@ -299,43 +749,62 @@ def select_batch(
     rng = np.random.RandomState(seed)
     torch.manual_seed(seed)
 
-    model = fit_gp(X_train, y_train, use_sparse=use_sparse, n_inducing=n_inducing,
-                   _rng=rng, kernel_type=kernel_type)
+    model = fit_gp(
+        X_train,
+        y_train,
+        use_sparse=use_sparse,
+        n_inducing=n_inducing,
+        _rng=rng,
+        kernel_type=kernel_type,
+        kernel_kwargs=kernel_kwargs,
+    )
     y_best = float(y_train.max())
 
     strategy = batch_strategy.lower()
     device = next(model.parameters()).device
     if strategy == "qlogei":
-        return _batch_qlogei(model, X_train, X_pool, pool_indices, batch_size,
-                             device=device)
+        return _batch_qlogei(model, X_train, X_pool, pool_indices, batch_size, device=device)
     elif strategy == "gibbon":
-        return _batch_gibbon(model, X_pool, pool_indices, batch_size,
-                             device=device)
-    elif strategy == "jes":
-        return _batch_jes(model, X_pool, pool_indices, batch_size, seed,
-                          device=device)
+        return _batch_gibbon(model, X_pool, pool_indices, batch_size, device=device)
     elif strategy == "ts":
         return _batch_ts(model, X_pool, pool_indices, batch_size, seed)
     elif strategy == "kb":
         return _batch_kb(
-            model, X_pool, pool_indices, batch_size, acq_type,
-            y_best, kappa, xi, randomize=False,
+            model,
+            X_pool,
+            pool_indices,
+            batch_size,
+            acq_type,
+            y_best,
+            kappa,
+            xi,
+            randomize=False,
         )
     elif strategy == "rkb":
         return _batch_kb(
-            model, X_pool, pool_indices, batch_size, acq_type,
-            y_best, kappa, xi, randomize=True,
+            model,
+            X_pool,
+            pool_indices,
+            batch_size,
+            acq_type,
+            y_best,
+            kappa,
+            xi,
+            randomize=True,
         )
     elif strategy == "lp":
         return _batch_lp(
-            model, X_pool, pool_indices, batch_size, acq_type,
-            y_best, kappa, xi,
+            model,
+            X_pool,
+            pool_indices,
+            batch_size,
+            acq_type,
+            y_best,
+            kappa,
+            xi,
         )
     else:
-        raise ValueError(
-            f"Unknown batch_strategy '{batch_strategy}'. "
-            "Choose from: kb, rkb, lp, ts, qlogei, gibbon, jes"
-        )
+        raise ValueError(f"Unknown batch_strategy '{batch_strategy}'. Choose from: kb, rkb, lp, ts, qlogei, gibbon")
 
 
 def _batch_kb(
@@ -374,8 +843,14 @@ def _batch_kb(
             stacklevel=2,
         )
         return _batch_lp(
-            model, X_pool, pool_indices, batch_size, acq_type,
-            y_best, kappa, xi,
+            model,
+            X_pool,
+            pool_indices,
+            batch_size,
+            acq_type,
+            y_best,
+            kappa,
+            xi,
         )
 
     device = next(model.parameters()).device
@@ -385,7 +860,12 @@ def _batch_kb(
 
     for i in range(batch_size):
         scores = score_acquisition(
-            current_model, X_pool[available_mask], acq_type, y_best, kappa, xi,
+            current_model,
+            X_pool[available_mask],
+            acq_type,
+            y_best,
+            kappa,
+            xi,
         )
         local_best = int(np.argmax(scores))
         global_idx = np.where(available_mask)[0][local_best]
@@ -407,7 +887,8 @@ def _batch_kb(
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore")
                 current_model = current_model.condition_on_observations(
-                    x_new, y_fantasy,
+                    x_new,
+                    y_fantasy,
                 )
 
             y_best = max(y_best, y_fantasy.item())
@@ -469,9 +950,12 @@ def _batch_lp(
             for j in range(len(pending_coords)):
                 r_j = max(y_best - cached_mu[j], 1e-8)
                 s_j = cached_sigma[j]
-                dist = np.sqrt(np.sum(
-                    (pool_avail - pending_coords[j].reshape(1, -1)) ** 2, axis=1,
-                ))
+                dist = np.sqrt(
+                    np.sum(
+                        (pool_avail - pending_coords[j].reshape(1, -1)) ** 2,
+                        axis=1,
+                    )
+                )
                 z_j = (L * dist - r_j) / s_j
                 phi_j = norm.cdf(z_j)
                 if is_log:
@@ -582,7 +1066,10 @@ def _batch_qlogei(
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         candidates, _ = optimize_acqf_discrete(
-            acqf, q=batch_size, choices=X_pool_t, unique=True,
+            acqf,
+            q=batch_size,
+            choices=X_pool_t,
+            unique=True,
         )
 
     return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)
@@ -608,6 +1095,238 @@ def _match_candidates_to_pool(
             cand_np = cand.detach().cpu().numpy()
             dists = np.sum((X_pool - cand_np.reshape(1, -1)) ** 2, axis=1)
             selected.append(int(pool_indices[int(np.argmin(dists))]))
+    return selected
+
+
+def select_batch_mixed(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_pool: np.ndarray,
+    pool_indices: np.ndarray | list,
+    batch_size: int,
+    acq_type: str,
+    batch_strategy: str,
+    fp_indices: list[int],
+    ratio_indices: list[int],
+    synth_indices: list[int],
+    kappa: float = 2.576,
+    xi: float = 0.01,
+    seed: int = 42,
+    use_sparse: bool = False,
+    n_inducing: int = 512,
+    kernel_type: str = "compositional",
+    kernel_kwargs: dict | None = None,
+    num_restarts: int = 5,
+    raw_samples: int = 64,
+) -> list[int]:
+    """Select a batch via mixed discrete-continuous optimization.
+
+    Enumerates unique IL identities (fingerprint feature vectors) from the
+    pool, fixes them as discrete choices, and optimizes molar ratios
+    continuously using BoTorch's ``optimize_acqf_mixed``. The best
+    continuous candidate is matched back to the nearest pool formulation.
+
+    Automatically degrades to standard discrete pool scoring when no ratio
+    features are present (fixed-ratio studies).
+
+    Parameters
+    ----------
+    X_train : (N, D) training features.
+    y_train : (N,) training targets.
+    X_pool : (M, D) candidate pool features.
+    pool_indices : Original dataframe indices for pool rows.
+    batch_size : Number of points to select.
+    acq_type : Acquisition function ("UCB", "EI", "LogEI").
+    batch_strategy : Batch construction ("kb" or "rkb"); other strategies
+        fall back to discrete ``select_batch()``.
+    fp_indices : Column indices for molecular structure features.
+    ratio_indices : Column indices for compositional ratio features.
+    synth_indices : Column indices for synthesis/process parameters.
+    kappa : UCB exploration parameter.
+    xi : EI/LogEI improvement jitter.
+    seed : Random seed.
+    use_sparse : Use variational GP for large training sets.
+    n_inducing : Number of inducing points for sparse GP.
+    kernel_type : Kernel function (default "compositional").
+    kernel_kwargs : Extra kernel arguments.
+    num_restarts : L-BFGS-B restarts per IL config.
+    raw_samples : Raw initialization samples per restart.
+
+    Returns
+    -------
+    List of selected pool_indices.
+    """
+    pool_indices = np.asarray(pool_indices)
+    batch_size = min(batch_size, len(X_pool))
+
+    # No ratio features or non-KB batch strategies → fall back to standard discrete scoring
+    # Mixed optimization is only beneficial for sequential KB/RKB with ratio dims.
+    # TS, qLogEI, GIBBON, LP all work directly on the discrete pool.
+    if len(ratio_indices) == 0 or batch_strategy.lower() not in ("kb", "rkb"):
+        return select_batch(
+            X_train,
+            y_train,
+            X_pool,
+            pool_indices,
+            batch_size=batch_size,
+            acq_type=acq_type,
+            batch_strategy=batch_strategy,
+            kappa=kappa,
+            xi=xi,
+            seed=seed,
+            use_sparse=use_sparse,
+            n_inducing=n_inducing,
+            kernel_type=kernel_type,
+            kernel_kwargs=kernel_kwargs,
+        )
+
+    rng = np.random.RandomState(seed)
+    torch.manual_seed(seed)
+
+    effective_kw = kernel_kwargs or {}
+    if not effective_kw.get("fp_indices"):
+        effective_kw = {
+            **effective_kw,
+            "fp_indices": fp_indices,
+            "ratio_indices": ratio_indices,
+            "synth_indices": synth_indices,
+        }
+
+    model = fit_gp(
+        X_train,
+        y_train,
+        use_sparse=use_sparse,
+        n_inducing=n_inducing,
+        _rng=rng,
+        kernel_type=kernel_type,
+        kernel_kwargs=effective_kw,
+    )
+
+    device = next(model.parameters()).device
+    dtype = torch.float32 if device.type == "mps" else torch.float64
+
+    # Build fixed_features_list: one entry per unique IL fingerprint vector
+    non_ratio_indices = sorted(set(fp_indices) | set(synth_indices))
+    X_pool_non_ratio = X_pool[:, non_ratio_indices]
+    unique_configs = np.unique(X_pool_non_ratio, axis=0)
+
+    fixed_features_list = []
+    for row in unique_configs:
+        ff = {}
+        for col_pos, feat_idx in enumerate(non_ratio_indices):
+            ff[feat_idx] = float(row[col_pos])
+        fixed_features_list.append(ff)
+
+    # Build bounds: ratio dims get [0, 1], non-ratio dims get tight bounds
+    d = X_pool.shape[1]
+    lower = np.full(d, 0.0)
+    upper = np.full(d, 1.0)
+    all_X = np.vstack([X_train, X_pool])
+    for i in range(d):
+        if i not in ratio_indices:
+            col_min = all_X[:, i].min()
+            col_max = all_X[:, i].max()
+            margin = max(0.01 * (col_max - col_min), 1e-6)
+            lower[i] = col_min - margin
+            upper[i] = col_max + margin
+        else:
+            lower[i] = 1e-6  # avoid exact 0 for CLR transform
+            upper[i] = 1.0
+    bounds = torch.tensor(np.vstack([lower, upper]), dtype=dtype, device=device)
+
+    # Simplex constraint on ratios: sum of ratio features = 1
+    ratio_idx_t = torch.tensor(ratio_indices, dtype=torch.long, device=device)
+    coeffs = torch.ones(len(ratio_indices), dtype=dtype, device=device)
+    equality_constraints = [(ratio_idx_t, coeffs, 1.0)]
+
+    # Build acquisition function
+    X_train_t = _to_tensor(X_train, device)
+
+    def _build_acqf(mdl, y_best_val):
+        if acq_type == "LogEI":
+            from botorch.acquisition.logei import qLogNoisyExpectedImprovement
+            return qLogNoisyExpectedImprovement(mdl, X_baseline=X_train_t)
+        elif acq_type == "EI":
+            from botorch.acquisition.analytic import ExpectedImprovement
+            return ExpectedImprovement(mdl, best_f=y_best_val)
+        else:
+            from botorch.acquisition.analytic import UpperConfidenceBound
+            return UpperConfidenceBound(mdl, beta=kappa**2)
+
+    from botorch.optim.optimize import optimize_acqf_mixed
+
+    # Sequential KB loop for batch construction
+    selected = []
+    available_mask = np.ones(len(X_pool), dtype=bool)
+    current_model = model
+    y_best_running = float(y_train.max())
+
+    def _fallback_discrete(cur_model):
+        """Score available pool discretely and select the best candidate."""
+        scores = score_acquisition(
+            cur_model, X_pool[available_mask], acq_type,
+            y_best_running, kappa, xi,
+        )
+        local_best = int(np.argmax(scores))
+        return np.where(available_mask)[0][local_best]
+
+    def _kb_condition(cur_model, global_idx, last_slot):
+        """Condition model on the selected point (KB hallucination)."""
+        if last_slot or isinstance(cur_model, SingleTaskVariationalGP):
+            return cur_model
+        x_new = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
+        with torch.no_grad(), gpytorch.settings.fast_pred_var():
+            y_fantasy = cur_model.posterior(x_new).mean
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            return cur_model.condition_on_observations(x_new, y_fantasy)
+
+    for i in range(batch_size):
+        acqf = _build_acqf(current_model, y_best_running)
+        use_fallback = False
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore")
+            try:
+                candidates, _acq_values = optimize_acqf_mixed(
+                    acq_function=acqf,
+                    bounds=bounds,
+                    q=1,
+                    num_restarts=num_restarts,
+                    raw_samples=raw_samples,
+                    fixed_features_list=fixed_features_list,
+                    equality_constraints=equality_constraints,
+                )
+            except (RuntimeError, ValueError, torch.linalg.LinAlgError):
+                use_fallback = True
+
+        # Check simplex constraint
+        if not use_fallback and ratio_indices:
+            ratio_sum = candidates[0, ratio_indices].sum().item()
+            if abs(ratio_sum - 1.0) > 0.01:
+                use_fallback = True
+
+        if use_fallback:
+            global_idx = _fallback_discrete(current_model)
+        else:
+            # Match continuous candidate to nearest available pool formulation
+            cand_np = candidates.squeeze(0).detach().cpu().numpy()
+            pool_avail = X_pool[available_mask]
+            dists = np.sum((pool_avail - cand_np.reshape(1, -1)) ** 2, axis=1)
+            local_best = int(np.argmin(dists))
+            global_idx = np.where(available_mask)[0][local_best]
+
+        selected.append(int(pool_indices[global_idx]))
+        available_mask[global_idx] = False
+
+        # KB conditioning for next iteration
+        current_model = _kb_condition(current_model, global_idx, i == batch_size - 1)
+        if i < batch_size - 1:
+            x_sel = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                y_fantasy = current_model.posterior(x_sel).mean
+            y_best_running = max(y_best_running, y_fantasy.item())
+
     return selected
 
 
@@ -658,96 +1377,10 @@ def _batch_gibbon(
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore")
         candidates, _ = optimize_acqf_discrete(
-            acqf, q=batch_size, choices=X_pool_t, unique=True,
+            acqf,
+            q=batch_size,
+            choices=X_pool_t,
+            unique=True,
         )
 
     return _match_candidates_to_pool(candidates, X_pool_t, X_pool, pool_indices)
-
-
-def _batch_jes(
-    model: GPModel,
-    X_pool: np.ndarray,
-    pool_indices: np.ndarray,
-    batch_size: int,
-    seed: int = 42,
-    device: torch.device | None = None,
-    num_optima: int = 64,
-) -> list[int]:
-    """Joint Entropy Search batch selection.
-
-    Maximizes mutual information between observations and the joint
-    optimal location-value pair (x*, f*). Tighter bound than GIBBON
-    since it conditions on both where and what the optimum is.
-
-    Optimal input-output samples are generated via Thompson sampling
-    on the discrete pool: draw posterior samples and take argmax per
-    sample. This avoids the continuous get_optimal_samples utility
-    which is inappropriate for discrete pool settings.
-
-    Reference
-    ---------
-    Hvarfner, C., Hutter, F., & Nardi, L.
-    "Joint Entropy Search for Maximally-Informed Bayesian Optimization."
-    NeurIPS 2022. arXiv:2206.04771.
-    """
-    from botorch.acquisition.joint_entropy_search import qJointEntropySearch
-    from botorch.optim.optimize import optimize_acqf_discrete
-
-    if device is None:
-        device = next(model.parameters()).device
-    X_pool_t = _to_tensor(X_pool, device)
-
-    # Scale down for large pools to avoid OOM:
-    # - Reduce num_optima (Thompson samples for optimal set)
-    # - Subsample pool for optimize_acqf_discrete (JES forward pass
-    #   scales poorly with pool size due to fantasy model conditioning)
-    M = X_pool_t.shape[0]
-    max_pool = 256
-    if M > 1000:
-        num_optima = min(num_optima, 16)
-    elif M > 500:
-        num_optima = min(num_optima, 32)
-
-    # Generate optimal input-output samples via Thompson sampling
-    # (uses full pool for better optima estimates — this is cheap)
-    # Sample from latent f (not noisy y) since JES conditions on f*
-    torch.manual_seed(seed)
-    with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        posterior = model.posterior(X_pool_t, observation_noise=False)
-        samples = posterior.rsample(torch.Size([num_optima]))  # (num_optima, M, 1)
-        best_idx = samples.squeeze(-1).argmax(dim=-1)          # (num_optima,)
-        optimal_inputs = X_pool_t[best_idx]                    # (num_optima, D)
-        optimal_outputs = samples[                             # (num_optima, 1)
-            torch.arange(num_optima), best_idx, :
-        ]
-
-    acqf = qJointEntropySearch(
-        model,
-        optimal_inputs=optimal_inputs,
-        optimal_outputs=optimal_outputs,
-        condition_noiseless=True,
-        estimation_type="LB",
-        num_samples=min(num_optima, 32),
-    )
-
-    # Subsample pool for acquisition optimization if too large
-    if max_pool < M:
-        rng = np.random.RandomState(seed)
-        sub_idx = rng.choice(M, max_pool, replace=False)
-        choices = X_pool_t[sub_idx]
-        sub_pool_indices = pool_indices[sub_idx]
-        sub_X_pool = X_pool[sub_idx]
-    else:
-        choices = X_pool_t
-        sub_pool_indices = pool_indices
-        sub_X_pool = X_pool
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore")
-        candidates, _ = optimize_acqf_discrete(
-            acqf, q=batch_size, choices=choices, unique=True,
-        )
-
-    return _match_candidates_to_pool(
-        candidates, choices, sub_X_pool, sub_pool_indices,
-    )

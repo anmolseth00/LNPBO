@@ -41,6 +41,11 @@ def normalize_values(y, method):
         mu, sigma = y.mean(), y.std()
         if sigma > 0:
             return (y - mu) / sigma
+        # Intentional: constant targets -> all zeros (not raw values).
+        # GP fitting on constant targets is degenerate regardless.
+        import warnings
+        warnings.warn("zscore normalization: constant targets (sigma=0), returning centered values", stacklevel=2)
+        return y - mu
     return y
 
 

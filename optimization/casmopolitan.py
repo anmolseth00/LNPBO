@@ -22,9 +22,12 @@ Wan, X., Nguyen, V., Ha, H., Ru, B., Lu, C., & Osborne, M.A. (2021).
 """
 
 import json
+import logging
 import time
 import warnings
 from pathlib import Path
+
+logger = logging.getLogger("lnpbo")
 
 import numpy as np
 from scipy.optimize import minimize
@@ -57,15 +60,40 @@ class CategoricalOverlapKernel(Kernel):
     """
 
     def __init__(self, n_cat_dims=1, lambd=0.5):
+        """Initialize the categorical overlap kernel.
+
+        Args:
+            n_cat_dims: Number of categorical dimensions.
+            lambd: Similarity parameter in [0, 1] for mismatched categories.
+                0 = fully dissimilar (Hamming), 1 = ignore dimension.
+        """
         self.n_cat_dims = n_cat_dims
         self.lambd = lambd
 
     @property
     def hyperparameter_lambd(self):
+        """Sklearn Hyperparameter descriptor for lambda."""
         from sklearn.gaussian_process.kernels import Hyperparameter
+
         return Hyperparameter("lambd", "numeric", (1e-5, 1.0 - 1e-5))
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        """Compute the categorical overlap kernel matrix.
+
+        For each categorical dimension j:
+            K_j(x, y) = 1 if x_j == y_j, else lambda
+
+        The full kernel is the product over dimensions.
+
+        Args:
+            X: Array of shape (N, D) with categorical features.
+            Y: Array of shape (M, D), or None for K(X, X).
+            eval_gradient: If True, also return dK/d(log_theta).
+
+        Returns:
+            K: Kernel matrix of shape (N, M).
+            dK: Gradient array of shape (N, M, 1) if eval_gradient.
+        """
         X = np.atleast_2d(X)
         if Y is None:
             Y = X
@@ -74,38 +102,49 @@ class CategoricalOverlapKernel(Kernel):
         K = np.ones((n_x, n_y))
 
         for j in range(min(self.n_cat_dims, X.shape[1])):
-            match = (X[:, j:j+1] == Y[:, j:j+1].T).astype(float)
-            K *= (match + (1.0 - match) * self.lambd)
+            match = (X[:, j : j + 1] == Y[:, j : j + 1].T).astype(float)
+            K *= match + (1.0 - match) * self.lambd
 
         if eval_gradient:
             dK = np.zeros((n_x, n_y, 1))
             for j in range(min(self.n_cat_dims, X.shape[1])):
-                match = (X[:, j:j+1] == Y[:, j:j+1].T).astype(float)
+                match = (X[:, j : j + 1] == Y[:, j : j + 1].T).astype(float)
                 # d/d(lambd) of (match + (1-match)*lambd) = (1-match)
-                factor = (1.0 - match)
+                factor = 1.0 - match
                 # Product rule: derivative w.r.t. lambd of product over dims
                 other_dims = np.ones((n_x, n_y))
                 for k in range(min(self.n_cat_dims, X.shape[1])):
                     if k != j:
-                        m = (X[:, k:k+1] == Y[:, k:k+1].T).astype(float)
-                        other_dims *= (m + (1.0 - m) * self.lambd)
+                        m = (X[:, k : k + 1] == Y[:, k : k + 1].T).astype(float)
+                        other_dims *= m + (1.0 - m) * self.lambd
                 dK[:, :, 0] += factor * other_dims
             return K, dK * self.lambd
         return K
 
     def diag(self, X):
+        """Return diagonal of K(X, X), which is all ones for overlap kernel."""
         return np.ones(X.shape[0])
 
     def is_stationary(self):
+        """Return False (overlap kernel is not stationary)."""
         return False
 
     def get_params(self, deep=True):
+        """Get kernel parameters for sklearn compatibility."""
         return {"n_cat_dims": self.n_cat_dims, "lambd": self.lambd}
 
     def __repr__(self):
         return f"CategoricalOverlapKernel(n_cat={self.n_cat_dims}, lambd={self.lambd:.3f})"
 
     def clone_with_theta(self, theta):
+        """Create a clone of this kernel with new hyperparameters.
+
+        Args:
+            theta: Log-space hyperparameter vector of length 1.
+
+        Returns:
+            New CategoricalOverlapKernel with updated lambda.
+        """
         clone = CategoricalOverlapKernel(
             n_cat_dims=self.n_cat_dims,
             lambd=self.lambd,
@@ -115,18 +154,22 @@ class CategoricalOverlapKernel(Kernel):
 
     @property
     def theta(self):
+        """Log-space hyperparameters: [log(lambda)]."""
         return np.log(np.array([self.lambd]))
 
     @theta.setter
     def theta(self, value):
+        """Set hyperparameters from log-space vector."""
         self.lambd = np.exp(value[0])
 
     @property
     def bounds(self):
+        """Log-space bounds for lambda: [[log(1e-5), log(1-1e-5)]]."""
         return np.log(np.array([[1e-5, 1.0 - 1e-5]]))
 
     @property
     def n_dims(self):
+        """Number of hyperparameters (1: lambda)."""
         return 1
 
 
@@ -152,6 +195,16 @@ class MixedProductKernel(Kernel):
     """
 
     def __init__(self, n_cat_dims, n_cont_dims, lambd=0.5):
+        """Initialize the mixed product kernel.
+
+        Args:
+            n_cat_dims: Number of leading categorical dimensions.
+            n_cont_dims: Number of trailing continuous dimensions.
+            lambd: Initial lambda for the categorical overlap kernel.
+
+        Reference:
+            Wan et al. (2021), Sec. 3.1. arXiv:2102.07188.
+        """
         self.n_cat_dims = n_cat_dims
         self.n_cont_dims = n_cont_dims
         self.cat_kernel = CategoricalOverlapKernel(n_cat_dims=n_cat_dims, lambd=lambd)
@@ -161,17 +214,31 @@ class MixedProductKernel(Kernel):
         )
 
     def __call__(self, X, Y=None, eval_gradient=False):
+        """Compute the product kernel K = K_cat * K_cont.
+
+        Splits input into categorical and continuous columns, evaluates
+        each sub-kernel, and returns their element-wise product.
+
+        Args:
+            X: Array of shape (N, n_cat + n_cont).
+            Y: Array of shape (M, n_cat + n_cont), or None for K(X, X).
+            eval_gradient: If True, also return dK/d(theta_cont).
+
+        Returns:
+            K: Kernel matrix of shape (N, M).
+            dK: Gradient array of shape (N, M, n_theta) if eval_gradient.
+        """
         X = np.atleast_2d(X)
-        X_cat = X[:, :self.n_cat_dims]
-        X_cont = X[:, self.n_cat_dims:]
+        X_cat = X[:, : self.n_cat_dims]
+        X_cont = X[:, self.n_cat_dims :]
 
         if Y is None:
             Y_cat = None
             Y_cont = None
         else:
             Y = np.atleast_2d(Y)
-            Y_cat = Y[:, :self.n_cat_dims]
-            Y_cont = Y[:, self.n_cat_dims:]
+            Y_cat = Y[:, : self.n_cat_dims]
+            Y_cont = Y[:, self.n_cat_dims :]
 
         K_cat = self.cat_kernel(X_cat, Y_cat)
         K_cont = self.cont_kernel(X_cont, Y_cont)
@@ -188,14 +255,30 @@ class MixedProductKernel(Kernel):
         return K_cat * K_cont
 
     def diag(self, X):
+        """Compute the diagonal of the kernel matrix.
+
+        Args:
+            X: Array of shape (N, n_cat + n_cont).
+
+        Returns:
+            Diagonal array of shape (N,).
+        """
         X = np.atleast_2d(X)
-        return self.cat_kernel.diag(X[:, :self.n_cat_dims]) * \
-               self.cont_kernel.diag(X[:, self.n_cat_dims:])
+        return self.cat_kernel.diag(X[:, : self.n_cat_dims]) * self.cont_kernel.diag(X[:, self.n_cat_dims :])
 
     def is_stationary(self):
+        """Return False (mixed kernel is not stationary)."""
         return False
 
     def get_params(self, deep=True):
+        """Get kernel parameters for sklearn compatibility.
+
+        Args:
+            deep: If True, include sub-kernel parameters.
+
+        Returns:
+            Dict of parameter name -> value.
+        """
         params = {
             "n_cat_dims": self.n_cat_dims,
             "n_cont_dims": self.n_cont_dims,
@@ -208,25 +291,256 @@ class MixedProductKernel(Kernel):
 
     def __repr__(self):
         return (
-            f"MixedProductKernel(n_cat={self.n_cat_dims}, n_cont={self.n_cont_dims}, "
-            f"lambd={self.cat_kernel.lambd:.3f})"
+            f"MixedProductKernel(n_cat={self.n_cat_dims}, n_cont={self.n_cont_dims}, lambd={self.cat_kernel.lambd:.3f})"
         )
 
     @property
     def theta(self):
+        """Log-space hyperparameters (continuous kernel only)."""
         return self.cont_kernel.theta
 
     @theta.setter
     def theta(self, value):
+        """Set continuous kernel hyperparameters from log-space vector."""
         self.cont_kernel.theta = value
 
     @property
     def bounds(self):
+        """Log-space bounds for continuous kernel hyperparameters."""
         return self.cont_kernel.bounds
 
     @property
     def n_dims(self):
+        """Number of hyperparameters (continuous kernel only)."""
         return self.cont_kernel.n_dims
+
+
+# ---------------------------------------------------------------------------
+# Additive + product kernel (categorical + continuous + interaction)
+# ---------------------------------------------------------------------------
+
+
+class AdditiveProductKernel(Kernel):
+    """Additive decomposition of categorical and continuous kernels with
+    a product interaction term.
+
+    k((c,x), (c',x')) = alpha * k_cat(c,c')
+                       + beta  * k_cont(x,x')
+                       + gamma * k_cat(c,c') * k_cont(x,x')
+
+    where alpha, beta, gamma > 0 are learnable weights stored in log-space.
+    The additive structure allows the GP to capture:
+      - Pure categorical effects (alpha term): molecular identity alone
+      - Pure continuous effects (beta term): molar ratios alone
+      - Interaction effects (gamma term): identity x ratio synergy
+
+    The GP marginal likelihood handles overall scale, so no sum-to-one
+    constraint is imposed on the weights.
+
+    Motivation:
+      - Duvenaud, D. et al. (2011). "Additive Gaussian Processes." NeurIPS.
+        Additive decompositions let the GP discover which input groups
+        contribute independently vs. through interactions.
+      - Wan, X. et al. (2021). "Think Global and Act Local: Bayesian
+        Optimisation over High-Dimensional Categorical and Mixed Search
+        Spaces." ICML 2021. arXiv:2102.07188.
+
+    The intuition is that molecular identity and molar ratios may have
+    both independent AND interaction effects on LNP efficacy.
+
+    Parameters
+    ----------
+    n_cat_dims : int
+        Number of categorical dimensions.
+    n_cont_dims : int
+        Number of continuous dimensions.
+    lambd : float
+        Initial lambda for the categorical overlap kernel.
+    alpha : float
+        Initial weight for the categorical-only term.
+    beta : float
+        Initial weight for the continuous-only term.
+    gamma : float
+        Initial weight for the interaction (product) term.
+    """
+
+    def __init__(self, n_cat_dims, n_cont_dims, lambd=0.5, alpha=1.0, beta=1.0, gamma=1.0):
+        """Initialize the additive-product kernel.
+
+        Args:
+            n_cat_dims: Number of categorical dimensions.
+            n_cont_dims: Number of continuous dimensions.
+            lambd: Initial lambda for the categorical overlap kernel.
+            alpha: Initial weight for the categorical-only term.
+            beta: Initial weight for the continuous-only term.
+            gamma: Initial weight for the interaction (product) term.
+        """
+        self.n_cat_dims = n_cat_dims
+        self.n_cont_dims = n_cont_dims
+        self.cat_kernel = CategoricalOverlapKernel(n_cat_dims=n_cat_dims, lambd=lambd)
+        self.cont_kernel = ConstantKernel(1.0) * Matern(
+            length_scale=np.ones(n_cont_dims),
+            nu=2.5,
+        )
+        self.log_alpha = np.log(alpha)
+        self.log_beta = np.log(beta)
+        self.log_gamma = np.log(gamma)
+
+    @property
+    def _alpha(self):
+        """Categorical-only weight (exp of log_alpha)."""
+        return np.exp(self.log_alpha)
+
+    @property
+    def _beta(self):
+        """Continuous-only weight (exp of log_beta)."""
+        return np.exp(self.log_beta)
+
+    @property
+    def _gamma(self):
+        """Interaction weight (exp of log_gamma)."""
+        return np.exp(self.log_gamma)
+
+    def __call__(self, X, Y=None, eval_gradient=False):
+        """Compute the additive-product kernel.
+
+        K = alpha * K_cat + beta * K_cont + gamma * K_cat * K_cont
+
+        Gradients are computed w.r.t. log-space parameters:
+        [log_alpha, log_beta, log_gamma, *cont_kernel.theta].
+
+        Args:
+            X: Array of shape (N, n_cat + n_cont).
+            Y: Array of shape (M, n_cat + n_cont), or None for K(X, X).
+            eval_gradient: If True, also return dK/d(log_theta).
+
+        Returns:
+            K: Kernel matrix of shape (N, M).
+            dK: Gradient array of shape (N, M, n_params) if eval_gradient.
+        """
+        X = np.atleast_2d(X)
+        X_cat = X[:, : self.n_cat_dims]
+        X_cont = X[:, self.n_cat_dims :]
+
+        if Y is None:
+            Y_cat = None
+            Y_cont = None
+        else:
+            Y = np.atleast_2d(Y)
+            Y_cat = Y[:, : self.n_cat_dims]
+            Y_cont = Y[:, self.n_cat_dims :]
+
+        K_cat = self.cat_kernel(X_cat, Y_cat)
+
+        if not eval_gradient:
+            K_cont = self.cont_kernel(X_cont, Y_cont)
+            return self._alpha * K_cat + self._beta * K_cont + self._gamma * K_cat * K_cont
+
+        # With gradients: need dK/d(theta) for all learnable parameters.
+        # theta layout: [log_alpha, log_beta, log_gamma, *cont_kernel.theta]
+        # sklearn convention: gradients are dK/d(log_param), which for
+        # exp-parameterized weights equals weight * dK/d(weight).
+        K_cont, dK_cont = self.cont_kernel(X_cont, Y_cont, eval_gradient=True)
+
+        K = self._alpha * K_cat + self._beta * K_cont + self._gamma * K_cat * K_cont
+
+        n_cont_params = dK_cont.shape[2]
+        n_params = 3 + n_cont_params
+        n_x = K.shape[0]
+        n_y = K.shape[1]
+        dK = np.zeros((n_x, n_y, n_params))
+
+        # d/d(log_alpha): alpha * K_cat  (chain rule: d(e^t * f)/dt = e^t * f)
+        dK[:, :, 0] = self._alpha * K_cat
+        # d/d(log_beta): beta * K_cont
+        dK[:, :, 1] = self._beta * K_cont
+        # d/d(log_gamma): gamma * K_cat * K_cont
+        dK[:, :, 2] = self._gamma * K_cat * K_cont
+
+        # d/d(theta_cont_i): beta * dK_cont_i + gamma * K_cat * dK_cont_i
+        #                   = (beta + gamma * K_cat) * dK_cont_i
+        weight = (self._beta + self._gamma * K_cat)[:, :, np.newaxis]
+        dK[:, :, 3:] = weight * dK_cont
+
+        return K, dK
+
+    def diag(self, X):
+        """Compute the diagonal of the additive-product kernel.
+
+        Args:
+            X: Array of shape (N, n_cat + n_cont).
+
+        Returns:
+            Diagonal array of shape (N,).
+        """
+        X = np.atleast_2d(X)
+        d_cat = self.cat_kernel.diag(X[:, : self.n_cat_dims])
+        d_cont = self.cont_kernel.diag(X[:, self.n_cat_dims :])
+        return self._alpha * d_cat + self._beta * d_cont + self._gamma * d_cat * d_cont
+
+    def is_stationary(self):
+        """Return False (additive-product kernel is not stationary)."""
+        return False
+
+    def get_params(self, deep=True):
+        """Get kernel parameters for sklearn compatibility.
+
+        Args:
+            deep: If True, include sub-kernel parameters.
+
+        Returns:
+            Dict of parameter name -> value.
+        """
+        params = {
+            "n_cat_dims": self.n_cat_dims,
+            "n_cont_dims": self.n_cont_dims,
+            "lambd": self.cat_kernel.lambd,
+            "alpha": self._alpha,
+            "beta": self._beta,
+            "gamma": self._gamma,
+        }
+        if deep:
+            cont_params = self.cont_kernel.get_params(deep=True)
+            params.update({f"cont_kernel__{k}": v for k, v in cont_params.items()})
+        return params
+
+    def __repr__(self):
+        return (
+            f"AdditiveProductKernel(n_cat={self.n_cat_dims}, "
+            f"n_cont={self.n_cont_dims}, "
+            f"alpha={self._alpha:.3f}, beta={self._beta:.3f}, "
+            f"gamma={self._gamma:.3f}, lambd={self.cat_kernel.lambd:.3f})"
+        )
+
+    @property
+    def theta(self):
+        """Log-space hyperparameters: [log_alpha, log_beta, log_gamma, *cont_theta]."""
+        return np.concatenate(
+            [
+                [self.log_alpha, self.log_beta, self.log_gamma],
+                self.cont_kernel.theta,
+            ]
+        )
+
+    @theta.setter
+    def theta(self, value):
+        """Set all hyperparameters from log-space vector."""
+        self.log_alpha = value[0]
+        self.log_beta = value[1]
+        self.log_gamma = value[2]
+        self.cont_kernel.theta = value[3:]
+
+    @property
+    def bounds(self):
+        """Log-space bounds: [[-5, 5]] x 3 for weights + cont kernel bounds."""
+        # Weights: allow range [e^-5, e^5] ~ [0.007, 148]
+        weight_bounds = np.array([[-5.0, 5.0]] * 3)
+        return np.vstack([weight_bounds, self.cont_kernel.bounds])
+
+    @property
+    def n_dims(self):
+        """Number of hyperparameters (3 weights + continuous kernel dims)."""
+        return 3 + self.cont_kernel.n_dims
 
 
 # ---------------------------------------------------------------------------
@@ -261,6 +575,26 @@ class TrustRegion:
         success_tol: int = 3,
         failure_tol: int = 5,
     ):
+        """Initialize a trust region for mixed categorical + continuous spaces.
+
+        Args:
+            center_cat: Categorical center values, shape (n_cat_dims,).
+            center_cont: Continuous center values, shape (n_cont_dims,).
+            length: Initial trust region half-length for continuous dims.
+            n_cat_dims: Number of categorical dimensions.
+            n_cont_dims: Number of continuous dimensions.
+            cont_bounds: Global bounds of shape (n_cont_dims, 2) for
+                clipping the trust region. None = unbounded.
+            length_min: Minimum trust region half-length.
+            length_max: Maximum trust region half-length.
+            success_tol: Number of consecutive improvements before expanding.
+            failure_tol: Number of consecutive failures before shrinking.
+
+        Reference:
+            Wan et al. (2021), Sec. 3.2. arXiv:2102.07188.
+            Eriksson et al. (2019). "Scalable Global Optimization via
+            Local Bayesian Optimization." NeurIPS (TuRBO).
+        """
         self.center_cat = center_cat.copy()
         self.center_cont = center_cont.copy()
         self.length = length
@@ -323,12 +657,35 @@ class TrustRegion:
 
 
 def _ucb_acquisition(mu: np.ndarray, sigma: np.ndarray, kappa: float = 5.0) -> np.ndarray:
-    """Upper Confidence Bound: mu + kappa * sigma."""
+    """Compute Upper Confidence Bound acquisition values.
+
+    UCB(x) = mu(x) + kappa * sigma(x).
+
+    Args:
+        mu: Posterior mean array of shape (N,).
+        sigma: Posterior std array of shape (N,).
+        kappa: Exploration weight (default 5.0).
+
+    Returns:
+        UCB values of shape (N,).
+    """
     return mu + kappa * sigma
 
 
 def _ei_acquisition(mu: np.ndarray, sigma: np.ndarray, y_best: float) -> np.ndarray:
-    """Expected Improvement."""
+    """Compute Expected Improvement acquisition values.
+
+    EI(x) = (mu(x) - y_best) * Phi(z) + sigma(x) * phi(z),
+    where z = (mu(x) - y_best) / sigma(x).
+
+    Args:
+        mu: Posterior mean array of shape (N,).
+        sigma: Posterior std array of shape (N,).
+        y_best: Best observed value (incumbent).
+
+    Returns:
+        EI values of shape (N,). Zero where sigma < 1e-10.
+    """
     with np.errstate(divide="ignore", invalid="ignore"):
         z = (mu - y_best) / sigma
         ei = (mu - y_best) * norm.cdf(z) + sigma * norm.pdf(z)
@@ -403,7 +760,9 @@ def optimize_mixed_acquisition(
     for cat in cat_candidates:
         # Optimize continuous dims for this categorical config
         _cat = cat  # bind loop variable for closure
+
         def neg_acq(cont_x, _cat=_cat):
+            """Negated acquisition for L-BFGS-B minimization."""
             x = np.concatenate([_cat, cont_x]).reshape(1, -1)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -426,7 +785,7 @@ def optimize_mixed_acquisition(
                 if -result.fun > best_acq_val:
                     best_acq_val = -result.fun
                     best_x = np.concatenate([cat, result.x])
-            except Exception:
+            except (ValueError, RuntimeError, np.linalg.LinAlgError):
                 continue
 
         # Also evaluate at the trust region center's continuous values
@@ -646,6 +1005,8 @@ def run_casmopolitan_strategy(
     acq_func="ucb",
     use_ilr=True,
     max_train_for_gp=2000,
+    kernel_mode="product",
+    top_k_values=None,
 ):
     """Run CASMOPOLITAN mixed-variable BO loop as a benchmark strategy.
 
@@ -678,6 +1039,12 @@ def run_casmopolitan_strategy(
     max_train_for_gp : int
         Maximum training set size for GP (subsample if larger, since
         sklearn GP is O(n^3)).
+    kernel_mode : str, "product" or "additive_product"
+        Kernel structure. "product" uses the pure product kernel
+        k = k_cat * k_cont (original CASMOPOLITAN). "additive_product"
+        uses the additive decomposition
+        k = alpha * k_cat + beta * k_cont + gamma * k_cat * k_cont
+        with learnable weights.
 
     Returns
     -------
@@ -708,7 +1075,7 @@ def run_casmopolitan_strategy(
 
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
-    history = init_history(encoded_df, training_idx)
+    history = init_history(encoded_df, training_idx, top_k_values=top_k_values)
 
     # Trust region (initialized after first round)
     trust_region = None
@@ -782,7 +1149,18 @@ def run_casmopolitan_strategy(
             y_train_gp = y_train
 
         # Build and fit GP with mixed kernel
-        kernel = MixedProductKernel(n_cat_dims=n_cat, n_cont_dims=n_cont, lambd=0.5)
+        if kernel_mode == "additive_product":
+            kernel = AdditiveProductKernel(
+                n_cat_dims=n_cat,
+                n_cont_dims=n_cont,
+                lambd=0.5,
+            )
+        else:
+            kernel = MixedProductKernel(
+                n_cat_dims=n_cat,
+                n_cont_dims=n_cont,
+                lambd=0.5,
+            )
         kernel = kernel + WhiteKernel(noise_level=0.1)
 
         gp = GaussianProcessRegressor(
@@ -802,10 +1180,12 @@ def run_casmopolitan_strategy(
         best_cont = X_train_gp[best_train_idx, n_cat:]
 
         if trust_region is None:
-            cont_bounds = np.column_stack([
-                cont_pool_s.min(axis=0),
-                cont_pool_s.max(axis=0),
-            ])
+            cont_bounds = np.column_stack(
+                [
+                    cont_pool_s.min(axis=0),
+                    cont_pool_s.max(axis=0),
+                ]
+            )
             trust_region = TrustRegion(
                 center_cat=best_cat,
                 center_cont=best_cont,
@@ -857,14 +1237,13 @@ def run_casmopolitan_strategy(
         batch_set = set(batch_idx)
         pool_idx = [i for i in pool_idx if i not in batch_set]
         training_idx.extend(batch_idx)
-        update_history(history, encoded_df, training_idx, batch_idx, r)
+        update_history(history, encoded_df, training_idx, batch_idx, r, top_k_values=top_k_values)
 
         batch_best = float(batch_vals.max())
         cum_best = history["best_so_far"][-1]
-        print(
-            f"  Round {r+1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
-            f"TR_length={trust_region.length:.4f}, n_pool={len(pool_idx)}",
-            flush=True,
+        logger.info(
+            "  Round %d: batch_best=%.3f, cum_best=%.3f, TR_length=%.4f, n_pool=%d",
+            r + 1, batch_best, cum_best, trust_region.length, len(pool_idx),
         )
 
     return history
@@ -885,32 +1264,22 @@ def main():
     parser = argparse.ArgumentParser(
         description="CASMOPOLITAN mixed-variable BO benchmark for LNP formulations",
     )
-    parser.add_argument("--seeds", type=str, default="42,123,456,789,2024",
-                        help="Comma-separated random seeds")
-    parser.add_argument("--n-seed", type=int, default=500,
-                        help="Initial seed pool size")
-    parser.add_argument("--batch-size", type=int, default=12,
-                        help="Batch size per round")
-    parser.add_argument("--n-rounds", type=int, default=15,
-                        help="Number of BO rounds")
-    parser.add_argument("--kappa", type=float, default=5.0,
-                        help="UCB exploration weight")
-    parser.add_argument("--acq-func", type=str, default="ucb",
-                        choices=["ucb", "ei"],
-                        help="Acquisition function")
-    parser.add_argument("--normalize", type=str, default="copula",
-                        choices=["copula", "zscore", "none"],
-                        help="Target normalization")
-    parser.add_argument("--feature-type", type=str, default="lantern_il_only",
-                        help="Feature type for molecular encoding")
-    parser.add_argument("--trust-length", type=float, default=0.5,
-                        help="Initial trust region length")
-    parser.add_argument("--no-ilr", action="store_true",
-                        help="Disable ILR transform on ratios")
-    parser.add_argument("--max-train-gp", type=int, default=2000,
-                        help="Max training size for GP (subsample if larger)")
-    parser.add_argument("--output", type=str, default=None,
-                        help="Output JSON path")
+    parser.add_argument("--seeds", type=str, default="42,123,456,789,2024", help="Comma-separated random seeds")
+    parser.add_argument("--n-seed", type=int, default=500, help="Initial seed pool size")
+    parser.add_argument("--batch-size", type=int, default=12, help="Batch size per round")
+    parser.add_argument("--n-rounds", type=int, default=15, help="Number of BO rounds")
+    parser.add_argument("--kappa", type=float, default=5.0, help="UCB exploration weight")
+    parser.add_argument("--acq-func", type=str, default="ucb", choices=["ucb", "ei"], help="Acquisition function")
+    parser.add_argument(
+        "--normalize", type=str, default="copula", choices=["copula", "zscore", "none"], help="Target normalization"
+    )
+    parser.add_argument(
+        "--feature-type", type=str, default="lantern_il_only", help="Feature type for molecular encoding"
+    )
+    parser.add_argument("--trust-length", type=float, default=0.5, help="Initial trust region length")
+    parser.add_argument("--no-ilr", action="store_true", help="Disable ILR transform on ratios")
+    parser.add_argument("--max-train-gp", type=int, default=2000, help="Max training size for GP (subsample if larger)")
+    parser.add_argument("--output", type=str, default=None, help="Output JSON path")
     args = parser.parse_args()
 
     from LNPBO.benchmarks.runner import (
@@ -925,15 +1294,15 @@ def main():
     results_dir.mkdir(exist_ok=True)
     output_path = args.output or str(results_dir / "casmopolitan.json")
 
-    print("=" * 70)
-    print("CASMOPOLITAN Mixed-Variable BO Benchmark")
-    print("=" * 70)
-    print(f"Seeds: {seeds}")
-    print(f"n_seed={args.n_seed}, batch_size={args.batch_size}, n_rounds={args.n_rounds}")
-    print(f"kappa={args.kappa}, acq_func={args.acq_func}, normalize={args.normalize}")
-    print(f"feature_type={args.feature_type}, trust_length={args.trust_length}")
-    print(f"use_ilr={not args.no_ilr}, max_train_gp={args.max_train_gp}")
-    print()
+    logger.info("=" * 70)
+    logger.info("CASMOPOLITAN Mixed-Variable BO Benchmark")
+    logger.info("=" * 70)
+    logger.info("Seeds: %s", seeds)
+    logger.info("n_seed=%d, batch_size=%d, n_rounds=%d", args.n_seed, args.batch_size, args.n_rounds)
+    logger.info("kappa=%s, acq_func=%s, normalize=%s", args.kappa, args.acq_func, args.normalize)
+    logger.info("feature_type=%s, trust_length=%s", args.feature_type, args.trust_length)
+    logger.info("use_ilr=%s, max_train_gp=%d", not args.no_ilr, args.max_train_gp)
+    logger.info("")
 
     all_seed_results = {
         "casmopolitan": [],
@@ -942,9 +1311,9 @@ def main():
     }
 
     for s in seeds:
-        print(f"\n{'='*70}")
-        print(f"Seed: {s}")
-        print(f"{'='*70}")
+        logger.info("\n" + "=" * 70)
+        logger.info("Seed: %d", s)
+        logger.info("=" * 70)
 
         data = prepare_benchmark_data(
             n_seed=args.n_seed,
@@ -954,10 +1323,13 @@ def main():
         encoded, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = data
 
         # --- CASMOPOLITAN ---
-        print("\n--- CASMOPOLITAN ---")
+        logger.info("\n--- CASMOPOLITAN ---")
         t0 = time.time()
         history_cas = run_casmopolitan_strategy(
-            encoded_df, feature_cols, seed_idx, oracle_idx,
+            encoded_df,
+            feature_cols,
+            seed_idx,
+            oracle_idx,
             batch_size=args.batch_size,
             n_rounds=args.n_rounds,
             seed=s,
@@ -970,46 +1342,72 @@ def main():
         )
         elapsed_cas = time.time() - t0
         metrics_cas = compute_metrics(history_cas, top_k_values, len(encoded_df))
-        all_seed_results["casmopolitan"].append({
-            "seed": s, "metrics": metrics_cas, "elapsed": elapsed_cas,
-        })
-        print(f"  CASMOPOLITAN Time: {elapsed_cas:.1f}s")
-        print(f"  Top-K recall: { {k: f'{v:.1%}' for k, v in metrics_cas['top_k_recall'].items()} }")
+        all_seed_results["casmopolitan"].append(
+            {
+                "seed": s,
+                "metrics": metrics_cas,
+                "elapsed": elapsed_cas,
+            }
+        )
+        logger.info("  CASMOPOLITAN Time: %.1fs", elapsed_cas)
+        logger.info("  Top-K recall: %s", {k: f'{v:.1%}' for k, v in metrics_cas['top_k_recall'].items()})
 
         # --- Random baseline ---
-        print("\n--- Random ---")
+        logger.info("\n--- Random ---")
         t0 = time.time()
         history_rand = _run_random(encoded_df, seed_idx, oracle_idx, args.batch_size, args.n_rounds, s)
         elapsed_rand = time.time() - t0
         metrics_rand = compute_metrics(history_rand, top_k_values, len(encoded_df))
-        all_seed_results["random"].append({
-            "seed": s, "metrics": metrics_rand, "elapsed": elapsed_rand,
-        })
-        print(f"  Random Time: {elapsed_rand:.1f}s")
-        print(f"  Top-K recall: { {k: f'{v:.1%}' for k, v in metrics_rand['top_k_recall'].items()} }")
+        all_seed_results["random"].append(
+            {
+                "seed": s,
+                "metrics": metrics_rand,
+                "elapsed": elapsed_rand,
+            }
+        )
+        logger.info("  Random Time: %.1fs", elapsed_rand)
+        logger.info("  Top-K recall: %s", {k: f'{v:.1%}' for k, v in metrics_rand['top_k_recall'].items()})
 
         # --- XGB greedy baseline ---
-        print("\n--- XGB Greedy ---")
+        logger.info("\n--- XGB Greedy ---")
         t0 = time.time()
-        from LNPBO.benchmarks._discrete_common import run_discrete_strategy
-        history_xgb = run_discrete_strategy(
-            encoded_df, feature_cols, seed_idx, oracle_idx,
-            surrogate="xgb", batch_size=args.batch_size,
-            n_rounds=args.n_rounds, seed=s, kappa=args.kappa,
-            normalize=args.normalize, encoded_dataset=encoded,
+        from LNPBO.benchmarks._optimizer_runner import OptimizerRunner
+        from LNPBO.optimization.optimizer import Optimizer
+
+        xgb_opt = Optimizer(
+            surrogate_type="xgb",
+            batch_strategy="greedy",
+            random_seed=s,
+            kappa=args.kappa,
+            normalize=args.normalize,
+            batch_size=args.batch_size,
+        )
+        xgb_runner = OptimizerRunner(xgb_opt)
+        history_xgb = xgb_runner.run(
+            encoded_df,
+            feature_cols,
+            seed_idx,
+            oracle_idx,
+            n_rounds=args.n_rounds,
+            batch_size=args.batch_size,
+            encoded_dataset=encoded,
         )
         elapsed_xgb = time.time() - t0
         metrics_xgb = compute_metrics(history_xgb, top_k_values, len(encoded_df))
-        all_seed_results["discrete_xgb_greedy"].append({
-            "seed": s, "metrics": metrics_xgb, "elapsed": elapsed_xgb,
-        })
-        print(f"  XGB Greedy Time: {elapsed_xgb:.1f}s")
-        print(f"  Top-K recall: { {k: f'{v:.1%}' for k, v in metrics_xgb['top_k_recall'].items()} }")
+        all_seed_results["discrete_xgb_greedy"].append(
+            {
+                "seed": s,
+                "metrics": metrics_xgb,
+                "elapsed": elapsed_xgb,
+            }
+        )
+        logger.info("  XGB Greedy Time: %.1fs", elapsed_xgb)
+        logger.info("  Top-K recall: %s", {k: f'{v:.1%}' for k, v in metrics_xgb['top_k_recall'].items()})
 
     # --- Aggregate results ---
-    print(f"\n{'='*70}")
-    print("AGGREGATE RESULTS")
-    print(f"{'='*70}")
+    logger.info("\n" + "=" * 70)
+    logger.info("AGGREGATE RESULTS")
+    logger.info("=" * 70)
 
     summary = {}
     for strategy_name, seed_results in all_seed_results.items():
@@ -1029,12 +1427,12 @@ def main():
         summary[strategy_name]["mean_elapsed"] = float(np.mean(elapsed_vals))
 
     for strategy_name, s in summary.items():
-        print(f"\n{strategy_name}:")
+        logger.info("\n%s:", strategy_name)
         for k in [10, 50, 100]:
             mean = s[f"top_{k}_mean"]
             std = s[f"top_{k}_std"]
-            print(f"  Top-{k}: {mean:.1%} +/- {std:.1%}")
-        print(f"  Mean time: {s['mean_elapsed']:.1f}s")
+            logger.info("  Top-%d: %.1f%% +/- %.1f%%", k, mean * 100, std * 100)
+        logger.info("  Mean time: %.1fs", s['mean_elapsed'])
 
     # Save
     output = {
@@ -1053,17 +1451,14 @@ def main():
         },
         "summary": summary,
         "per_seed": {
-            strategy: [
-                {"seed": sr["seed"], "metrics": sr["metrics"], "elapsed": sr["elapsed"]}
-                for sr in seed_results
-            ]
+            strategy: [{"seed": sr["seed"], "metrics": sr["metrics"], "elapsed": sr["elapsed"]} for sr in seed_results]
             for strategy, seed_results in all_seed_results.items()
         },
     }
 
     with open(output_path, "w") as f:
         json.dump(output, f, indent=2)
-    print(f"\nResults saved to {output_path}")
+    logger.info("Results saved to %s", output_path)
 
 
 if __name__ == "__main__":

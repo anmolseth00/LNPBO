@@ -19,8 +19,9 @@ def _sample_f(gp, X, n_samples=1, random_state=None):
     """
     rng = np.random.RandomState(random_state)
     mu, cov = gp.predict(X, return_cov=True)
-    # Jitter for numerical stability
-    cov += np.eye(len(X)) * 1e-10
+    # Jitter for numerical stability (1e-6 is appropriate for float64
+    # covariance matrices from sklearn GPs)
+    cov += np.eye(len(X)) * 1e-6
     try:
         L = np.linalg.cholesky(cov)
         z = rng.standard_normal((len(X), n_samples))
@@ -57,9 +58,25 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
     """
 
     def __init__(
-        self, base_acquisition: acquisition.AcquisitionFunction, random_state=None, atol=1e-5, rtol=1e-8,
+        self,
+        base_acquisition: acquisition.AcquisitionFunction,
+        random_state=None,
+        atol=1e-5,
+        rtol=1e-8,
         randomize: bool = False,
     ) -> None:
+        """Initialize the Kriging Believer batch acquisition.
+
+        Args:
+            base_acquisition: Underlying acquisition function (UCB, EI, or
+                LogEI) used to score candidates at each sequential step.
+            random_state: Random seed or RandomState for reproducibility.
+            atol: Absolute tolerance for detecting if a dummy has been
+                evaluated and should be removed.
+            rtol: Relative tolerance for dummy expiration matching.
+            randomize: If True, hallucinate with posterior samples instead
+                of the posterior mean (Randomized KB).
+        """
         super().__init__(random_state)
         self.base_acquisition = base_acquisition
         self.dummies = []
@@ -69,12 +86,15 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         self._sample_counter = 0
 
     def base_acq(self, *args, **kwargs):
+        """Delegate to the underlying acquisition function's base_acq."""
         return self.base_acquisition.base_acq(*args, **kwargs)
 
     def clear_dummies(self):
+        """Remove all hallucinated (dummy) observations."""
         self.dummies = []
 
     def _remove_expired_dummies(self, target_space: TargetSpace) -> None:
+        """Remove dummies that have been actually evaluated in target_space."""
         dummies = []
         for dummy in self.dummies:
             close = np.isclose(dummy, target_space.params, rtol=self.rtol, atol=self.atol)
@@ -83,7 +103,10 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         self.dummies = dummies
 
     def _create_dummy_target_space(self, gp, target_space: TargetSpace, fit_gp: bool = True) -> TargetSpace:
-        # Check if any dummies have been evaluated and remove them
+        """Return a deep copy of target_space augmented with hallucinated observations.
+
+        Uses posterior mean (KB) or posterior sample (RKB) as dummy targets.
+        """
         self._remove_expired_dummies(target_space)
         if fit_gp:
             self._fit_gp(gp, target_space)
@@ -94,7 +117,10 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
             X_dummies = np.array(self.dummies).reshape((len(self.dummies), -1))
             if self.randomize:
                 dummy_targets = _sample_f(
-                    gp, X_dummies, n_samples=1, random_state=self._sample_counter,
+                    gp,
+                    X_dummies,
+                    n_samples=1,
+                    random_state=self._sample_counter,
                 ).ravel()
                 self._sample_counter += 1
             else:
@@ -113,6 +139,12 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
     def suggest(
         self, gp, target_space: TargetSpace, n_random=10_000, n_smart=10, fit_gp: bool = True, random_state=None
     ) -> np.ndarray:
+        """Suggest the next batch point using KB/RKB.
+
+        Builds a dummy target space with hallucinated observations,
+        fits a fresh GP on it, maximizes the base acquisition function,
+        and records the selected point as a new dummy for subsequent calls.
+        """
         if len(target_space) == 0:
             raise ValueError(
                 "Cannot suggest a point without previous samples. Use target_space.random_sample() to generate a point."
@@ -133,9 +165,11 @@ class KrigingBeliever(acquisition.AcquisitionFunction):
         return x_max
 
     def get_acquisition_params(self):
+        """Delegate to the base acquisition's parameters."""
         return self.base_acquisition.get_acquisition_params()
 
     def set_acquisition_params(self, **params):
+        """Delegate to the base acquisition's set_acquisition_params."""
         self.base_acquisition.set_acquisition_params(**params)
 
 
@@ -219,17 +253,24 @@ class LogExpectedImprovement(acquisition.AcquisitionFunction):
     """
 
     def __init__(self, xi=0.01, random_state=None):
+        """Initialize LogEI with improvement jitter *xi* and optional *random_state*."""
         super().__init__(random_state)
         self.xi = xi
         self.y_max = None
 
     def base_acq(self, mean, std):
+        """Compute LogEI(x) = log(sigma) + log_h((mu - y_max - xi) / sigma)."""
         if self.y_max is None:
             raise ValueError("y_max is not set. Call suggest() or set y_max manually.")
-        z = (mean - self.y_max - self.xi) / std
-        return np.log(std) + _log_h_stable(z)
+        result = np.full_like(mean, -np.inf)
+        nonzero = std > 0
+        if nonzero.any():
+            z = (mean[nonzero] - self.y_max - self.xi) / std[nonzero]
+            result[nonzero] = np.log(std[nonzero]) + _log_h_stable(z)
+        return result
 
     def suggest(self, gp, target_space, n_random=10_000, n_smart=10, fit_gp=True, random_state=None):
+        """Set y_max from target_space, then delegate to the parent suggest."""
         if len(target_space) == 0:
             raise ValueError("Cannot suggest a point without previous samples.")
         self.y_max = target_space._target_max()
@@ -243,9 +284,11 @@ class LogExpectedImprovement(acquisition.AcquisitionFunction):
         )
 
     def get_acquisition_params(self):
+        """Return ``{"xi": self.xi}``."""
         return {"xi": self.xi}
 
     def set_acquisition_params(self, **params):
+        """Set LogEI parameters (accepts ``xi``)."""
         self.xi = params.get("xi", self.xi)
 
 
@@ -288,6 +331,7 @@ class LocalPenalization(acquisition.AcquisitionFunction):
     """
 
     def __init__(self, base_acquisition: acquisition.AcquisitionFunction, lipschitz_scale=1.0, random_state=None):
+        """Initialize LP with a *base_acquisition* and optional *lipschitz_scale* multiplier."""
         super().__init__(random_state)
         self.base_acquisition = base_acquisition
         self.lipschitz_scale = lipschitz_scale
@@ -295,12 +339,15 @@ class LocalPenalization(acquisition.AcquisitionFunction):
         self._is_log_space = isinstance(base_acquisition, LogExpectedImprovement)
 
     def base_acq(self, mean, std):
+        """Delegate to the underlying acquisition function's base_acq."""
         return self.base_acquisition.base_acq(mean, std)
 
     def clear_pending(self):
+        """Remove all pending (already-selected) batch points."""
         self.pending = []
 
     def suggest(self, gp, target_space, n_random=10_000, n_smart=10, fit_gp=True, random_state=None):
+        """Suggest the next batch point by optimizing LP-penalized acquisition."""
         if len(target_space) == 0:
             raise ValueError("Cannot suggest a point without previous samples.")
 
@@ -324,6 +371,12 @@ class LocalPenalization(acquisition.AcquisitionFunction):
         return x_max
 
     def _get_acq(self, gp, constraint=None):
+        """Build the LP-penalized acquisition closure.
+
+        Returns a callable ``acq(x) -> float`` that evaluates the base
+        acquisition and applies soft exclusion penalties near each pending
+        point (multiplicative for raw acq, additive in log-space).
+        """
         dim = gp.X_train_.shape[1]
         pending = list(self.pending)
         is_log = self._is_log_space
@@ -346,6 +399,7 @@ class LocalPenalization(acquisition.AcquisitionFunction):
                 pending_params.append((pending[j], r_j, s_j))
 
         def acq(x):
+            """Evaluate the negated LP-penalized acquisition at x."""
             x = x.reshape(-1, dim)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -390,14 +444,16 @@ class LocalPenalization(acquisition.AcquisitionFunction):
                     variance = float(val)
             if lengthscales is not None:
                 return self.lipschitz_scale * np.sqrt(variance) / np.min(lengthscales)
-        except Exception:
+        except (KeyError, ValueError, TypeError, AttributeError):
             pass
         return self.lipschitz_scale
 
     def get_acquisition_params(self):
+        """Return ``{"lipschitz_scale": ...}``."""
         return {"lipschitz_scale": self.lipschitz_scale}
 
     def set_acquisition_params(self, **params):
+        """Set LP parameters (accepts ``lipschitz_scale``)."""
         self.lipschitz_scale = params.get("lipschitz_scale", self.lipschitz_scale)
 
 
@@ -421,23 +477,29 @@ class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
     """
 
     def __init__(self, random_state=None):
+        """Initialize Thompson Sampling batch acquisition."""
         super().__init__(random_state)
         self._sample_counter = 0
         self.pending = []
 
     def base_acq(self, mean, std):
+        """Return the posterior mean as a fallback acquisition value."""
         return mean
 
     def clear_pending(self):
+        """Remove all pending batch points."""
         self.pending = []
 
     def suggest(
         self, gp, target_space: TargetSpace, n_random=10_000, n_smart=10, fit_gp: bool = True, random_state=None
     ) -> np.ndarray:
+        """Suggest the next batch point by maximizing a GP posterior sample.
+
+        Each call uses a unique sample seed for batch diversity.
+        """
         if len(target_space) == 0:
             raise ValueError(
-                "Cannot suggest a point without previous samples. "
-                "Use target_space.random_sample() to generate a point."
+                "Cannot suggest a point without previous samples. Use target_space.random_sample() to generate a point."
             )
 
         if fit_gp:
@@ -449,6 +511,7 @@ class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
         dim = gp.X_train_.shape[1]
 
         def ts_acq(x):
+            """Negated posterior sample at x for minimization."""
             x = np.atleast_2d(x).reshape(-1, dim)
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -467,7 +530,9 @@ class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
         return x_max
 
     def get_acquisition_params(self):
+        """Return empty dict (TS has no tunable parameters)."""
         return {}
 
     def set_acquisition_params(self, **params):
+        """No-op (TS has no tunable parameters)."""
         pass
