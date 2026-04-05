@@ -79,17 +79,25 @@ def prepare_study(
     n_seed_override=None,
     batch_size=12,
     warmup_config=None,
+    min_seed=None,
 ):
-    """Prepare benchmark data for a single study with the given config."""
+    """Prepare benchmark data for a single study with the given config.
+
+    When ``min_seed`` is provided, it overrides the default floor of 30
+    for the seed pool size.  This allows small-study experiments (N < 200)
+    to run with fewer seed formulations.
+    """
     study_df = _filter_study_df(df, study)
     n = len(study_df)
+
+    seed_floor = min_seed if min_seed is not None else 30
 
     if n_seed_override:
         n_seed = n_seed_override
     elif seed_fraction:
-        n_seed = max(30, int(seed_fraction * n))
+        n_seed = max(seed_floor, int(seed_fraction * n))
     else:
-        n_seed = study.get("n_seed", max(30, int(0.25 * n)))
+        n_seed = study.get("n_seed", max(seed_floor, int(0.25 * n)))
 
     # Top-k percentiles
     top_k_pct = study.get("top_k_pct", {5: max(1, int(n * 0.05)), 10: max(1, int(n * 0.10)), 20: max(1, int(n * 0.20))})
@@ -249,15 +257,32 @@ def run_experiment(config, df, studies, args):
         warmup_config = cond.get("warmup")
 
         kappa = cond.get("kappa", config.get("kappa", 5.0))
+        seed_mode = config.get("seed_mode", "fraction")
+        max_oracle_frac = config.get("max_oracle_fraction", 0.5)
+        min_seed_cfg = config.get("min_seed")
 
         for study in studies:
             sid = study.get("study_id", study["pmid"])
+            n = study["n_formulations"]
 
             # Skip warmup configs where warmup >= 80% of study
             if warmup_config:
                 ws = warmup_config.get("warmup_size", 0)
-                if ws >= 0.8 * study["n_formulations"]:
+                if ws >= 0.8 * n:
                     continue
+
+            # Dynamic sizing: compute n_rounds from study size and batch
+            if seed_mode == "dynamic":
+                sf = seed_fraction if seed_fraction else 0.25
+                s_floor = min_seed_cfg if min_seed_cfg is not None else 5
+                n_seed_dyn = max(s_floor, int(sf * n))
+                oracle_size = n - n_seed_dyn
+                max_acq = int(max_oracle_frac * oracle_size)
+                study_n_rounds = max(1, max_acq // batch_size)
+            else:
+                study_n_rounds = n_rounds
+                n_seed_dyn = None
+                s_floor = None
 
             for strategy in strategies:
                 for seed in seeds:
@@ -269,11 +294,12 @@ def run_experiment(config, df, studies, args):
                             "seed": seed,
                             "feature_type": feature_type,
                             "batch_size": batch_size,
-                            "n_rounds": n_rounds,
+                            "n_rounds": study_n_rounds,
                             "n_pcs": n_pcs,
                             "seed_fraction": seed_fraction,
                             "warmup_config": warmup_config,
                             "cond_label": cond_label,
+                            "min_seed": s_floor,
                             "reduction": reduction,
                             "kappa": kappa,
                         }
@@ -308,20 +334,20 @@ def run_experiment(config, df, studies, args):
             print(f"  ... and {len(runs) - 20} more")
         return
 
-    # Group by (study_id, seed, feature_type, n_pcs, reduction, warmup, seed_fraction)
+    # Group by (study_id, seed, feature_type, n_pcs, reduction, warmup, seed_fraction, min_seed)
     # to share data loading
     from collections import defaultdict
 
     groups = defaultdict(list)
     for r in runs:
         wk = json.dumps(r["warmup_config"], sort_keys=True) if r["warmup_config"] else ""
-        key = (r["study_id"], r["seed"], r["feature_type"], r["n_pcs"], r["reduction"], r["seed_fraction"], wk)
+        key = (r["study_id"], r["seed"], r["feature_type"], r["n_pcs"], r["reduction"], r["seed_fraction"], wk, r.get("min_seed"))
         groups[key].append(r)
 
     completed = 0
     total = len(runs)
     for key, group_runs in groups.items():
-        study_id, seed, feature_type, n_pcs, red, sf, wk = key
+        study_id, seed, feature_type, n_pcs, red, sf, wk, ms = key
         study = group_runs[0]["study"]
         warmup_config = group_runs[0]["warmup_config"]
 
@@ -337,6 +363,7 @@ def run_experiment(config, df, studies, args):
                 seed,
                 seed_fraction=sf,
                 warmup_config=warmup_config,
+                min_seed=ms,
             )
         except Exception as e:
             print(f"  Data prep failed: {e}")

@@ -1,0 +1,478 @@
+[
+  {
+    "pmid": "38424061",
+    "study_id": "LX_2024_HeLa",
+    "model_type_filter": "HeLa",
+    "n_formulations": 180,
+    "n_unique_il": 165,
+    "study_type": "il_diverse",
+    "n_seed": 45,
+    "n_rounds": 13,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 9,
+      "10": 18,
+      "20": 36
+    }
+  },
+  {
+    "pmid": "39424104",
+    "study_id": "SW_2024",
+    "model_type_filter": null,
+    "n_formulations": 180,
+    "n_unique_il": 180,
+    "study_type": "il_diverse",
+    "n_seed": 45,
+    "n_rounds": 13,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 9,
+      "10": 18,
+      "20": 36
+    }
+  },
+  {
+    "pmid": "36269150",
+    "study_id": "ZL_2022",
+    "model_type_filter": null,
+    "n_formulations": 144,
+    "n_unique_il": 144,
+    "study_type": "il_diverse",
+    "n_seed": 36,
+    "n_rounds": 10,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 7,
+      "10": 14,
+      "20": 28
+    }
+  },
+  {
+    "pmid": "40796944",
+    "study_id": "SX_2025",
+    "model_type_filter": null,
+    "n_formulations": 141,
+    "n_unique_il": 130,
+    "study_type": "il_diverse",
+    "n_seed": 35,
+    "n_rounds": 10,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 7,
+      "10": 14,
+      "20": 28
+    }
+  },
+  {
+    "pmid": "38969646",
+    "study_id": "KS_2024",
+    "model_type_filter": null,
+    "n_formulations": 140,
+    "n_unique_il": 140,
+    "study_type": "il_diverse",
+    "n_seed": 35,
+    "n_rounds": 10,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 7,
+      "10": 14,
+      "20": 28
+    }
+  },
+  {
+    "pmid": "37591187",
+    "study_id": "YY_2023",
+    "model_type_filter": null,
+    "n_formulations": 119,
+    "n_unique_il": 119,
+    "study_type": "il_diverse",
+    "n_seed": 29,
+    "n_rounds": 9,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 5,
+      "10": 11,
+      "20": 23
+    }
+  },
+  {
+    "pmid": "22902058",
+    "study_id": "LL_2012",
+    "model_type_filter": null,
+    "n_formulations": 112,
+    "n_unique_il": 112,
+    "study_type": "il_diverse",
+    "n_seed": 28,
+    "n_rounds": 8,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 5,
+      "10": 11,
+      "20": 22
+    }
+  },
+  {
+    "pmid": "37853662",
+    "study_id": "ZC_2023_IGROV1",
+    "model_type_filter": "IGROV1",
+    "n_formulations": 100,
+    "n_unique_il": 100,
+    "study_type": "il_diverse",
+    "n_seed": 25,
+    "n_rounds": 7,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 5,
+      "10": 10,
+      "20": 20
+    }
+  },
+  {
+    "pmid": "40234552",
+    "study_id": "AP_2025",
+    "model_type_filter": null,
+    "n_formulations": 91,
+    "n_unique_il": 91,
+    "study_type": "il_diverse",
+    "n_seed": 22,
+    "n_rounds": 6,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 4,
+      "10": 9,
+      "20": 18
+    }
+  },
+  {
+    "pmid": "24969323",
+    "study_id": "KW_2014_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 91,
+    "n_unique_il": 90,
+    "study_type": "il_diverse",
+    "n_seed": 22,
+    "n_rounds": 6,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 4,
+      "10": 9,
+      "20": 18
+    }
+  },
+  {
+    "pmid": "33305471",
+    "study_id": "SL_2020",
+    "model_type_filter": null,
+    "n_formulations": 91,
+    "n_unique_il": 63,
+    "study_type": "il_diverse",
+    "n_seed": 22,
+    "n_rounds": 6,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 4,
+      "10": 9,
+      "20": 18
+    }
+  },
+  {
+    "pmid": "38437545",
+    "study_id": "NC_2024_Human_RBC",
+    "model_type_filter": "Human_RBC",
+    "n_formulations": 90,
+    "n_unique_il": 90,
+    "study_type": "il_diverse",
+    "n_seed": 22,
+    "n_rounds": 6,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 4,
+      "10": 9,
+      "20": 18
+    }
+  },
+  {
+    "pmid": "39578640",
+    "study_id": "XH_2024_2_HepG2",
+    "model_type_filter": "HepG2",
+    "n_formulations": 90,
+    "n_unique_il": 90,
+    "study_type": "il_diverse",
+    "n_seed": 22,
+    "n_rounds": 6,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 4,
+      "10": 9,
+      "20": 18
+    }
+  },
+  {
+    "pmid": "27981708",
+    "study_id": "JM_2016",
+    "model_type_filter": null,
+    "n_formulations": 72,
+    "n_unique_il": 72,
+    "study_type": "il_diverse",
+    "n_seed": 18,
+    "n_rounds": 5,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 3,
+      "10": 7,
+      "20": 14
+    }
+  },
+  {
+    "pmid": "37985700",
+    "study_id": "JW_2024_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 72,
+    "n_unique_il": 69,
+    "study_type": "il_diverse",
+    "n_seed": 18,
+    "n_rounds": 5,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 3,
+      "10": 7,
+      "20": 14
+    }
+  },
+  {
+    "pmid": "39578640",
+    "study_id": "XH_2024_2_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 61,
+    "n_unique_il": 61,
+    "study_type": "il_diverse",
+    "n_seed": 15,
+    "n_rounds": 4,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 3,
+      "10": 6,
+      "20": 12
+    }
+  },
+  {
+    "pmid": "36997680",
+    "study_id": "BL_2023_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 53,
+    "n_unique_il": 26,
+    "study_type": "il_diverse",
+    "n_seed": 13,
+    "n_rounds": 4,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 2,
+      "10": 5,
+      "20": 10
+    }
+  },
+  {
+    "pmid": "38740955",
+    "study_id": "BL_2024_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 51,
+    "n_unique_il": 51,
+    "study_type": "il_diverse",
+    "n_seed": 12,
+    "n_rounds": 3,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 2,
+      "10": 5,
+      "20": 10
+    }
+  },
+  {
+    "pmid": "39875076",
+    "study_id": "LZ_2025_A549",
+    "model_type_filter": "A549",
+    "n_formulations": 48,
+    "n_unique_il": 1,
+    "study_type": "ratio_only",
+    "n_seed": 12,
+    "n_rounds": 3,
+    "batch_size": 5,
+    "feature_type": "ratios_only",
+    "top_k_pct": {
+      "5": 2,
+      "10": 4,
+      "20": 9
+    }
+  },
+  {
+    "pmid": "39875076",
+    "study_id": "LZ_2025_HepG2",
+    "model_type_filter": "HepG2",
+    "n_formulations": 48,
+    "n_unique_il": 1,
+    "study_type": "ratio_only",
+    "n_seed": 12,
+    "n_rounds": 3,
+    "batch_size": 5,
+    "feature_type": "ratios_only",
+    "top_k_pct": {
+      "5": 2,
+      "10": 4,
+      "20": 9
+    }
+  },
+  {
+    "pmid": "31570898",
+    "study_id": "LM_2019_BMDC",
+    "model_type_filter": "BMDC",
+    "n_formulations": 36,
+    "n_unique_il": 36,
+    "study_type": "il_diverse",
+    "n_seed": 9,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 7
+    }
+  },
+  {
+    "pmid": "39502027",
+    "study_id": "SY_2025",
+    "model_type_filter": null,
+    "n_formulations": 36,
+    "n_unique_il": 19,
+    "study_type": "il_diverse",
+    "n_seed": 9,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 7
+    }
+  },
+  {
+    "pmid": "37853662",
+    "study_id": "ZC_2023_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 31,
+    "n_unique_il": 31,
+    "study_type": "il_diverse",
+    "n_seed": 7,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 6
+    }
+  },
+  {
+    "pmid": "32080183",
+    "study_id": "SP_2020",
+    "model_type_filter": null,
+    "n_formulations": 30,
+    "n_unique_il": 1,
+    "study_type": "ratio_only",
+    "n_seed": 7,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "ratios_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 6
+    }
+  },
+  {
+    "pmid": "38409275",
+    "study_id": "XH_2024_HepG2",
+    "model_type_filter": "HepG2",
+    "n_formulations": 30,
+    "n_unique_il": 30,
+    "study_type": "il_diverse",
+    "n_seed": 7,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 6
+    }
+  },
+  {
+    "pmid": "38409275",
+    "study_id": "XH_2024_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 30,
+    "n_unique_il": 30,
+    "study_type": "il_diverse",
+    "n_seed": 7,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 3,
+      "20": 6
+    }
+  },
+  {
+    "pmid": "37985700",
+    "study_id": "JW_2024_HBEC_ALI",
+    "model_type_filter": "HBEC_ALI",
+    "n_formulations": 29,
+    "n_unique_il": 28,
+    "study_type": "il_diverse",
+    "n_seed": 7,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 2,
+      "20": 5
+    }
+  },
+  {
+    "pmid": "26729861",
+    "study_id": "KZ_2016_Mouse_B6",
+    "model_type_filter": "Mouse_B6",
+    "n_formulations": 26,
+    "n_unique_il": 24,
+    "study_type": "il_diverse",
+    "n_seed": 6,
+    "n_rounds": 2,
+    "batch_size": 5,
+    "feature_type": "lantern_il_only",
+    "top_k_pct": {
+      "5": 1,
+      "10": 2,
+      "20": 5
+    }
+  }
+]

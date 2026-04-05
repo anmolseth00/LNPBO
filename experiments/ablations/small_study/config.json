@@ -1,0 +1,27 @@
+{
+  "description": "Benchmark on small LNPDB studies (N=25-199) excluded by the main benchmark. Uses batch size 5 with dynamic seed sizing: seed = N - (n_rounds * batch_size), capped so BO explores at most 50% of the oracle pool.",
+  "batch_size": 5,
+  "seed_mode": "dynamic",
+  "min_study_size": 25,
+  "max_study_size": 199,
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "discrete_ngboost_ucb",
+    "random"
+  ],
+  "seeds": [42, 123, 456, 789, 2024],
+  "feature_type": "lantern_il_only",
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "seed_fraction": 0.25,
+  "max_oracle_fraction": 0.5,
+  "metrics": [
+    "top_k_recall_5pct",
+    "top_k_recall_10pct",
+    "top_k_recall_20pct",
+    "auc"
+  ],
+  "experiment_name": "small_study_benchmark"
+}
