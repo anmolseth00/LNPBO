@@ -1,7 +1,24 @@
+"""Dataset class for LNPBO: loading, validation, encoding, and round-tracking
+of lipid nanoparticle formulation data.
+
+The ``Dataset`` wraps a pandas DataFrame and provides:
+
+- Schema validation against LNPDB required columns.
+- Duplicate detection and averaging of replicate formulations.
+- Molecular feature encoding via Morgan fingerprints, RDKit/Mordred
+  descriptors, LiON/Uni-Mol/AGILE/CheMeleon embeddings, with PCA or PLS
+  dimensionality reduction.
+- Append-only round tracking for sequential Bayesian optimization.
+"""
+
+from __future__ import annotations
+
+import logging
 import os
-from typing import Self
 
 import pandas as pd
+
+logger = logging.getLogger("lnpbo")
 
 from .compute_pcs import compute_pcs
 
@@ -18,7 +35,7 @@ LNPDB_REQUIRED_COLUMNS = [
     "Experiment_value",
 ]
 
-_ENC_PREFIXES = ("mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_", "chemeleon_")
+_ENC_PREFIXES = ("mfp_", "mordred_", "lion_", "unimol_", "count_mfp_", "rdkit_", "chemeleon_", "agile_")
 
 _FEATURE_TYPE_ENCODERS = {
     "mfp": ["mfp"],
@@ -27,6 +44,8 @@ _FEATURE_TYPE_ENCODERS = {
     "mordred": ["mordred"],
     "unimol": ["unimol"],
     "chemeleon": ["chemeleon"],
+    "lion": ["lion"],
+    "agile": ["agile"],
     "lantern": ["count_mfp", "rdkit"],
 }
 
@@ -34,16 +53,14 @@ _ROLES = ("IL", "HL", "CHL", "PEG")
 
 
 def encoders_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
-    """Build a nested ``encoders`` dict for a named feature type.
+    """Build a ``{role: {encoder: n_pcs}}`` dict for *feature_type*.
 
-    Returns ``dict[str, dict[str, int]]`` suitable for passing as
-    ``encoders=`` to ``Dataset.encode_dataset()``.
+    Translates a feature type name (see ``_FEATURE_TYPE_ENCODERS``) into
+    the nested dict expected by ``Dataset.encode_dataset()``.  IL uses
+    *il_pcs*; HL/CHL/PEG use *other_pcs*.
 
-    Example::
-
-        encoders_for_feature_type("lantern", il_pcs=5, other_pcs=0)
-        # => {"IL": {"count_mfp": 5, "rdkit": 5},
-        #     "HL": {"count_mfp": 0, "rdkit": 0}, ...}
+    Raises:
+        ValueError: If *feature_type* is not recognized.
     """
     encoder_keys = _FEATURE_TYPE_ENCODERS.get(feature_type)
     if encoder_keys is None:
@@ -53,7 +70,6 @@ def encoders_for_feature_type(feature_type, il_pcs=5, other_pcs=3):
         n = il_pcs if role == "IL" else other_pcs
         enc[role] = {k: n for k in encoder_keys}
     return enc
-
 
 
 columns_to_check_for_duplicates = [
@@ -89,6 +105,13 @@ class Dataset:
         fitted_transformers=None,
         raw_fingerprints=None,
     ):
+        """Initialize a Dataset from an existing DataFrame.
+
+        A copy of *df* is stored internally to prevent external mutation.
+        The *fitted_transformers* and *raw_fingerprints* dicts (keyed by
+        ``"{role}_{enc_type}"``) are populated by ``encode_dataset()``
+        and used for consistent re-encoding and PLS re-fitting.
+        """
         self.df = df.copy()
         self.source = source
         self.metadata = metadata or {}
@@ -98,7 +121,16 @@ class Dataset:
         self.raw_fingerprints = raw_fingerprints or {}
 
     @classmethod
-    def from_lnpdb_csv(cls, path: str) -> Self:
+    def from_lnpdb_csv(cls, path: str) -> Dataset:
+        """Load and validate a Dataset from an LNPDB-format CSV file.
+
+        Validates required columns, rejects NaN rows, averages duplicate
+        formulations, warns about outliers and molar-ratio inconsistencies,
+        and assigns ``Formulation_ID`` / ``Round=0``.
+
+        Raises:
+            ValueError: If required columns are missing or rows contain NaN.
+        """
         df = pd.read_csv(path)
         name = os.path.basename(path)
 
@@ -121,14 +153,14 @@ class Dataset:
             df = df.groupby(group_cols, as_index=False).agg(
                 {c: "first" for c in non_dup_cols if c not in group_cols} | {"Experiment_value": "mean"}
             )
-            print(f"Averaged {n_before - len(df)} duplicate formulations ({len(df)} remaining)")
+            logger.info("Averaged %d duplicate formulations (%d remaining)", n_before - len(df), len(df))
 
         # Data quality warnings
         ev = df["Experiment_value"]
         ev_mean, ev_std = ev.mean(), ev.std()
         n_outliers = ((ev - ev_mean).abs() > 5 * ev_std).sum()
         if n_outliers > 0:
-            print(f"Warning: {n_outliers} rows have Experiment_value > 5 std from mean")
+            logger.warning("%d rows have Experiment_value > 5 std from mean", n_outliers)
 
         # Check molar ratio sums
         ratio_cols = [c for c in columns_to_check_for_duplicates if c.endswith("_molratio")]
@@ -136,8 +168,8 @@ class Dataset:
             ratio_sums = df[ratio_cols].sum(axis=1)
             bad_sums = ((ratio_sums - ratio_sums.median()).abs() > 0.01).sum()
             if bad_sums > 0:
-                print(
-                    f"Warning: {bad_sums} rows have molar ratio sums deviating from median ({ratio_sums.median():.4f})"
+                logger.warning(
+                    "%d rows have molar ratio sums deviating from median (%.4f)", bad_sums, ratio_sums.median()
                 )
 
         df["Formulation_ID"] = range(1, len(df) + 1)
@@ -161,47 +193,41 @@ class Dataset:
     ) -> Dataset:
         """Encode molecular features for all lipid components.
 
-        Parameters
-        ----------
-        encoders : dict, optional
-            Nested dict ``{role: {encoder: n_pcs}}`` specifying exactly which
-            encodings and how many PCs per component role. Example::
+        For each lipid role (IL, HL, CHL, PEG) that varies across the
+        dataset, computes molecular fingerprints/descriptors, applies
+        dimensionality reduction, and merges the resulting PC columns
+        back into the dataset DataFrame.
 
-                {"IL": {"count_mfp": 5, "rdkit": 5}, "HL": {"count_mfp": 3}}
+        Args:
+            encoders: Nested dict ``{role: {encoder: n_pcs}}``.
+                Cannot be combined with *feature_type*.
+            feature_type: Shorthand that builds *encoders* via
+                ``encoders_for_feature_type()``.  Cannot be combined
+                with *encoders*.
+            reduction: ``"pca"`` (default), ``"pls"``, or ``"none"``.
+            fitted_transformers_in: Pre-fitted transformers for
+                consistent pool encoding (transform-only mode).
+            encoding_csv_path: If set, write results to this CSV.
+            only_encodings: Write only per-lipid encoding tables
+                (requires *encoding_csv_path*).
 
-        feature_type : str, optional
-            Convenience shorthand that builds the ``encoders`` dict
-            automatically. Supported values: ``"mfp"``, ``"count_mfp"``,
-            ``"rdkit"``, ``"mordred"``, ``"unimol"``, ``"chemeleon"``,
-            ``"lantern"`` (count_mfp + rdkit).
-            Cannot be combined with ``encoders``.
+        Returns:
+            New ``Dataset`` with PC columns, fitted transformers, and
+            raw fingerprints populated.
 
-        il_pcs : int
-            Number of PCs for the ionizable lipid role (default 5).
-            Used when ``feature_type`` is specified.
-
-        other_pcs : int
-            Number of PCs for helper lipid, cholesterol, and PEG-lipid
-            roles (default 3). Used when ``feature_type`` is specified.
-
-        reduction : str
-            Dimensionality reduction method: ``"pca"`` (default),
-            ``"pls"`` (supervised), or ``"none"`` (raw fingerprints).
-
-        fitted_transformers_in : dict, optional
-            Pre-fitted PCA/PLS transformers from a previous
-            ``encode_dataset()`` call. Used to encode a candidate pool
-            with the same transform as the training data.
+        Raises:
+            ValueError: If both *encoders* and *feature_type* are given,
+                or LiON is combined with Morgan/Mordred for IL.
+            RuntimeError: If a merge changes the row count.
         """
         if feature_type is not None and encoders is not None:
-            raise ValueError(
-                "Cannot specify both 'feature_type' and 'encoders'. "
-                "Use one or the other."
-            )
+            raise ValueError("Cannot specify both 'feature_type' and 'encoders'. Use one or the other.")
 
         if feature_type is not None:
             encoders = encoders_for_feature_type(
-                feature_type, il_pcs=il_pcs, other_pcs=other_pcs,
+                feature_type,
+                il_pcs=il_pcs,
+                other_pcs=other_pcs,
             )
 
         if encoders is None:
@@ -210,6 +236,7 @@ class Dataset:
         df = self.df.copy()
 
         def is_variable(col):
+            """Check whether a column exists and has more than one unique value."""
             return col in df.columns and df[col].nunique() > 1
 
         variable_components = {
@@ -240,6 +267,7 @@ class Dataset:
             raise ValueError("LiON encoding cannot be combined with Morgan or Mordred for IL.")
 
         def unique_lipids(role: str) -> pd.DataFrame:
+            """Return deduplicated (lipid_name, SMILES) pairs for *role*."""
             smiles_col = f"{role}_SMILES"
             name_col = f"{role}_name"
             if smiles_col in df.columns:
@@ -247,9 +275,9 @@ class Dataset:
                 if n_missing > 0:
                     missing_names = df.loc[df[smiles_col].isna(), name_col].unique()
                     suffix = "..." if len(missing_names) > 5 else ""
-                    print(
-                        f"Warning: {n_missing} {role} rows missing SMILES "
-                        f"({len(missing_names)} unique lipids: {list(missing_names)[:5]}{suffix})"
+                    logger.warning(
+                        "%d %s rows missing SMILES (%d unique lipids: %s%s)",
+                        n_missing, role, len(missing_names), list(missing_names)[:5], suffix,
                     )
             return (
                 df[[f"{role}_name", f"{role}_SMILES"]]
@@ -266,6 +294,7 @@ class Dataset:
             )
 
         def average_experiment_values(role: str) -> dict[str, float]:
+            """Per-lipid mean Experiment_value for *role* (used as PLS/LiON targets)."""
             name_col = f"{role}_name"
             return df.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean().to_dict()
 
@@ -273,7 +302,7 @@ class Dataset:
         raw_fingerprints = {}
 
         def encode_lipid_table(lipid_df: pd.DataFrame, role: str, pcs_spec: dict):
-
+            """Compute fingerprints + reduction for each encoder in *pcs_spec*."""
             blocks = []
             smiles = lipid_df["SMILES"].tolist()
 
@@ -283,8 +312,7 @@ class Dataset:
             # Skip target computation when all encoders have pre-fitted reducers
             # (transform-only mode for pool encoding — targets not needed)
             has_all_fitted = fitted_transformers_in is not None and all(
-                f"{role}_{et}" in fitted_transformers_in
-                for et, n in pcs_spec.items() if n > 0
+                f"{role}_{et}" in fitted_transformers_in for et, n in pcs_spec.items() if n > 0
             )
             if needs_targets and not has_all_fitted:
                 exp_map = average_experiment_values(role)
@@ -418,10 +446,7 @@ class Dataset:
                 encoding_cols = []
                 enc_prefixes = _ENC_PREFIXES
                 for role in ["IL", "HL", "CHL", "PEG"]:
-                    role_cols = [
-                        c for c in df.columns
-                        if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)
-                    ]
+                    role_cols = [c for c in df.columns if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)]
                     encoding_cols.extend(sorted(role_cols))
 
                 final_cols = ordered_base_cols + encoding_cols
@@ -440,15 +465,18 @@ class Dataset:
         )
 
     def max_round(self) -> int:
+        """Return the highest ``Round`` value, or 0 if the dataset is empty."""
         return int(self.df["Round"].max()) if len(self.df) else 0
 
     def append_suggestions(self, df_new: pd.DataFrame) -> Dataset:
-        """
-        Append completed suggested formulations.
+        """Append new formulations, copying existing encodings for known lipids.
 
-        - Copies encoding columns if lipid already exists
-        - Prevents duplicates
-        - Preserves modeling columns
+        *df_new* must contain ``Formulation_ID``, ``Round``, and
+        ``Experiment_value``.  Returns a new ``Dataset`` with combined rows.
+
+        Raises:
+            ValueError: On missing columns, NaN experiment values,
+                overlapping IDs, or duplicate formulations.
         """
 
         df_new = df_new.copy()
@@ -473,10 +501,7 @@ class Dataset:
 
             # Find encoding columns for this role
             enc_prefixes = _ENC_PREFIXES
-            encoding_cols = [
-                c for c in self.df.columns
-                if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)
-            ]
+            encoding_cols = [c for c in self.df.columns if any(c.startswith(f"{role}_{p}") for p in enc_prefixes)]
 
             if not encoding_cols:
                 continue  # nothing to copy
@@ -527,16 +552,10 @@ class Dataset:
         )
 
     def refit_pls(self, training_indices: list[int], external_df=None) -> None:
-        """Re-fit PLS using only training-set targets (prospective PLS).
+        """Re-fit PLS on training-set targets only (avoids target leakage).
 
-        Computes per-lipid average Experiment_value from training rows only,
-        re-fits PLSRegression on stored raw fingerprints, and updates PC
-        columns in self.df in-place. If ``external_df`` is provided, the
-        same PC columns are also updated there (avoids callers needing to
-        manually sync columns after calling this method).
-
-        This avoids target leakage: PLS is fit on observed targets only,
-        not on the full oracle dataset.
+        Updates PC columns in ``self.df`` (and *external_df* if given)
+        in-place using stored raw fingerprints.
         """
         import numpy as np
         from sklearn.cross_decomposition import PLSRegression
@@ -600,7 +619,8 @@ class Dataset:
                 mapping = {name: row[col_idx] for name, row in col_map.items()}
                 self.df[col_name] = self.df[name_col].map(mapping)
                 if external_df is not None and col_name in external_df.columns:
-                    external_df[col_name] = self.df[col_name]
+                    external_df[col_name] = external_df[name_col].map(mapping)
 
     def to_csv(self, path: str):
+        """Write the dataset DataFrame to a CSV file."""
         self.df.to_csv(path, index=False)

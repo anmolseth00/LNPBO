@@ -18,11 +18,13 @@ Data layout in LNPDB repo (data/LNPDB_for_LiON/):
     heldout/heldout_{name}/    -- heldout datasets with 5-fold CV each
 """
 
-
+import logging
 import os
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger("lnpbo")
 
 from .dataset import LNPDB_REQUIRED_COLUMNS, Dataset
 
@@ -196,14 +198,14 @@ def load_lnpdb_full(
             mask = df["LNP_ID"].isin(zscore_map.index)
             n_replaced = mask.sum()
             df.loc[mask, "Experiment_value"] = df.loc[mask, "LNP_ID"].map(zscore_map)
-            print(f"  Replaced Experiment_value with z-scored values for {n_replaced} rows")
+            logger.info("Replaced Experiment_value with z-scored values for %d rows", n_replaced)
 
     if drop_unnormalized and "Experiment_value" in df.columns:
         bad_mask = df["Experiment_value"].abs() > 10
         n_bad = bad_mask.sum()
         if n_bad > 0:
             df = df[~bad_mask]
-            print(f"  Dropped {n_bad} unnormalized formulations (|Experiment_value| > 10)")
+            logger.info("Dropped %d unnormalized formulations (|Experiment_value| > 10)", n_bad)
 
     # Validate required columns
     missing = set(LNPDB_REQUIRED_COLUMNS) - set(df.columns)
