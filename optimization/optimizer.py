@@ -1,35 +1,75 @@
 """Bayesian optimizer for LNP formulation design.
 
 Supports multiple surrogate models, acquisition functions, and batch
-strategies through a unified API.
+strategies through a unified API. See ``docs/surrogates.md`` for a
+comprehensive reference with citations and usage guidance.
 
-Surrogate types:
-    ``"gp"``            BoTorch/GPyTorch exact GP (default, best for <1000 training points)
-    ``"gp_sklearn"``    Legacy sklearn GP with continuous optimization
-    ``"xgb"``           XGBoost greedy (predicted mean, no exploration)
-    ``"xgb_ucb"``       XGBoost + MAPIE conformal UCB
-    ``"rf_ucb"``        Random Forest tree-variance UCB
-    ``"rf_ts"``         Random Forest Thompson Sampling (per-tree draws)
-    ``"ngboost"``       NGBoost distributional UCB
+Surrogate types
+---------------
+
+**GP-based** (support all acquisition types and batch strategies):
+
+    ``"gp"``            Gaussian Process via BoTorch (default). Kernel
+                        selected by ``kernel_type``: ``"matern"`` (default),
+                        ``"tanimoto"``, ``"aitchison"``, ``"dkl"``, ``"rf"``,
+                        ``"compositional"``, ``"robust"``.
+    ``"gp_sklearn"``    Alias for ``gp`` with ``gp_engine="sklearn"``
+                        (continuous acquisition optimization).
+    ``"gp_mixed"``      Mixed discrete-continuous GP (enumerate IL
+                        configs, optimize ratios continuously).
+    ``"robust_gp"``     Robust GP via Relevance Pursuit — automatically
+                        detects and downweights outliers (Ament et al. 2024).
+    ``"multitask_gp"``  Multi-task GP with ICM coregionalization across
+                        studies (Bonilla et al. 2007). Requires ``study_id``
+                        column in the dataset.
+    ``"casmopolitan"``  CASMOPolitan mixed-variable GP with trust regions.
+
+**Tree/ensemble** (discrete pool scoring, built-in acquisition):
+
+    ``"xgb"``           XGBoost greedy (predicted mean, no exploration).
+    ``"xgb_ucb"``       XGBoost + MAPIE conformal UCB (Barber et al. 2021).
+    ``"rf_ucb"``        Random Forest tree-variance UCB.
+    ``"rf_ts"``         Random Forest Thompson Sampling (per-tree draws).
+    ``"ngboost"``       NGBoost distributional UCB (Duan et al. 2020).
     ``"xgb_cqr"``       XGBoost + Conformalized Quantile Regression UCB
-    ``"deep_ensemble"`` Deep Ensemble (5-network) UCB
-    ``"tabpfn"``        TabPFN zero-shot foundation model
-    ``"gp_ucb"``        Sklearn GP UCB (discrete pool scoring)
-    ``"casmopolitan"``  Mixed-variable GP with trust regions (CASMOPolitan)
+                        (Romano et al. 2019).
+    ``"ridge"``         BayesianRidge mean + kappa * std (MacKay 1992).
 
-Acquisition types (for GP-based surrogates):
+**Neural UQ** (discrete pool scoring with learned uncertainty):
+
+    ``"deep_ensemble"`` Deep Ensemble (5-network) UCB
+                        (Lakshminarayanan et al. 2017).
+    ``"sngp"``          Spectral-Normalized Neural GP — distance-aware
+                        MLP with RFF output layer (Liu et al. 2023).
+    ``"laplace"``       MLP + post-hoc Laplace approximation
+                        (Daxberger et al. 2021).
+    ``"tabpfn"``        TabPFN zero-shot foundation model
+                        (Hollmann et al. 2025).
+    ``"gp_ucb"``        Sklearn GP UCB (discrete pool scoring).
+
+**Preference / domain-robust** (discrete pool scoring):
+
+    ``"bradley_terry"`` Pairwise preference model — learns utility from
+                        within-study comparisons (Bradley & Terry 1952).
+    ``"groupdro"``      GroupDRO across studies — robust to worst-group
+                        shift (Sagawa et al. 2020). Uses ``study_id``.
+    ``"vrex"``          V-REx risk extrapolation — penalizes cross-study
+                        loss variance (Krueger et al. 2021). Uses ``study_id``.
+
+Acquisition types (for GP-based surrogates)
+-------------------------------------------
     ``"UCB"``   Upper Confidence Bound (mu + kappa * sigma)
     ``"EI"``    Expected Improvement
     ``"LogEI"`` Log Expected Improvement (numerically stable)
 
-Batch strategies (for ``surrogate_type="gp"``):
+Batch strategies (for GP-based surrogates)
+------------------------------------------
     ``"kb"``     Kriging Believer (hallucinate with posterior mean)
     ``"rkb"``    Randomized KB (hallucinate with posterior samples)
     ``"lp"``     Local Penalization (soft exclusion zones)
     ``"ts"``     Thompson Sampling (independent posterior draws)
     ``"qlogei"`` q-Log Noisy Expected Improvement (BoTorch native joint)
-    ``"gibbon"`` GIBBON: information-theoretic with DPP batch diversity (Moss et al., 2021)
-    ``"jes"``    Joint Entropy Search: information-theoretic (Hvarfner et al., 2022)
+    ``"gibbon"`` GIBBON: information-theoretic + DPP diversity (Moss et al. 2021)
 
 Example::
 
@@ -41,13 +81,34 @@ Example::
     encoded = dataset.encode_dataset(feature_type="lantern")
     space = FormulationSpace.from_dataset(encoded)
 
+    # BoTorch GP (default):
+    optimizer = Optimizer(space=space, candidate_pool=encoded.df)
+
+    # Robust GP (outlier-robust):
     optimizer = Optimizer(
         space=space,
-        surrogate_type="xgb_ucb",
+        surrogate_type="robust_gp",
         candidate_pool=encoded.df,
     )
+
+    # SNGP with distance-aware uncertainty:
+    optimizer = Optimizer(
+        space=space,
+        surrogate_type="sngp",
+        candidate_pool=encoded.df,
+    )
+
+    # Multi-task GP across studies (requires study_id in data):
+    optimizer = Optimizer(
+        space=space,
+        surrogate_type="multitask_gp",
+        candidate_pool=encoded.df,
+    )
+
     suggestions = optimizer.suggest(output_csv="round1.csv")
 """
+
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -55,6 +116,7 @@ from sklearn.metrics import pairwise_distances
 
 from ..data.dataset import _ENC_PREFIXES
 from ..space.formulation import FormulationSpace
+from ._logging import logger
 from .bayesopt import perform_bayesian_optimization
 from .doe import mixture_doe
 
@@ -66,30 +128,45 @@ CTX_PREFIX = "ctx_"
 # ---------------------------------------------------------------------------
 
 _FAMILY_CAPS = {
-    "gp_botorch":  {"needs_pool": True,  "supports_acq": True,  "supports_batch": True},
-    "gp_sklearn":  {"needs_pool": False, "supports_acq": True,  "supports_batch": False},
-    "discrete":    {"needs_pool": True,  "supports_acq": False, "supports_batch": True},
-    "casmopolitan":{"needs_pool": True,  "supports_acq": True,  "supports_batch": False},
+    "gp_botorch": {"needs_pool": True, "supports_acq": True, "supports_batch": True},
+    "gp_mixed": {"needs_pool": True, "supports_acq": True, "supports_batch": True},
+    "gp_multitask": {"needs_pool": True, "supports_acq": True, "supports_batch": True},
+    "gp_sklearn": {"needs_pool": False, "supports_acq": True, "supports_batch": False},
+    "discrete": {"needs_pool": True, "supports_acq": False, "supports_batch": True},
+    "casmopolitan": {"needs_pool": True, "supports_acq": True, "supports_batch": False},
 }
 
 SURROGATE_TYPES = {
-    "gp":              "gp_botorch",
-    "gp_sklearn":      "gp_sklearn",
-    "xgb":             "discrete",
-    "xgb_ucb":         "discrete",
-    "rf_ucb":          "discrete",
-    "rf_ts":           "discrete",
-    "ngboost":         "discrete",
-    "xgb_cqr":         "discrete",
-    "deep_ensemble":   "discrete",
-    "tabpfn":          "discrete",
-    "gp_ucb":          "discrete",
-    "casmopolitan":    "casmopolitan",
+    # --- GP-based surrogates ---
+    "gp": "gp_botorch",
+    "gp_mixed": "gp_mixed",
+    "gp_sklearn": "gp_sklearn",
+    "robust_gp": "gp_botorch",  # BoTorch RobustRelevancePursuitSingleTaskGP
+    "multitask_gp": "gp_multitask",  # BoTorch MultiTaskGP with ICM
+    "casmopolitan": "casmopolitan",
+    # --- Discrete pool-scoring surrogates ---
+    "xgb": "discrete",
+    "xgb_ucb": "discrete",
+    "rf_ucb": "discrete",
+    "rf_ts": "discrete",
+    "ngboost": "discrete",
+    "xgb_cqr": "discrete",
+    "deep_ensemble": "discrete",
+    "tabpfn": "discrete",
+    "ridge": "discrete",
+    "gp_ucb": "discrete",
+    # --- Neural UQ surrogates ---
+    "sngp": "discrete",  # Spectral-Normalized Neural GP (Liu et al. 2023)
+    "laplace": "discrete",  # MLP + Laplace approximation (Daxberger et al. 2021)
+    # --- Preference / domain-robust surrogates ---
+    "bradley_terry": "discrete",  # Pairwise preference model (Bradley & Terry 1952)
+    "groupdro": "discrete",  # GroupDRO across studies (Sagawa et al. 2020)
+    "vrex": "discrete",  # V-REx risk extrapolation (Krueger et al. 2021)
 }
 
 ACQUISITION_TYPES = {"UCB", "EI", "LogEI"}
 
-BATCH_STRATEGIES = {"kb", "rkb", "lp", "ts", "qlogei", "gibbon", "jes"}
+BATCH_STRATEGIES = {"kb", "rkb", "lp", "ts", "qlogei", "gibbon"}
 DISCRETE_BATCH_STRATEGIES = {"greedy", "ts"}
 ALL_BATCH_STRATEGIES = BATCH_STRATEGIES | DISCRETE_BATCH_STRATEGIES
 
@@ -118,8 +195,17 @@ class Optimizer:
 
     surrogate_type : str
         The surrogate model to use for predicting formulation performance.
-        Default ``"gp"`` uses a BoTorch/GPyTorch Gaussian Process.
-        See module docstring for all options.
+        Default ``"gp"`` uses a Gaussian Process (backend selected by
+        ``gp_engine``). See module docstring for all options.
+
+    gp_engine : str
+        GP backend when ``surrogate_type="gp"``: ``"botorch"`` (default,
+        BoTorch/GPyTorch exact GP with discrete pool scoring) or
+        ``"sklearn"`` (sklearn GP with continuous acquisition optimization).
+        Ignored for non-GP surrogates. ``surrogate_type="gp_sklearn"``
+        is equivalent to ``surrogate_type="gp", gp_engine="sklearn"``.
+        Note: ``gp_engine="sklearn"`` is not supported by
+        ``suggest_indices()`` (it requires a ``FormulationSpace``).
 
     acquisition_type : str
         Acquisition function for GP-based surrogates: ``"UCB"`` (default),
@@ -160,8 +246,9 @@ class Optimizer:
 
     def __init__(
         self,
-        space: FormulationSpace,
+        space: FormulationSpace | None = None,
         surrogate_type: str = "gp",
+        gp_engine: str = "botorch",
         acquisition_type: str = "UCB",
         batch_strategy: str = "kb",
         kappa: float = 5.0,
@@ -171,11 +258,17 @@ class Optimizer:
         candidate_pool: pd.DataFrame | None = None,
         normalize: str = "copula",
         context_features: bool = False,
-        # gp_sklearn-specific (legacy)
+        # gp_sklearn-specific
         alpha: float = 1e-6,
+        # kernel / surrogate configuration
+        kernel_type: str = "matern",
+        kernel_kwargs: dict | None = None,
+        surrogate_kwargs: dict | None = None,
     ):
+        """Initialize Optimizer with the given configuration."""
         self.space = space
         self.surrogate_type = surrogate_type
+        self.gp_engine = gp_engine
         self.acquisition_type = acquisition_type
         self.batch_strategy = batch_strategy
         self.kappa = kappa
@@ -186,23 +279,40 @@ class Optimizer:
         self.normalize = normalize
         self.context_features = context_features
         self.alpha = alpha
+        self.kernel_type = kernel_type
+        self.kernel_kwargs = kernel_kwargs
+        self.surrogate_kwargs = surrogate_kwargs
+
+        # Resolve surrogate_type="gp_sklearn" as gp + sklearn engine
+        if self.surrogate_type == "gp_sklearn":
+            self.surrogate_type = "gp"
+            self.gp_engine = "sklearn"
 
         self._validate_config()
 
+    @property
+    def _family(self):
+        """Effective surrogate family, accounting for gp_engine."""
+        if self.surrogate_type == "gp" and self.gp_engine == "sklearn":
+            return "gp_sklearn"
+        return SURROGATE_TYPES[self.surrogate_type]
+
     def _validate_config(self):
+        """Validate surrogate, acquisition, and batch strategy compatibility."""
         if self.surrogate_type not in SURROGATE_TYPES:
             raise ValueError(
-                f"Unknown surrogate_type={self.surrogate_type!r}. "
-                f"Valid options: {sorted(SURROGATE_TYPES)}"
+                f"Unknown surrogate_type={self.surrogate_type!r}. Valid options: {sorted(SURROGATE_TYPES)}"
             )
 
-        family = SURROGATE_TYPES[self.surrogate_type]
+        if self.gp_engine not in ("botorch", "sklearn"):
+            raise ValueError(f"Unknown gp_engine={self.gp_engine!r}. Valid options: 'botorch', 'sklearn'")
+
+        family = self._family
         caps = _FAMILY_CAPS[family]
 
         if self.acquisition_type not in ACQUISITION_TYPES:
             raise ValueError(
-                f"Unknown acquisition_type={self.acquisition_type!r}. "
-                f"Valid options: {sorted(ACQUISITION_TYPES)}"
+                f"Unknown acquisition_type={self.acquisition_type!r}. Valid options: {sorted(ACQUISITION_TYPES)}"
             )
 
         if not caps["supports_acq"] and self.acquisition_type != "UCB":
@@ -213,12 +323,14 @@ class Optimizer:
                 f"For UCB exploration, use surrogate_type='xgb_ucb' or 'rf_ucb'."
             )
 
-        if family == "gp_botorch":
+        if family in ("gp_botorch", "gp_mixed", "gp_multitask"):
             if self.batch_strategy not in BATCH_STRATEGIES:
                 raise ValueError(
                     f"Unknown batch_strategy={self.batch_strategy!r} for GP surrogate. "
                     f"Valid options: {sorted(BATCH_STRATEGIES)}"
                 )
+        elif family == "gp_sklearn":
+            pass  # sklearn GP handles batch strategy via _SKLEARN_ACQ_MAP
         elif family == "discrete":
             if self.batch_strategy not in DISCRETE_BATCH_STRATEGIES and self.batch_strategy != "kb":
                 # "kb" is the default; for discrete surrogates, treat it as "greedy"
@@ -234,10 +346,46 @@ class Optimizer:
             )
 
         if self.normalize not in ("copula", "zscore", "none"):
+            raise ValueError(f"Unknown normalize={self.normalize!r}. Valid options: 'copula', 'zscore', 'none'")
+
+        # Kernel-feature compatibility warnings
+        _VALID_KERNELS = {"matern", "tanimoto", "aitchison", "dkl", "rf", "compositional", "robust"}
+        if self.kernel_type not in _VALID_KERNELS and family in ("gp_botorch", "gp_mixed"):
             raise ValueError(
-                f"Unknown normalize={self.normalize!r}. "
-                f"Valid options: 'copula', 'zscore', 'none'"
+                f"Unknown kernel_type={self.kernel_type!r}. "
+                f"Valid options: {sorted(_VALID_KERNELS)}"
             )
+
+        # Best-effort kernel-feature compatibility warnings
+        pool = getattr(self, "candidate_pool", None)
+        if pool is not None and family in ("gp_botorch", "gp_mixed"):
+            pool_cols = set(pool.columns)
+            if self.kernel_type == "tanimoto":
+                pca_cols = [c for c in pool_cols if "_pc" in c and "count_mfp" in c]
+                if pca_cols:
+                    warnings.warn(
+                        "kernel_type='tanimoto' expects raw count fingerprints, "
+                        "but PCA-reduced columns were detected (e.g. "
+                        f"{pca_cols[0]!r}). Use reduction='none' when encoding.",
+                        stacklevel=2,
+                    )
+            if self.kernel_type == "aitchison":
+                molratio_cols = [c for c in pool_cols if c.endswith("_molratio")]
+                if not molratio_cols:
+                    warnings.warn(
+                        "kernel_type='aitchison' expects _molratio columns for "
+                        "compositional data, but none were found in candidate_pool.",
+                        stacklevel=2,
+                    )
+            if self.kernel_type == "compositional":
+                kw = getattr(self, "kernel_kwargs", None) or {}
+                if "fp_indices" not in kw or "ratio_indices" not in kw:
+                    warnings.warn(
+                        "kernel_type='compositional' expects 'fp_indices' and "
+                        "'ratio_indices' in kernel_kwargs. Missing keys may "
+                        "cause errors during GP fitting.",
+                        stacklevel=2,
+                    )
 
     # ------------------------------------------------------------------
     # Main entry point
@@ -246,20 +394,255 @@ class Optimizer:
     def suggest(self, output_csv: str | None = None) -> pd.DataFrame:
         """Suggest the next batch of formulations to test.
 
-        Returns a DataFrame containing all previous formulations plus the
-        new suggested batch (with ``Experiment_value=NaN``).
+        Returns a DataFrame of all previous formulations plus the new
+        suggested batch (with ``Experiment_value=NaN``).
         """
-        family = SURROGATE_TYPES[self.surrogate_type]
+        if self.space is None:
+            raise ValueError("space is required for suggest(). Pass space= at construction or use suggest_indices().")
+        family = self._family
         if family == "gp_sklearn":
             return self._suggest_gp_sklearn(output_csv)
-        elif family == "gp_botorch":
-            return self._suggest_gp_botorch(output_csv)
-        elif family == "discrete":
-            return self._suggest_discrete(output_csv)
-        elif family == "casmopolitan":
-            return self._suggest_casmopolitan(output_csv)
+        elif family in ("gp_botorch", "gp_mixed", "gp_multitask", "discrete", "casmopolitan"):
+            return self._suggest_pool_based(output_csv)
         else:
             raise ValueError(f"Unknown family: {family!r}")
+
+    # ------------------------------------------------------------------
+    # Low-level batch selection on pre-split indices
+    # ------------------------------------------------------------------
+
+    def suggest_indices(
+        self,
+        df,
+        feature_cols,
+        training_idx,
+        pool_idx,
+        round_num=0,
+        encoded_dataset=None,
+        batch_size=None,
+    ):
+        """Select batch indices from a pre-split pool.
+
+        Low-level API used by the benchmark runner. Operates on a
+        DataFrame with pre-computed feature columns and explicit
+        training/pool index splits, without requiring a
+        ``FormulationSpace`` or ``candidate_pool``.
+
+        Not supported for ``gp_engine="sklearn"``.
+
+        Returns a list of selected indices from *pool_idx*.
+        """
+        family = self._family
+        if family == "gp_sklearn":
+            raise ValueError(
+                "suggest_indices() does not support gp_engine='sklearn'. "
+                "Use suggest() with a FormulationSpace instead."
+            )
+
+        bs = batch_size if batch_size is not None else self.batch_size
+        seed = self.random_seed + round_num
+
+        # Prospective PLS refit
+        if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
+            encoded_dataset.refit_pls(training_idx, external_df=df)
+
+        X_train, y_train, X_pool, pool_arr = self._prepare_indices_data(
+            df, feature_cols, training_idx, pool_idx,
+        )
+        if len(X_train) == 0:
+            logger.warning("No training data available — returning empty batch")
+            return []
+        if len(X_train) < 5:
+            logger.warning("Small training set (N=%d) — surrogate may be unreliable", len(X_train))
+        if len(X_pool) < bs:
+            logger.warning("Pool exhausted (%d < batch_size=%d) — returning remaining candidates", len(X_pool), bs)
+            return list(range(len(X_pool))) if len(X_pool) > 0 else []
+
+        # For benchmark reproducibility, force single-threaded surrogates
+        sk = dict(self.surrogate_kwargs or {})
+        sk.setdefault("n_jobs", 1)
+
+        il_names = None
+        if family == "casmopolitan":
+            il_names = (df.loc[training_idx, "IL_name"], df.loc[pool_idx, "IL_name"])
+
+        # Extract group/task info for surrogates that need it
+        group_ids = None
+        task_indices = None
+        if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp"):
+            if "study_id" in df.columns:
+                train_study = df.loc[training_idx, "study_id"].values
+                if self.surrogate_type == "multitask_gp":
+                    unique_studies = sorted(set(train_study))
+                    study_to_int = {s: i for i, s in enumerate(unique_studies)}
+                    task_indices = np.array([study_to_int[s] for s in train_study])
+                else:
+                    group_ids = train_study
+
+        return self._run_batch_selection(
+            X_train, y_train, X_pool, pool_arr,
+            batch_size=bs, seed=seed, surrogate_kwargs=sk,
+            il_names=il_names, group_ids=group_ids,
+            task_indices=task_indices,
+        )
+
+    # ------------------------------------------------------------------
+    # Shared data preparation and batch selection
+    # ------------------------------------------------------------------
+
+    def _prepare_indices_data(self, df, feature_cols, training_idx, pool_idx):
+        """Extract and clean train/pool arrays from *df*, applying normalization and NaN/inf filtering."""
+        from ._normalize import normalize_values
+
+        X_train = df.loc[training_idx, feature_cols].values.astype(np.float64)
+        y_train = normalize_values(
+            df.loc[training_idx, "Experiment_value"].values.astype(np.float64),
+            self.normalize,
+        )
+        X_pool = df.loc[pool_idx, feature_cols].values.astype(np.float64)
+        pool_arr = np.array(pool_idx)
+
+        # Drop NaN/inf training rows
+        valid_train = np.isfinite(X_train).all(axis=1) & np.isfinite(y_train)
+        X_train = X_train[valid_train]
+        y_train = y_train[valid_train]
+
+        # Drop NaN/inf pool rows
+        valid_pool = np.isfinite(X_pool).all(axis=1)
+        X_pool = X_pool[valid_pool]
+        pool_arr = pool_arr[valid_pool]
+
+        return X_train, y_train, X_pool, pool_arr
+
+    def _run_batch_selection(
+        self, X_train, y_train, X_pool, pool_indices, *,
+        batch_size, seed, surrogate_kwargs=None, il_names=None,
+        group_ids=None, task_indices=None,
+    ):
+        """Dispatch batch selection to the appropriate surrogate family.
+
+        Single entry point for all batch selection logic, called by both
+        ``suggest()`` and ``suggest_indices()``. Returns a list of
+        selected values from *pool_indices*.
+        """
+        family = self._family
+        sk = surrogate_kwargs if surrogate_kwargs is not None else self.surrogate_kwargs
+
+        if family in ("gp_botorch", "gp_mixed"):
+            use_sparse = len(X_train) > 1000
+            # robust_gp uses a different model class but the same batch selection
+            effective_kernel = self.kernel_type
+            if self.surrogate_type == "robust_gp":
+                effective_kernel = "robust"
+
+            if family == "gp_mixed":
+                from .gp_bo import select_batch_mixed
+
+                kw = self.kernel_kwargs or {}
+                selected = select_batch_mixed(
+                    X_train, y_train, X_pool, pool_indices,
+                    batch_size=batch_size,
+                    acq_type=self.acquisition_type,
+                    batch_strategy=self.batch_strategy,
+                    fp_indices=kw.get("fp_indices", []),
+                    ratio_indices=kw.get("ratio_indices", []),
+                    synth_indices=kw.get("synth_indices", []),
+                    kappa=self.kappa, xi=self.xi, seed=seed,
+                    use_sparse=use_sparse,
+                    kernel_type=effective_kernel,
+                    kernel_kwargs=self.kernel_kwargs,
+                )
+            else:
+                from .gp_bo import select_batch
+
+                selected = select_batch(
+                    X_train, y_train, X_pool, pool_indices,
+                    batch_size=batch_size,
+                    acq_type=self.acquisition_type,
+                    batch_strategy=self.batch_strategy,
+                    kappa=self.kappa, xi=self.xi, seed=seed,
+                    use_sparse=use_sparse,
+                    kernel_type=effective_kernel,
+                    kernel_kwargs=self.kernel_kwargs,
+                )
+            return list(selected)
+
+        if family == "gp_multitask":
+            from .gp_bo import fit_multitask_gp, score_acquisition
+
+            if task_indices is None:
+                raise ValueError(
+                    "surrogate_type='multitask_gp' requires study_id column in the "
+                    "training data. Ensure your dataset includes study_id."
+                )
+            model = fit_multitask_gp(X_train, y_train, task_indices)
+            # Score the pool (append a dummy task index — use the most common
+            # training task for prediction context)
+            from collections import Counter
+            most_common_task = Counter(task_indices.tolist()).most_common(1)[0][0]
+            X_pool_aug = np.column_stack([
+                X_pool,
+                np.full(len(X_pool), most_common_task),
+            ])
+            scores = score_acquisition(
+                model, X_pool_aug, self.acquisition_type,
+                float(y_train.max()), self.kappa, self.xi,
+            )
+            top = np.argsort(scores)[-batch_size:][::-1]
+            return [pool_indices[i] for i in top]
+
+        if family == "discrete":
+            from .discrete import score_candidate_pool, score_candidate_pool_ts_batch
+
+            # Discrete surrogates only support "ts" (Thompson sampling) or greedy
+            # top-K scoring. "kb" (the default) is treated as greedy because
+            # kriging believer requires GP fantasization which discrete surrogates
+            # don't support.
+            effective_strategy = self.batch_strategy if self.batch_strategy == "ts" else "greedy"
+            scoring_fn = score_candidate_pool_ts_batch if effective_strategy == "ts" else score_candidate_pool
+            top_k, _ = scoring_fn(
+                X_train, y_train, X_pool,
+                surrogate=self.surrogate_type,
+                batch_size=batch_size,
+                kappa=self.kappa,
+                random_seed=seed,
+                surrogate_kwargs=sk,
+                group_ids=group_ids,
+            )
+            return [pool_indices[i] for i in top_k]
+
+        if family == "casmopolitan":
+            from .casmopolitan import score_pool_casmopolitan
+
+            acq_func = self.acquisition_type.lower()
+            if acq_func == "logei":
+                acq_func = "ei"
+
+            # Build IL categorical encoding
+            il_train, il_pool = il_names
+            all_il = pd.concat([il_train, il_pool], ignore_index=True)
+            il_map = {name: i for i, name in enumerate(all_il.unique())}
+            il_cat_train = il_train.map(il_map).values.reshape(-1, 1)
+            il_cat_pool = il_pool.map(il_map).values.reshape(-1, 1)
+
+            X_train_aug = np.column_stack([il_cat_train, X_train])
+            X_pool_aug = np.column_stack([il_cat_pool, X_pool])
+            cont_indices = list(range(1, X_train_aug.shape[1]))
+
+            top_indices, _ = score_pool_casmopolitan(
+                X_train_aug, y_train, X_pool_aug,
+                il_cat_train=il_cat_train.ravel(),
+                il_cat_pool=il_cat_pool.ravel(),
+                cont_feature_indices=cont_indices,
+                cat_feature_indices=[0],
+                batch_size=batch_size,
+                kappa=self.kappa,
+                random_seed=seed,
+                acq_func=acq_func,
+            )
+            return [pool_indices[i] for i in top_indices]
+
+        raise ValueError(f"_run_batch_selection does not support family={family!r}")
 
     # ------------------------------------------------------------------
     # Shared helpers
@@ -276,13 +659,17 @@ class Optimizer:
             col = f"{role}_molratio"
             if col in df.columns and df[col].nunique() > 1:
                 feature_cols.append(col)
-        if ("IL_to_nucleicacid_massratio" in df.columns
-                and df["IL_to_nucleicacid_massratio"].nunique() > 1):
+        if "IL_to_nucleicacid_massratio" in df.columns and df["IL_to_nucleicacid_massratio"].nunique() > 1:
             feature_cols.append("IL_to_nucleicacid_massratio")
         return feature_cols
 
     def _prepare_pool(self, dataset, feature_cols):
-        """Prepare training and pool data from dataset + candidate_pool."""
+        """Prepare training and pool data from *dataset* + ``candidate_pool``.
+
+        Excludes evaluated formulations, deduplicates by composition,
+        drops NaN/inf rows, and optionally adds context features.
+        Returns ``(train_df, pool_df, feature_cols)``.
+        """
         if self.candidate_pool is None:
             raise ValueError(
                 f"candidate_pool is required for surrogate_type={self.surrogate_type!r}. "
@@ -293,20 +680,36 @@ class Optimizer:
         train_source = dataset.df
         if self.context_features:
             from ..data.context import encode_context
+
             train_source, ctx_cols, ctx_levels = encode_context(dataset.df.copy())
             feature_cols = [*feature_cols, *ctx_cols]
 
-        # Exclude already-evaluated formulations from pool
-        evaluated_ids = set(train_source["Formulation_ID"].dropna().astype(int))
-        pool_df = self.candidate_pool[
-            ~self.candidate_pool["Formulation_ID"].isin(evaluated_ids)
-        ].copy()
+        # Exclude already-evaluated formulations from pool.
+        # When candidate_pool is a superset of training data (typical),
+        # this removes the training rows. When candidate_pool IS the
+        # training data (e.g., notebooks passing encoded.df as pool),
+        # we still need candidates, so we only exclude formulations
+        # that have been evaluated AND were selected by BO (Round > 0).
+        if "Formulation_ID" in train_source.columns:
+            evaluated_mask = train_source["Experiment_value"].notna()
+            evaluated_ids = set(train_source.loc[evaluated_mask, "Formulation_ID"].dropna().astype(int))
+            pool_df = self.candidate_pool[~self.candidate_pool["Formulation_ID"].isin(evaluated_ids)].copy()
+
+            # If pool is empty, the candidate_pool likely IS the training data.
+            # Fall back: only exclude BO-selected formulations (Round > 0).
+            if pool_df.empty and "Round" in train_source.columns:
+                bo_mask = train_source["Round"].fillna(0).astype(int) > 0
+                bo_ids = set(train_source.loc[bo_mask, "Formulation_ID"].dropna().astype(int))
+                pool_df = self.candidate_pool[~self.candidate_pool["Formulation_ID"].isin(bo_ids)].copy()
+        else:
+            pool_df = self.candidate_pool.copy()
 
         if pool_df.empty:
             raise ValueError("No candidates remaining in pool after excluding evaluated formulations.")
 
         if self.context_features and ctx_levels is not None:
             from ..data.context import encode_context
+
             pool_df, _, _ = encode_context(pool_df, levels=ctx_levels)
 
         missing = [c for c in feature_cols if c not in pool_df.columns]
@@ -318,28 +721,38 @@ class Optimizer:
         train_mask = train_features.notna().all(axis=1) & np.isfinite(train_features.values).all(axis=1)
         if not train_mask.all():
             n_drop = int((~train_mask).sum())
-            print(f"  Dropped {n_drop} training rows with missing/inf features")
+            logger.info("Dropped %d training rows with missing/inf features", n_drop)
         train_df = train_source.loc[train_mask].copy()
 
         # Deduplicate pool
-        composition_cols = [c for c in [
-            "IL_name", "HL_name", "CHL_name", "PEG_name",
-            "IL_molratio", "HL_molratio", "CHL_molratio", "PEG_molratio",
-            "IL_to_nucleicacid_massratio",
-        ] if c in pool_df.columns]
+        composition_cols = [
+            c
+            for c in [
+                "IL_name",
+                "HL_name",
+                "CHL_name",
+                "PEG_name",
+                "IL_molratio",
+                "HL_molratio",
+                "CHL_molratio",
+                "PEG_molratio",
+                "IL_to_nucleicacid_massratio",
+            ]
+            if c in pool_df.columns
+        ]
         if composition_cols:
             n_before = len(pool_df)
             pool_df = pool_df.drop_duplicates(subset=composition_cols).reset_index(drop=True)
             n_deduped = n_before - len(pool_df)
             if n_deduped > 0:
-                print(f"  Deduplicated pool: {n_before:,} -> {len(pool_df):,} ({n_deduped:,} duplicates removed)")
+                logger.info("Deduplicated pool: %s -> %s (%s duplicates removed)", f"{n_before:,}", f"{len(pool_df):,}", f"{n_deduped:,}")
 
         # Clean pool (NaN or inf in features)
         pool_features = pool_df[feature_cols]
         pool_mask = pool_features.notna().all(axis=1) & np.isfinite(pool_features.values).all(axis=1)
         if not pool_mask.all():
             n_drop = int((~pool_mask).sum())
-            print(f"  Dropped {n_drop} pool rows with missing/inf features")
+            logger.info("Dropped %d pool rows with missing/inf features", n_drop)
             pool_df = pool_df.loc[pool_mask].copy()
 
         if pool_df.empty or train_df.empty:
@@ -348,7 +761,7 @@ class Optimizer:
         return train_df, pool_df, feature_cols
 
     def _build_result(self, dataset, selected_df, output_csv):
-        """Assemble final DataFrame: old data + new suggestions."""
+        """Combine existing data with new suggestions, assign IDs/Round, optionally write CSV."""
         round_number = dataset.max_round() + 1
         df_old = dataset.df.copy()
 
@@ -369,7 +782,7 @@ class Optimizer:
 
         if output_csv is not None:
             df_final.to_csv(output_csv, index=False)
-            print(f"Suggested formulations written to {output_csv}")
+            logger.info("Suggested formulations written to %s", output_csv)
 
         return df_final
 
@@ -377,131 +790,51 @@ class Optimizer:
     # BoTorch/GPyTorch GP path (new pipeline)
     # ------------------------------------------------------------------
 
-    def _suggest_gp_botorch(self, output_csv):
+    def _suggest_pool_based(self, output_csv):
+        """Suggest a batch using any pool-based surrogate (GP, discrete, CASMOPolitan)."""
         from ._normalize import normalize_values
-        from .gp_bo import select_batch
 
         dataset = self.space._dataset
         assert dataset is not None
+        family = self._family
 
         feature_cols = self._get_feature_cols(dataset.df)
         train_df, pool_df, feature_cols = self._prepare_pool(dataset, feature_cols)
 
-        # Prospective PLS refit
-        if getattr(dataset, "raw_fingerprints", None):
+        # Prospective PLS refit (GP paths only)
+        if family in ("gp_botorch", "gp_mixed") and getattr(dataset, "raw_fingerprints", None):
             training_idx = train_df.index.tolist()
             dataset.refit_pls(training_idx, external_df=train_df)
 
         X_train = train_df[feature_cols].values.astype(np.float64)
-        y_train = normalize_values(
-            train_df["Experiment_value"].values.astype(np.float64), self.normalize
-        )
+        y_train = normalize_values(train_df["Experiment_value"].values.astype(np.float64), self.normalize)
         X_pool = pool_df[feature_cols].values.astype(np.float64)
         pool_indices = np.arange(len(pool_df))
 
-        use_sparse = len(X_train) > 1000
-        selected_pool_idx = select_batch(
+        # CASMOPolitan needs IL name series for categorical encoding
+        il_names = (train_df["IL_name"], pool_df["IL_name"]) if family == "casmopolitan" else None
+
+        # Extract group/task info for surrogates that need it
+        group_ids = None
+        task_indices = None
+        if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp"):
+            if "study_id" in train_df.columns:
+                train_study = train_df["study_id"].values
+                if self.surrogate_type == "multitask_gp":
+                    unique_studies = sorted(set(train_study))
+                    study_to_int = {s: i for i, s in enumerate(unique_studies)}
+                    task_indices = np.array([study_to_int[s] for s in train_study])
+                else:
+                    group_ids = train_study
+
+        selected_pool_idx = self._run_batch_selection(
             X_train, y_train, X_pool, pool_indices,
-            batch_size=self.batch_size,
-            acq_type=self.acquisition_type,
-            batch_strategy=self.batch_strategy,
-            kappa=self.kappa, xi=self.xi,
-            seed=self.random_seed,
-            use_sparse=use_sparse,
+            batch_size=self.batch_size, seed=self.random_seed,
+            il_names=il_names, group_ids=group_ids,
+            task_indices=task_indices,
         )
 
         selected = pool_df.iloc[selected_pool_idx].copy()
-        return self._build_result(dataset, selected, output_csv)
-
-    # ------------------------------------------------------------------
-    # Discrete surrogate path (XGB, RF, NGBoost, etc.)
-    # ------------------------------------------------------------------
-
-    def _suggest_discrete(self, output_csv):
-        from ._normalize import normalize_values
-        from .discrete import score_candidate_pool, score_candidate_pool_ts_batch
-
-        dataset = self.space._dataset
-        assert dataset is not None
-
-        feature_cols = self._get_feature_cols(dataset.df)
-        train_df, pool_df, feature_cols = self._prepare_pool(dataset, feature_cols)
-
-        X_train = train_df[feature_cols].values
-        y_train = normalize_values(
-            train_df["Experiment_value"].values, self.normalize
-        )
-
-        X_pool = pool_df[feature_cols].values
-
-        # Dispatch to TS batch or greedy scoring
-        use_ts = self.batch_strategy == "ts"
-        if use_ts:
-            scoring_fn = score_candidate_pool_ts_batch
-        else:
-            scoring_fn = score_candidate_pool
-
-        top_indices, _ = scoring_fn(
-            X_train, y_train, X_pool,
-            surrogate=self.surrogate_type,
-            batch_size=self.batch_size,
-            kappa=self.kappa,
-            random_seed=self.random_seed,
-        )
-
-        selected = pool_df.iloc[top_indices].copy()
-        return self._build_result(dataset, selected, output_csv)
-
-    # ------------------------------------------------------------------
-    # CASMOPolitan path (mixed categorical + continuous)
-    # ------------------------------------------------------------------
-
-    def _suggest_casmopolitan(self, output_csv):
-        from ._normalize import normalize_values
-        from .casmopolitan import score_pool_casmopolitan
-
-        dataset = self.space._dataset
-        assert dataset is not None
-
-        feature_cols = self._get_feature_cols(dataset.df)
-        train_df, pool_df, feature_cols = self._prepare_pool(dataset, feature_cols)
-
-        acq_func = self.acquisition_type.lower()
-        if acq_func == "logei":
-            acq_func = "ei"  # CASMOPolitan doesn't have LogEI; fall back to EI
-
-        X_train_cont = train_df[feature_cols].values
-        y_train = normalize_values(
-            train_df["Experiment_value"].values, self.normalize
-        )
-        X_pool_cont = pool_df[feature_cols].values
-
-        # Integer-encode IL identity as a categorical column
-        all_il = pd.concat([train_df["IL_name"], pool_df["IL_name"]], ignore_index=True)
-        il_map = {name: i for i, name in enumerate(all_il.unique())}
-        il_cat_train = train_df["IL_name"].map(il_map).values.reshape(-1, 1)
-        il_cat_pool = pool_df["IL_name"].map(il_map).values.reshape(-1, 1)
-
-        # Prepend categorical IL column to feature matrix
-        X_train = np.column_stack([il_cat_train, X_train_cont])
-        X_pool = np.column_stack([il_cat_pool, X_pool_cont])
-
-        cat_indices = [0]  # first column is categorical
-        cont_indices = list(range(1, X_train.shape[1]))
-
-        top_indices, _ = score_pool_casmopolitan(
-            X_train, y_train, X_pool,
-            il_cat_train=il_cat_train.ravel(),
-            il_cat_pool=il_cat_pool.ravel(),
-            cont_feature_indices=cont_indices,
-            cat_feature_indices=cat_indices,
-            batch_size=self.batch_size,
-            kappa=self.kappa,
-            random_seed=self.random_seed,
-            acq_func=acq_func,
-        )
-
-        selected = pool_df.iloc[top_indices].copy()
         return self._build_result(dataset, selected, output_csv)
 
     # ------------------------------------------------------------------
@@ -509,6 +842,13 @@ class Optimizer:
     # ------------------------------------------------------------------
 
     def _suggest_gp_sklearn(self, output_csv):
+        """Suggest a batch using the legacy sklearn GP pipeline.
+
+        Uses continuous acquisition optimization with L-BFGS-B, then
+        decodes optimized feature vectors back to named components via
+        nearest-neighbor matching. Falls back to mixture DoE if no
+        variable components or ratios are detected.
+        """
         dataset = self.space._dataset
         assert dataset is not None
 
@@ -519,7 +859,7 @@ class Optimizer:
         variable_ratios = sum(meta["variable_molratios"].values())
 
         if not any_components and variable_ratios < 2:
-            print("No BO variables detected -> falling back to DoE")
+            logger.warning("No BO variables detected -> falling back to DoE")
             df_batch = pd.DataFrame(
                 mixture_doe(
                     n_samples=self.batch_size,
@@ -549,6 +889,7 @@ class Optimizer:
         df_old = dataset.df.copy()
 
         def decode_component(df_new, role, space):
+            """Match each row's feature vector to the nearest known component for *role*."""
             configs = space.get_configs()
             comp_params = [p for p in configs["parameters"] if p["type"] == "ComponentParameter" and p["name"] == role]
             name_col = f"{role}_name"
@@ -607,6 +948,8 @@ class Optimizer:
 
     @staticmethod
     def _order_columns(df_final: pd.DataFrame) -> pd.DataFrame:
+        """Reorder DataFrame columns into canonical display order."""
+
         def role_block(role: str):
             return [
                 f"{role}_name",
@@ -627,10 +970,7 @@ class Optimizer:
         ordered_cols += ["Experiment_value"]
 
         for role in ["IL", "HL", "CHL", "PEG"]:
-            enc_cols = [
-                c for c in df_final.columns
-                if any(c.startswith(f"{role}_{p}") for p in _ENC_PREFIXES)
-            ]
+            enc_cols = [c for c in df_final.columns if any(c.startswith(f"{role}_{p}") for p in _ENC_PREFIXES)]
             ordered_cols += sorted(enc_cols)
 
         remaining = [c for c in df_final.columns if c not in ordered_cols]

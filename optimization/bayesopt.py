@@ -1,3 +1,4 @@
+import logging
 import warnings
 
 import numpy as np
@@ -8,9 +9,11 @@ from tqdm import tqdm
 
 from ..space.formulation import FormulationSpace
 from ..space.parameters import ComponentParameter, DiscreteParameter, MixtureRatiosParameter
-from ..utils.ordering import order_df_columns
+
+logger = logging.getLogger("lnpbo")
+from ._ordering import order_df_columns
 from .acquisition import KrigingBeliever, LocalPenalization, LogExpectedImprovement, ThompsonSamplingBatch
-from .serialization import save_surrogate
+from .serialization import save_checkpoint
 
 
 def perform_bayesian_optimization(
@@ -48,7 +51,7 @@ def perform_bayesian_optimization(
     df = df.dropna(subset=feature_cols_present).reset_index(drop=True)
     n_dropped = n_before - len(df)
     if n_dropped > 0:
-        print(f"Dropped {n_dropped} rows with missing feature values ({len(df)} remaining)")
+        logger.info("Dropped %d rows with missing feature values (%d remaining)", n_dropped, len(df))
 
     # Define and scale columns
     to_scale = []
@@ -86,7 +89,7 @@ def perform_bayesian_optimization(
             # Validate: warn if rows have inconsistent sums
             sum_std = row_sums.std()
             if sum_std > 0.01 * sum_to:
-                print(f"Warning: molar ratio sums vary across rows (median={sum_to:.4f}, std={sum_std:.4f})")
+                logger.warning("Molar ratio sums vary across rows (median=%.4f, std=%.4f)", sum_to, sum_std)
             pbounds[parameter["name"]] = MixtureRatiosParameter(
                 parameter["name"],
                 len(columns_mixture),
@@ -216,12 +219,13 @@ def perform_bayesian_optimization(
 
     # Save surrogate
     if save_gp:
-        save_surrogate(
-            f"round_{round_number}_gp.pkl",
-            gp_model=optimizer._gp,
+        save_checkpoint(
+            f"round_{round_number}_checkpoint",
+            model=optimizer._gp,
+            surrogate_type="gp_sklearn",
+            feature_columns=columns,
+            round_number=round_number,
             scaler=scaler,
-            columns=columns,
-            metadata={"round": round_number},
         )
 
     # Post-processing (inverse scaling + fixed values)

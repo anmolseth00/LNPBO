@@ -1,4 +1,4 @@
-from ..generative.il_propose import propose_ionizable_lipids
+from ._il_propose import propose_ionizable_lipids
 
 
 def add_propose_ils_command(subparsers):
@@ -10,15 +10,21 @@ def add_propose_ils_command(subparsers):
     parser.add_argument("--dataset", required=True, help="Path to LNPDB-format CSV with IL_SMILES + Experiment_value")
     parser.add_argument("--output", required=True, help="Output CSV path for proposed ILs")
     parser.add_argument(
-        "--n-candidates", type=int, default=20000,
+        "--n-candidates",
+        type=int,
+        default=20000,
         help="Number of candidates to generate (default: 20000)",
     )
     parser.add_argument(
-        "--n-output", type=int, default=100,
+        "--n-output",
+        type=int,
+        default=100,
         help="Number of candidates to output (default: 100)",
     )
     parser.add_argument(
-        "--diversity-pool", type=int, default=1000,
+        "--diversity-pool",
+        type=int,
+        default=1000,
         help="Top-N by score for diversity selection (default: 1000)",
     )
     parser.add_argument("--seed", type=int, default=42, help="Random seed (default: 42)")
