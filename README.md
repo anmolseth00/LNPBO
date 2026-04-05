@@ -28,21 +28,21 @@ Data-driven optimization of lipid nanoparticle (LNP) formulations using Bayesian
 ```bash
 git clone https://github.com/evancollins1/LNPBO.git
 cd LNPBO
-pip install .
+uv sync
 ```
 
 For GP support (BoTorch/GPyTorch):
 
 ```bash
-pip install ".[gp]"
+uv sync --extra gp
 ```
 
 Optional extras:
 
 ```bash
-pip install ".[bench]"     # NGBoost, TabPFN
-pip install ".[mordred]"   # Mordred descriptors
-pip install ".[all]"       # All optional dependencies
+uv sync --extra bench      # NGBoost, TabPFN
+uv sync --extra mordred    # Mordred descriptors
+uv sync --extra all        # All optional dependencies
 ```
 
 ### LNPDB Setup
@@ -62,8 +62,7 @@ git clone https://github.com/evancollins1/LNPBO.git
 git clone https://github.com/evancollins1/LNPDB.git
 cd LNPBO
 ln -s ../LNPDB data/LNPDB_repo
-uv venv && source .venv/bin/activate
-pip install -e ".[dev]"
+uv sync --extra dev
 ```
 
 Requires Python >= 3.10.
