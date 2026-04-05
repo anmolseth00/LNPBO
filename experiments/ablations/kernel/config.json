@@ -1,0 +1,25 @@
+{
+  "experiment_name": "kernel",
+  "description": "Compare GP kernel functions: Matern (default), Tanimoto (for fingerprints), Aitchison (for simplex ratios), and DKL (deep kernel learning).",
+  "strategies": [
+    "lnpbo_ts_batch",
+    "lnpbo_logei",
+    "lnpbo_tanimoto_ts",
+    "lnpbo_tanimoto_logei",
+    "lnpbo_aitchison_ts",
+    "lnpbo_aitchison_logei",
+    "lnpbo_dkl_ts",
+    "lnpbo_dkl_logei",
+    "random"
+  ],
+  "seeds": [42, 123, 456],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "notes": "Tanimoto strategies use raw count_mfp (no PCA). Aitchison strategies use ratios_only. DKL uses same features as Matern but with learned NN transform.",
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}

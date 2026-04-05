@@ -1,0 +1,29 @@
+{
+  "experiment_name": "encoding",
+  "description": "Compare molecular encoding representations for BO performance",
+  "conditions": [
+    {"label": "lantern", "feature_type": "lantern_il_only"},
+    {"label": "mfp", "feature_type": "mfp_il_only"},
+    {"label": "count_mfp", "feature_type": "count_mfp_il_only"},
+    {"label": "mordred", "feature_type": "mordred_il_only"},
+    {"label": "unimol", "feature_type": "unimol_il_only"},
+    {"label": "chemeleon", "feature_type": "chemeleon_il_only"},
+    {"label": "lion", "feature_type": "lion_il_only"},
+    {"label": "agile", "feature_type": "agile_il_only"}
+  ],
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "discrete_ngboost_ucb",
+    "casmopolitan_ucb",
+    "random"
+  ],
+  "seeds": [42, 123, 456, 789, 2024],
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}

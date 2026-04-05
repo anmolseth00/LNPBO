@@ -1,0 +1,26 @@
+{
+  "experiment_name": "kappa",
+  "description": "UCB exploration weight sensitivity: kappa in {0.5, 1, 2, 5, 10}. Tests whether the default kappa=5.0 is optimal or if less/more exploration helps on finite discrete pools.",
+  "strategies": [
+    "discrete_ngboost_ucb",
+    "discrete_rf_ucb",
+    "discrete_xgb_ucb",
+    "random"
+  ],
+  "seeds": [42, 123, 456, 789, 2024],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "conditions": [
+    {"label": "kappa_0.5", "kappa": 0.5},
+    {"label": "kappa_1", "kappa": 1.0},
+    {"label": "kappa_2", "kappa": 2.0},
+    {"label": "kappa_5", "kappa": 5.0},
+    {"label": "kappa_10", "kappa": 10.0}
+  ],
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}

@@ -1,0 +1,45 @@
+{
+  "description": "Sensitivity of BO strategies to batch size. Two variants: fixed-budget (adjust rounds to use same total evaluations) and fixed-rounds (15 rounds regardless of batch size)",
+  "batch_sizes": [
+    4,
+    8,
+    12,
+    24
+  ],
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "random"
+  ],
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "feature_type": "lantern_il_only",
+  "variants": {
+    "fixed_budget": {
+      "description": "Total evaluations = 180 (same as 12 x 15). Rounds adjusted per batch size.",
+      "total_evaluations": 180,
+      "rounds_per_batch": {
+        "4": 45,
+        "8": 22,
+        "12": 15,
+        "24": 7
+      }
+    },
+    "fixed_rounds": {
+      "description": "Always 15 rounds, total evaluations vary by batch size",
+      "n_rounds": 15
+    }
+  },
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "metrics": [
+    "top_k_recall_5pct",
+    "auc"
+  ],
+  "experiment_name": "batch_size_ablation"
+}

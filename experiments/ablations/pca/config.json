@@ -1,0 +1,31 @@
+{
+  "description": "Impact of PCA reduction dimensionality on BO performance. Tests whether aggressive compression (5 PCs) loses information vs. higher dimensions.",
+  "n_pcs_values": [
+    3,
+    5,
+    10,
+    20,
+    null
+  ],
+  "null_means_raw": true,
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "random"
+  ],
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "metrics": [
+    "top_k_recall_5pct",
+    "auc"
+  ],
+  "experiment_name": "pca_dimensionality"
+}

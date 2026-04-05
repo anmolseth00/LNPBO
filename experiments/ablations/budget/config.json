@@ -1,0 +1,48 @@
+{
+  "description": "How does total evaluation budget affect BO performance? Varies seed fraction and number of rounds.",
+  "configs": [
+    {
+      "name": "tight",
+      "seed_fraction": 0.1,
+      "n_rounds": 5
+    },
+    {
+      "name": "moderate",
+      "seed_fraction": 0.15,
+      "n_rounds": 10
+    },
+    {
+      "name": "standard",
+      "seed_fraction": 0.25,
+      "n_rounds": 15
+    },
+    {
+      "name": "generous",
+      "seed_fraction": 0.4,
+      "n_rounds": 15
+    }
+  ],
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "discrete_ngboost_ucb",
+    "random"
+  ],
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "metrics": [
+    "top_k_recall_5pct",
+    "top_k_recall_10pct",
+    "auc",
+    "final_best"
+  ],
+  "experiment_name": "budget_sensitivity"
+}

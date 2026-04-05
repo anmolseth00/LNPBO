@@ -1,0 +1,84 @@
+{
+  "description": "Impact of warmup (initial seed) selection strategy on BO performance. Tests different warmup sizes, selection methods, and BO batch sizes.",
+  "warmup_configs": [
+    {
+      "warmup_size": 48,
+      "selection": "random",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 48,
+      "selection": "bottom_75",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 96,
+      "selection": "random",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 96,
+      "selection": "bottom_75",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 96,
+      "selection": "random",
+      "bo_batch": 6
+    },
+    {
+      "warmup_size": 96,
+      "selection": "random",
+      "bo_batch": 24
+    },
+    {
+      "warmup_size": 144,
+      "selection": "random",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 144,
+      "selection": "bottom_75",
+      "bo_batch": 12
+    },
+    {
+      "warmup_size": 144,
+      "selection": "random",
+      "bo_batch": 6
+    },
+    {
+      "warmup_size": 144,
+      "selection": "random",
+      "bo_batch": 24
+    }
+  ],
+  "baseline": {
+    "description": "Standard 25% random seed, batch 12",
+    "seed_fraction": 0.25,
+    "batch_size": 12,
+    "selection": "random"
+  },
+  "strategies": [
+    "discrete_rf_ts",
+    "discrete_xgb_ucb",
+    "discrete_ngboost_ucb",
+    "random"
+  ],
+  "seeds": [
+    42,
+    123,
+    456
+  ],
+  "feature_type": "lantern_il_only",
+  "n_rounds": 15,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "min_study_size": 200,
+  "max_warmup_fraction": 0.8,
+  "metrics": [
+    "top_k_recall_5pct",
+    "auc"
+  ],
+  "experiment_name": "warmup_architecture"
+}
