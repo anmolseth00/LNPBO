@@ -25,7 +25,7 @@ import numpy as np
 
 from LNPBO.benchmarks.runner import prepare_benchmark_data
 
-SEEDS = [42, 123, 456, 789, 2024]
+from ..constants import SEEDS
 
 
 def compute_recall(selected_indices, top_k_values):
@@ -117,10 +117,10 @@ def main():
     results_dir = Path(__file__).resolve().parent.parent.parent / "benchmark_results"
     results_dir.mkdir(exist_ok=True)
 
-    print(f"{'='*70}")
-    print(f"Non-Adaptive Same-Budget Baseline")
+    print(f"{'=' * 70}")
+    print("Non-Adaptive Same-Budget Baseline")
     print(f"Total budget: {total_budget} ({args.n_seed} seed + {args.rounds}x{args.batch_size} adaptive)")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     methods = ["random", "sobol"]
     all_results = {}
@@ -134,23 +134,28 @@ def main():
             print(f"  Seed {seed}...", end=" ")
             t0 = time.time()
 
-            _, encoded_df, feature_cols, _, _, top_k_values = (
-                prepare_benchmark_data(
-                    n_seed=args.n_seed,
-                    random_seed=seed,
-                    subset=args.subset,
-                    reduction=args.reduction,
-                    feature_type=args.feature_type,
-                )
+            _, encoded_df, feature_cols, _, _, top_k_values = prepare_benchmark_data(
+                n_seed=args.n_seed,
+                random_seed=seed,
+                subset=args.subset,
+                reduction=args.reduction,
+                feature_type=args.feature_type,
             )
 
             if method == "random":
                 recall, best_val, selected = run_random_budget(
-                    encoded_df, total_budget, seed, top_k_values,
+                    encoded_df,
+                    total_budget,
+                    seed,
+                    top_k_values,
                 )
             else:
                 recall, best_val, selected = run_sobol_budget(
-                    encoded_df, feature_cols, total_budget, seed, top_k_values,
+                    encoded_df,
+                    feature_cols,
+                    total_budget,
+                    seed,
+                    top_k_values,
                 )
 
             elapsed = time.time() - t0

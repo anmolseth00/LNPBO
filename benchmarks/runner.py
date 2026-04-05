@@ -36,6 +36,7 @@ STRATEGY_CONFIGS = {
     "discrete_ngboost_ucb": {"type": "discrete", "surrogate": "ngboost"},
     "discrete_xgb_cqr": {"type": "discrete", "surrogate": "xgb_cqr"},
     "discrete_deep_ensemble": {"type": "discrete", "surrogate": "deep_ensemble"},
+    "discrete_ridge_ucb": {"type": "discrete", "surrogate": "ridge"},
     "discrete_tabpfn": {"type": "discrete", "surrogate": "tabpfn"},
     "discrete_rf_ts_batch": {"type": "discrete_ts_batch", "surrogate": "rf_ucb"},
     "discrete_xgb_ucb_ts_batch": {"type": "discrete_ts_batch", "surrogate": "xgb_ucb"},
@@ -43,9 +44,18 @@ STRATEGY_CONFIGS = {
     "casmopolitan_ucb": {"type": "casmopolitan", "acq_func": "ucb"},
     "casmopolitan_ei": {"type": "casmopolitan", "acq_func": "ei"},
     "lnpbo_gibbon": {"type": "gp", "acq_type": "GIBBON"},
-    "lnpbo_jes": {"type": "gp", "acq_type": "JES"},
     "lnpbo_tanimoto_ts": {"type": "gp", "acq_type": "Tanimoto_TS"},
     "lnpbo_tanimoto_logei": {"type": "gp", "acq_type": "Tanimoto_LogEI"},
+    "lnpbo_aitchison_ts": {"type": "gp", "acq_type": "Aitchison_TS"},
+    "lnpbo_aitchison_logei": {"type": "gp", "acq_type": "Aitchison_LogEI"},
+    "lnpbo_dkl_ts": {"type": "gp", "acq_type": "DKL_TS"},
+    "lnpbo_dkl_logei": {"type": "gp", "acq_type": "DKL_LogEI"},
+    "lnpbo_rf_kernel_ts": {"type": "gp", "acq_type": "RF_Kernel_TS"},
+    "lnpbo_rf_kernel_logei": {"type": "gp", "acq_type": "RF_Kernel_LogEI"},
+    "lnpbo_compositional_ts": {"type": "gp", "acq_type": "Compositional_TS"},
+    "lnpbo_compositional_logei": {"type": "gp", "acq_type": "Compositional_LogEI"},
+    "lnpbo_mixed_logei": {"type": "gp_mixed", "acq_type": "Mixed_LogEI"},
+    "lnpbo_mixed_ts": {"type": "gp_mixed", "acq_type": "Mixed_TS"},
 }
 
 ALL_STRATEGIES = list(STRATEGY_CONFIGS.keys())
@@ -54,6 +64,42 @@ PLS_STRATEGIES = {"lnpbo_pls_logei", "lnpbo_pls_lp_logei"}
 
 # Tanimoto strategies require raw count_mfp fingerprints (no PCA reduction)
 TANIMOTO_STRATEGIES = {"lnpbo_tanimoto_ts", "lnpbo_tanimoto_logei"}
+
+# Aitchison strategies use ratio features on the simplex (no molecular encoding)
+AITCHISON_STRATEGIES = {"lnpbo_aitchison_ts", "lnpbo_aitchison_logei"}
+
+# Compositional product kernel: raw count_mfp (Tanimoto) + ratios (Aitchison) + synth (Matern)
+COMPOSITIONAL_STRATEGIES = {"lnpbo_compositional_ts", "lnpbo_compositional_logei"}
+
+# Mixed discrete-continuous strategies: enumerate ILs + optimize ratios continuously
+MIXED_STRATEGIES = {"lnpbo_mixed_logei", "lnpbo_mixed_ts"}
+
+# GP acquisition type -> (base_acq, batch_strategy, kernel_type) mapping
+ACQ_TYPE_MAP = {
+    "UCB": ("UCB", "kb", "matern"),
+    "EI": ("EI", "kb", "matern"),
+    "LogEI": ("LogEI", "kb", "matern"),
+    "RKB_LogEI": ("LogEI", "rkb", "matern"),
+    "RKB_UCB": ("UCB", "rkb", "matern"),
+    "RKB_EI": ("EI", "rkb", "matern"),
+    "LP_UCB": ("UCB", "lp", "matern"),
+    "LP_EI": ("EI", "lp", "matern"),
+    "LP_LogEI": ("LogEI", "lp", "matern"),
+    "TS_Batch": ("UCB", "ts", "matern"),  # TS ignores acq_type; UCB is placeholder
+    "GIBBON": ("UCB", "gibbon", "matern"),  # info-theoretic; acq_type ignored
+    "Tanimoto_TS": ("UCB", "ts", "tanimoto"),  # Tanimoto kernel + TS batch
+    "Tanimoto_LogEI": ("LogEI", "kb", "tanimoto"),  # Tanimoto kernel + KB-LogEI
+    "Aitchison_TS": ("UCB", "ts", "aitchison"),  # Aitchison simplex kernel + TS batch
+    "Aitchison_LogEI": ("LogEI", "kb", "aitchison"),  # Aitchison simplex kernel + KB-LogEI
+    "DKL_TS": ("UCB", "ts", "dkl"),  # Deep Kernel Learning + TS batch
+    "DKL_LogEI": ("LogEI", "kb", "dkl"),  # Deep Kernel Learning + KB-LogEI
+    "RF_Kernel_TS": ("UCB", "ts", "rf"),  # RF proximity kernel + TS batch
+    "RF_Kernel_LogEI": ("LogEI", "kb", "rf"),  # RF proximity kernel + KB-LogEI
+    "Compositional_TS": ("UCB", "ts", "compositional"),  # Product kernel + TS batch
+    "Compositional_LogEI": ("LogEI", "kb", "compositional"),  # Product kernel + KB-LogEI
+    "Mixed_LogEI": ("LogEI", "kb", "compositional"),  # Mixed discrete-continuous + KB-LogEI
+    "Mixed_TS": ("UCB", "ts", "compositional"),  # Mixed discrete-continuous + TS batch
+}
 
 STRATEGY_DISPLAY = {
     "random": "Random",
@@ -74,6 +120,7 @@ STRATEGY_DISPLAY = {
     "discrete_ngboost_ucb": "Discrete NGBoost-UCB",
     "discrete_xgb_cqr": "Discrete XGB-CQR",
     "discrete_deep_ensemble": "Discrete Deep Ensemble UCB",
+    "discrete_ridge_ucb": "Discrete Ridge UCB",
     "discrete_tabpfn": "Discrete TabPFN-UCB",
     "discrete_rf_ts_batch": "Discrete RF TS-Batch",
     "discrete_xgb_ucb_ts_batch": "Discrete XGB-UCB TS-Batch",
@@ -81,9 +128,18 @@ STRATEGY_DISPLAY = {
     "casmopolitan_ucb": "CASMOPOLITAN (UCB)",
     "casmopolitan_ei": "CASMOPOLITAN (EI)",
     "lnpbo_gibbon": "GP + GIBBON",
-    "lnpbo_jes": "GP + JES",
     "lnpbo_tanimoto_ts": "GP-Tanimoto + TS-Batch",
     "lnpbo_tanimoto_logei": "GP-Tanimoto + KB (LogEI)",
+    "lnpbo_aitchison_ts": "GP-Aitchison + TS-Batch",
+    "lnpbo_aitchison_logei": "GP-Aitchison + KB (LogEI)",
+    "lnpbo_dkl_ts": "DKL-GP + TS-Batch",
+    "lnpbo_dkl_logei": "DKL-GP + KB (LogEI)",
+    "lnpbo_rf_kernel_ts": "GP-RF Kernel + TS-Batch",
+    "lnpbo_rf_kernel_logei": "GP-RF Kernel + KB (LogEI)",
+    "lnpbo_compositional_ts": "GP-Compositional + TS-Batch",
+    "lnpbo_compositional_logei": "GP-Compositional + KB (LogEI)",
+    "lnpbo_mixed_logei": "GP-Mixed + KB (LogEI)",
+    "lnpbo_mixed_ts": "GP-Mixed + TS-Batch",
 }
 
 STRATEGY_COLORS = {
@@ -105,6 +161,7 @@ STRATEGY_COLORS = {
     "discrete_ngboost_ucb": "#4daf4a",
     "discrete_xgb_cqr": "#984ea3",
     "discrete_deep_ensemble": "#8b4513",
+    "discrete_ridge_ucb": "#708090",
     "discrete_tabpfn": "#ff1493",
     "discrete_rf_ts_batch": "#556b2f",
     "discrete_xgb_ucb_ts_batch": "#b8860b",
@@ -112,10 +169,78 @@ STRATEGY_COLORS = {
     "casmopolitan_ucb": "#00ced1",
     "casmopolitan_ei": "#8a2be2",
     "lnpbo_gibbon": "#20b2aa",
-    "lnpbo_jes": "#daa520",
     "lnpbo_tanimoto_ts": "#ff4500",
     "lnpbo_tanimoto_logei": "#6a0dad",
+    "lnpbo_aitchison_ts": "#228b22",
+    "lnpbo_aitchison_logei": "#4682b4",
+    "lnpbo_dkl_ts": "#c71585",
+    "lnpbo_dkl_logei": "#6b8e23",
+    "lnpbo_rf_kernel_ts": "#8b0000",
+    "lnpbo_rf_kernel_logei": "#2e8b57",
+    "lnpbo_compositional_ts": "#b22222",
+    "lnpbo_compositional_logei": "#483d8b",
+    "lnpbo_mixed_logei": "#dc143c",
+    "lnpbo_mixed_ts": "#191970",
 }
+
+
+# ---------------------------------------------------------------------------
+# Warmup seed selection
+# ---------------------------------------------------------------------------
+
+
+def select_warmup_seed(df, warmup_size, selection, random_seed):
+    """Select a warmup seed pool and oracle split from the full dataset.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Encoded dataset with Experiment_value.
+    warmup_size : int
+        Number of formulations in the warmup seed pool.
+    selection : str
+        How to select the warmup pool:
+        - ``"random"``: uniform random sample.
+        - ``"bottom_75"``: sample from the bottom 75th percentile by
+          Experiment_value (mimicking an unlucky first screen).
+    random_seed : int
+        RNG seed for reproducibility.
+
+    Returns
+    -------
+    seed_idx : list[int]
+        Indices into df for the warmup pool.
+    oracle_idx : list[int]
+        Remaining indices (the oracle/candidate pool).
+    """
+    rng = np.random.RandomState(random_seed)
+    all_idx = np.arange(len(df))
+
+    if warmup_size >= len(df):
+        raise ValueError(f"warmup_size ({warmup_size}) >= dataset size ({len(df)})")
+
+    if selection == "random":
+        rng.shuffle(all_idx)
+        seed_idx = sorted(all_idx[:warmup_size])
+    elif selection == "bottom_75":
+        threshold = df["Experiment_value"].quantile(0.75)
+        bottom_mask = df["Experiment_value"] <= threshold
+        bottom_idx = all_idx[bottom_mask]
+        if len(bottom_idx) < warmup_size:
+            seed_idx = sorted(bottom_idx)
+            remaining = warmup_size - len(seed_idx)
+            top_idx = all_idx[~bottom_mask]
+            rng.shuffle(top_idx)
+            seed_idx = sorted(list(seed_idx) + list(top_idx[:remaining]))
+        else:
+            rng.shuffle(bottom_idx)
+            seed_idx = sorted(bottom_idx[:warmup_size])
+    else:
+        raise ValueError(f"Unknown warmup selection: {selection!r}")
+
+    seed_set = set(seed_idx)
+    oracle_idx = sorted([i for i in all_idx if i not in seed_set])
+    return list(seed_idx), oracle_idx
 
 
 # ---------------------------------------------------------------------------
@@ -124,20 +249,50 @@ STRATEGY_COLORS = {
 
 
 class LNPDBOracle:
-    """Wraps the full encoded LNPDB for oracle lookup."""
+    """Oracle that wraps the encoded LNPDB for nearest-neighbor lookup.
+
+    Used in the old GP pipeline (continuous optimization + projection)
+    to match suggested feature vectors back to real formulations in the
+    candidate pool.
+
+    Args:
+        encoded_df: Encoded DataFrame with feature columns and
+            ``Experiment_value``.
+        feature_cols: List of feature column names used for NN matching.
+    """
 
     def __init__(self, encoded_df, feature_cols):
+        """Initialize the oracle with an encoded DataFrame and feature columns."""
         self.df = encoded_df.copy()
         self.feature_cols = feature_cols
         self._nn = None
 
     def _build_nn(self, pool_indices):
+        """Build a 1-nearest-neighbor index on the given pool indices.
+
+        Args:
+            pool_indices: List of DataFrame indices to include in the
+                NN index.
+
+        Returns:
+            Tuple of ``(NearestNeighbors, pool_indices)``.
+        """
         X = self.df.loc[pool_indices, self.feature_cols].values
         nn = NearestNeighbors(n_neighbors=1, metric="euclidean")
         nn.fit(X)
         return nn, pool_indices
 
     def lookup(self, suggestion_features, pool_indices):
+        """Find the nearest formulations in the pool to the suggestions.
+
+        Args:
+            suggestion_features: Array of shape ``(n_suggestions, n_features)``
+                or ``(n_features,)`` with proposed feature vectors.
+            pool_indices: List of DataFrame indices defining the candidate pool.
+
+        Returns:
+            Array of matched DataFrame indices (one per suggestion).
+        """
         nn, idx_list = self._build_nn(pool_indices)
         idx_arr = np.array(idx_list)
         x = np.atleast_2d(suggestion_features)
@@ -146,7 +301,271 @@ class LNPDBOracle:
         return matched_idx
 
     def get_value(self, idx):
+        """Retrieve ``Experiment_value`` for the given indices.
+
+        Args:
+            idx: DataFrame index or array of indices.
+
+        Returns:
+            Array of float experiment values.
+        """
         return self.df.loc[idx, "Experiment_value"].values
+
+
+# ---------------------------------------------------------------------------
+# Feature column classification (for CompositionalProductKernel)
+# ---------------------------------------------------------------------------
+
+
+def classify_feature_columns(feature_cols):
+    """Classify feature columns into fingerprint, ratio, and synthesis groups.
+
+    Returns a dict with ``fp_indices``, ``ratio_indices``, and ``synth_indices``
+    (lists of int column positions) suitable for passing as ``kernel_kwargs``
+    to ``CompositionalProductKernel``.
+
+    Classification rules:
+    - Columns matching encoding prefixes (mfp_pc, count_mfp_pc, rdkit_pc, etc.)
+      are fingerprint features.
+    - Columns ending with ``_molratio`` are compositional ratio features.
+    - Everything else (e.g., ``IL_to_nucleicacid_massratio``) is a synthesis
+      / process parameter.
+    """
+    fp_indices = []
+    ratio_indices = []
+    synth_indices = []
+
+    for i, col in enumerate(feature_cols):
+        if col.endswith("_molratio"):
+            ratio_indices.append(i)
+        elif any(col.startswith(f"{role}_{prefix}") for role in ("IL", "HL", "CHL", "PEG") for prefix in ENC_PREFIXES):
+            fp_indices.append(i)
+        else:
+            synth_indices.append(i)
+
+    return {
+        "fp_indices": fp_indices,
+        "ratio_indices": ratio_indices,
+        "synth_indices": synth_indices,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Online conformal strategy (custom loop, not routed through Optimizer)
+# ---------------------------------------------------------------------------
+
+
+def run_discrete_online_conformal_strategy(
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    alpha=0.1,
+    normalize="copula",
+    encoded_dataset=None,
+    top_k_values=None,
+):
+    """Run a discrete XGBoost strategy with online conformal recalibration.
+
+    Fits XGBoost at each round, uses ``OnlineConformalCalibrator`` to
+    maintain a growing set of residuals and recompute the conformal
+    quantile after each batch evaluation. The adaptive quantile replaces
+    the fixed MAPIE split-conformal interval width, providing tighter
+    uncertainty estimates as more data is observed.
+
+    UCB score = mu + kappa * conformal_quantile
+
+    Coverage and conformal quantile are tracked per round and returned
+    in the history dict.
+
+    Args:
+        encoded_df: Encoded DataFrame with feature columns and
+            ``Experiment_value``.
+        feature_cols: List of feature column names.
+        seed_idx: List of initial seed pool indices.
+        oracle_idx: List of candidate pool indices.
+        batch_size: Number of candidates to acquire per round.
+        n_rounds: Maximum number of acquisition rounds.
+        seed: Integer RNG seed.
+        kappa: UCB exploration weight (default 5.0).
+        alpha: Conformal miscoverage level (default 0.1 for 90%
+            coverage target).
+        normalize: Target normalization method.
+        encoded_dataset: Optional ``Dataset`` for prospective PLS refit.
+        top_k_values: Optional dict for recall tracking.
+
+    Returns:
+        History dict with additional keys ``coverage`` (list of per-round
+        empirical coverage fractions) and ``conformal_quantile`` (list
+        of per-round conformal quantile values).
+
+    References:
+        Deshpande, S., Marx, C., & Kuleshov, V. (2024). "Online
+        Calibrated and Conformal Prediction Improves Bayesian
+        Optimization." AISTATS. arXiv:2112.04620.
+    """
+    import numpy as np
+    from sklearn.preprocessing import MinMaxScaler
+    from xgboost import XGBRegressor
+
+    from LNPBO.optimization._normalize import copula_transform
+    from LNPBO.optimization.online_conformal import OnlineConformalCalibrator
+
+    training_idx = list(seed_idx)
+    pool_idx = list(oracle_idx)
+    history = init_history(encoded_df, training_idx, top_k_values=top_k_values)
+    history["coverage"] = []
+    history["conformal_quantile"] = []
+
+    calibrator = OnlineConformalCalibrator(alpha=alpha)
+
+    for r in range(n_rounds):
+        if len(pool_idx) < batch_size:
+            break
+
+        if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
+            encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
+
+        X_train = encoded_df.loc[training_idx, feature_cols].values
+        y_train_raw = encoded_df.loc[training_idx, "Experiment_value"].values.copy()
+
+        if normalize == "copula":
+            y_train = copula_transform(y_train_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            y_train = (y_train_raw - mu_t) / sigma_t if sigma_t > 0 else y_train_raw.copy()
+        else:
+            y_train = y_train_raw.copy()
+
+        X_pool = encoded_df.loc[pool_idx, feature_cols].values
+
+        scaler = MinMaxScaler()
+        X_train_s = scaler.fit_transform(X_train)
+        X_pool_s = scaler.transform(X_pool)
+
+        model = XGBRegressor(n_estimators=200, random_state=seed + r, n_jobs=1, verbosity=0)
+        model.fit(X_train_s, y_train)
+        mu_pool = model.predict(X_pool_s)
+
+        q = calibrator.get_quantile()
+        if np.isinf(q):
+            scores = mu_pool
+        else:
+            scores = mu_pool + kappa * q
+
+        top_indices = np.argsort(scores)[-batch_size:][::-1]
+        batch_idx = [pool_idx[i] for i in top_indices]
+
+        batch_preds = mu_pool[top_indices]
+
+        batch_true_raw = encoded_df.loc[batch_idx, "Experiment_value"].values
+        if normalize == "copula":
+            batch_true = copula_transform(y_train_raw, x_new=batch_true_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            batch_true = (batch_true_raw - mu_t) / sigma_t if sigma_t > 0 else batch_true_raw.copy()
+        else:
+            batch_true = batch_true_raw.copy()
+
+        calibrator.update(batch_preds, batch_true)
+
+        coverage = calibrator.get_coverage(batch_preds, batch_true)
+        new_q = calibrator.get_quantile()
+        history["coverage"].append(float(coverage))
+        history["conformal_quantile"].append(float(new_q))
+
+        batch_set = set(batch_idx)
+        pool_idx = [i for i in pool_idx if i not in batch_set]
+        training_idx.extend(batch_idx)
+        update_history(history, encoded_df, training_idx, batch_idx, r, top_k_values=top_k_values)
+
+        batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
+        cum_best = history["best_so_far"][-1]
+        print(
+            f"  Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
+            f"coverage={coverage:.2f}, q={new_q:.4f}, n_residuals={calibrator.n_residuals}",
+            flush=True,
+        )
+
+    return history
+
+
+# ---------------------------------------------------------------------------
+# Strategy -> Optimizer kwargs mapping
+# ---------------------------------------------------------------------------
+
+
+def strategy_to_optimizer_kwargs(strategy_name, kernel_kwargs=None):
+    """Map a STRATEGY_CONFIGS entry to Optimizer constructor keyword arguments.
+
+    Returns a dict suitable for ``Optimizer(**kwargs)`` that reproduces the
+    same surrogate, acquisition, batch strategy, and kernel configuration
+    used by the legacy per-family runners.
+
+    Args:
+        strategy_name: Key into ``STRATEGY_CONFIGS``.
+        kernel_kwargs: Optional dict for compositional product kernel
+            (forwarded as ``kernel_kwargs`` to the Optimizer).
+
+    Returns:
+        Dict of Optimizer constructor keyword arguments.
+
+    Raises:
+        ValueError: If the strategy name is unknown or unsupported (e.g.
+            ``"random"`` or ``"discrete_xgb_online_conformal"``).
+    """
+    config = STRATEGY_CONFIGS[strategy_name]
+    stype = config["type"]
+
+    if stype == "random":
+        raise ValueError("random strategy does not use Optimizer")
+    if stype == "discrete_online_conformal":
+        raise ValueError("discrete_xgb_online_conformal has custom logic and does not use Optimizer")
+
+    kwargs = {}
+
+    if stype == "gp":
+        acq_key = config["acq_type"]
+        base_acq, batch_strategy, kt = ACQ_TYPE_MAP[acq_key]
+        kwargs["surrogate_type"] = "gp"
+        kwargs["gp_engine"] = "botorch"
+        kwargs["acquisition_type"] = base_acq
+        kwargs["batch_strategy"] = batch_strategy
+        kwargs["kernel_type"] = kt
+        if kernel_kwargs is not None:
+            kwargs["kernel_kwargs"] = kernel_kwargs
+
+    elif stype == "gp_mixed":
+        acq_key = config["acq_type"]
+        base_acq, batch_strategy, kt = ACQ_TYPE_MAP[acq_key]
+        kwargs["surrogate_type"] = "gp_mixed"
+        kwargs["acquisition_type"] = base_acq
+        kwargs["batch_strategy"] = batch_strategy
+        kwargs["kernel_type"] = kt
+        if kernel_kwargs is not None:
+            kwargs["kernel_kwargs"] = kernel_kwargs
+
+    elif stype in ("discrete", "discrete_ts_batch"):
+        surrogate = config["surrogate"]
+        kwargs["surrogate_type"] = surrogate
+        if stype == "discrete_ts_batch":
+            kwargs["batch_strategy"] = "ts"
+        else:
+            kwargs["batch_strategy"] = "greedy"
+
+    elif stype == "casmopolitan":
+        kwargs["surrogate_type"] = "casmopolitan"
+        acq_func = config.get("acq_func", "ucb")
+        kwargs["acquisition_type"] = acq_func.upper() if acq_func != "ei" else "EI"
+
+    else:
+        raise ValueError(f"Unknown strategy type: {stype!r}")
+
+    return kwargs
 
 
 # ---------------------------------------------------------------------------
@@ -155,18 +574,52 @@ class LNPDBOracle:
 
 
 def prepare_benchmark_data(
-    n_seed=500, random_seed=42, subset=None, reduction="pca", feature_type="mfp",
-    n_pcs=None, context_features=False, fp_radius=None, fp_bits=None, data_df=None,
+    n_seed=500,
+    random_seed=42,
+    subset=None,
+    reduction="pca",
+    feature_type="mfp",
+    n_pcs=None,
+    context_features=False,
+    fp_radius=None,
+    fp_bits=None,
+    data_df=None,
     pca_train_indices=None,
 ):
-    """Load LNPDB, encode, split into seed/oracle.
+    """Load LNPDB, encode molecular features, and split into seed/oracle pools.
 
-    Parameters
-    ----------
-    pca_train_indices : array-like of int, optional
-        Row indices (into data_df) used to fit PCA/scaler. When provided,
-        PCA is fit on these rows only, then applied to the full dataset.
-        Prevents information leakage in study-level holdout benchmarks.
+    Supports a wide range of molecular encodings (Morgan FP, count MFP,
+    RDKit, Mordred, Uni-Mol, CheMeleon, LiON, AGILE, LANTERN composites)
+    with optional PCA or PLS dimensionality reduction. Handles per-role
+    encoding (IL, HL, CHL, PEG) with automatic skip for roles with only
+    one unique component.
+
+    Args:
+        n_seed: Number of formulations in the initial seed pool.
+        random_seed: Integer RNG seed for the train/oracle split.
+        subset: If set, subsample the dataset to this many rows (for
+            fast debugging).
+        reduction: Dimensionality reduction method: ``"pca"``, ``"pls"``,
+            or ``"none"``.
+        feature_type: Molecular encoding type. See CLI ``--feature-type``
+            choices for the full list.
+        n_pcs: Override number of PCA/PLS components per role (default:
+            5 for IL, 3 for helpers; 2048 for raw modes).
+        context_features: If True, append one-hot experimental context
+            columns (cell type, target, route of administration, etc.).
+        fp_radius: Override Morgan fingerprint radius.
+        fp_bits: Override Morgan fingerprint bit length.
+        data_df: Pre-filtered DataFrame to use instead of loading the
+            full LNPDB (used by within-study benchmarks).
+        pca_train_indices: Row indices (into ``data_df``) used to fit
+            PCA/scaler. When provided, PCA is fit on these rows only,
+            then applied to the full dataset. Prevents information
+            leakage in study-level holdout benchmarks.
+
+    Returns:
+        Tuple of ``(encoded_dataset, encoded_df, feature_cols, seed_idx,
+        oracle_idx, top_k_values)`` where ``top_k_values`` maps k (int)
+        to sets of DataFrame indices for the top-k formulations.
     """
     from LNPBO.data.dataset import Dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
@@ -200,6 +653,7 @@ def prepare_benchmark_data(
     print(f"  Experiment_value range: [{df['Experiment_value'].min():.2f}, {df['Experiment_value'].max():.2f}]")
 
     def _should_encode(role, n_pcs):
+        """Return n_pcs if the role has >1 unique component, else 0."""
         smiles_col = f"{role}_SMILES"
         name_col = f"{role}_name"
         if df[name_col].nunique() <= 1:
@@ -223,6 +677,7 @@ def prepare_benchmark_data(
     peg_pcs = _should_encode("PEG", default_pcs if (is_raw or n_pcs is not None) else 3)
 
     def _role_pcs():
+        """Return list of (role, n_pcs) pairs for all four LNP components."""
         return [("IL", il_pcs), ("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]
 
     enc = {}
@@ -260,9 +715,27 @@ def prepare_benchmark_data(
     elif feature_type == "lantern_il_noratios":
         enc["IL"] = {"count_mfp": il_pcs, "rdkit": il_pcs}
         print(f"  LANTERN IL no-ratios: IL={il_pcs} PCs (no molar ratios)")
+    elif feature_type == "lion_il_only":
+        enc["IL"] = {"lion": il_pcs}
+        print(f"  LiON IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "mordred_il_only":
+        enc["IL"] = {"mordred": il_pcs}
+        print(f"  Mordred IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "unimol_il_only":
+        enc["IL"] = {"unimol": il_pcs}
+        print(f"  Uni-Mol IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "mfp_il_only":
+        enc["IL"] = {"mfp": il_pcs}
+        print(f"  Morgan FP IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "count_mfp_il_only":
+        enc["IL"] = {"count_mfp": il_pcs}
+        print(f"  Count MFP IL-only: IL={il_pcs} PCs (helpers get ratios only)")
     elif is_chemeleon_il_only:
         enc["IL"] = {"chemeleon": il_pcs}
         print(f"  CheMeleon IL-only: IL={il_pcs} PCs (helpers get ratios only)")
+    elif feature_type == "agile_il_only":
+        enc["IL"] = {"agile": il_pcs}
+        print(f"  AGILE IL-only: IL={il_pcs} PCs (helpers get ratios only)")
     elif is_chemeleon_helper_only:
         for role, n in [("HL", hl_pcs), ("CHL", chl_pcs), ("PEG", peg_pcs)]:
             enc[role] = {"chemeleon": n}
@@ -270,8 +743,14 @@ def prepare_benchmark_data(
     else:
         base_type = feature_type.replace("raw_", "")
         enc_key = {
-            "mfp": "mfp", "mordred": "mordred", "unimol": "unimol",
-            "count_mfp": "count_mfp", "rdkit": "rdkit", "chemeleon": "chemeleon",
+            "mfp": "mfp",
+            "mordred": "mordred",
+            "unimol": "unimol",
+            "count_mfp": "count_mfp",
+            "rdkit": "rdkit",
+            "chemeleon": "chemeleon",
+            "lion": "lion",
+            "agile": "agile",
         }[base_type]
         for role, n in _role_pcs():
             enc[role] = {enc_key: n}
@@ -290,10 +769,13 @@ def prepare_benchmark_data(
             train_df = df.iloc[pca_train_indices].copy()
             train_dataset = Dataset(train_df, source="lnpdb", name="LNPDB_pca_fit")
             train_encoded = train_dataset.encode_dataset(
-                enc, reduction=effective_reduction, **fp_kw,
+                enc,
+                reduction=effective_reduction,
+                **fp_kw,
             )
             encoded = dataset.encode_dataset(
-                enc, reduction=effective_reduction,
+                enc,
+                reduction=effective_reduction,
                 fitted_transformers_in=train_encoded.fitted_transformers,
                 **fp_kw,
             )
@@ -363,26 +845,78 @@ def prepare_benchmark_data(
 # ---------------------------------------------------------------------------
 
 
-def init_history(df, seed_idx):
+def init_history(df, seed_idx, top_k_values=None):
+    """Initialize a history dict from the seed pool.
+
+    Records the initial best value, evaluation count, and (optionally)
+    per-round top-k recall from the seed pool alone.
+
+    Args:
+        df: Encoded DataFrame with ``Experiment_value``.
+        seed_idx: List of indices in ``df`` forming the initial seed pool.
+        top_k_values: Optional dict mapping k (int) to sets of top-k
+            indices. If provided, recall is tracked per round.
+
+    Returns:
+        History dict with keys ``best_so_far``, ``round_best``,
+        ``n_evaluated``, ``all_evaluated``, and optionally
+        ``per_round_recall``.
+    """
     seed_vals = df.loc[seed_idx, "Experiment_value"]
-    return {
+    history = {
         "best_so_far": [float(seed_vals.max())],
         "round_best": [],
         "n_evaluated": [len(seed_idx)],
         "all_evaluated": set(seed_idx),
     }
+    if top_k_values is not None:
+        history["per_round_recall"] = {}
+        for k, top_set in top_k_values.items():
+            found = len(set(seed_idx) & top_set)
+            history["per_round_recall"][k] = [found / len(top_set)]
+    return history
 
 
-def update_history(history, df, training_idx, batch_idx, round_num):
+def update_history(history, df, training_idx, batch_idx, round_num, top_k_values=None):
+    """Append one round's results to the history dict.
+
+    Args:
+        history: History dict from ``init_history``.
+        df: Encoded DataFrame with ``Experiment_value``.
+        training_idx: Full list of indices evaluated so far (seed + all
+            acquired batches).
+        batch_idx: List of indices acquired in this round.
+        round_num: Zero-indexed round number.
+        top_k_values: Optional dict mapping k to top-k index sets for
+            recall tracking.
+    """
     batch_vals = df.loc[batch_idx, "Experiment_value"]
     all_vals = df.loc[training_idx, "Experiment_value"]
     history["best_so_far"].append(float(all_vals.max()))
     history["round_best"].append(float(batch_vals.max()))
     history["n_evaluated"].append(len(training_idx))
     history["all_evaluated"].update(batch_idx)
+    if top_k_values is not None and "per_round_recall" in history:
+        for k, top_set in top_k_values.items():
+            found = len(history["all_evaluated"] & top_set)
+            history["per_round_recall"][k].append(found / len(top_set))
 
 
 def compute_metrics(history, top_k_values, n_total):
+    """Compute final evaluation metrics from a completed benchmark history.
+
+    Args:
+        history: History dict with ``best_so_far``, ``n_evaluated``,
+            ``all_evaluated``, and optionally ``per_round_recall``.
+        top_k_values: Dict mapping k (int) to sets of top-k indices.
+        n_total: Total number of formulations in the study.
+
+    Returns:
+        Dict with keys ``final_best``, ``auc`` (area under the
+        best-so-far curve, normalized by evaluation budget), ``top_k_recall``
+        (dict of recall fractions), ``n_rounds``, ``n_total_evaluated``,
+        and optionally ``per_round_recall``.
+    """
     bsf = np.array(history["best_so_far"])
     n_eval = np.array(history["n_evaluated"])
     evaluated = history["all_evaluated"]
@@ -396,20 +930,41 @@ def compute_metrics(history, top_k_values, n_total):
 
     final_best = bsf[-1]
 
-    return {
+    result = {
         "final_best": float(final_best),
         "auc": auc,
         "top_k_recall": recall,
         "n_rounds": len(bsf) - 1,
         "n_total_evaluated": int(n_eval[-1]),
     }
+    if "per_round_recall" in history:
+        result["per_round_recall"] = {str(k): v for k, v in history["per_round_recall"].items()}
+    return result
 
 
-def _run_random(df, seed_idx, oracle_idx, batch_size, n_rounds, seed):
+def _run_random(df, seed_idx, oracle_idx, batch_size, n_rounds, seed, top_k_values=None):
+    """Run the random baseline strategy (uniform random acquisition).
+
+    At each round, selects ``batch_size`` candidates uniformly at random
+    from the remaining oracle pool without replacement.
+
+    Args:
+        df: Encoded DataFrame with ``Experiment_value``.
+        seed_idx: List of initial seed pool indices.
+        oracle_idx: List of candidate pool indices.
+        batch_size: Number of candidates to acquire per round.
+        n_rounds: Maximum number of acquisition rounds.
+        seed: Integer RNG seed.
+        top_k_values: Optional dict mapping k to top-k index sets for
+            recall tracking.
+
+    Returns:
+        History dict (same structure as ``init_history``).
+    """
     rng = np.random.RandomState(seed)
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
-    history = init_history(df, training_idx)
+    history = init_history(df, training_idx, top_k_values=top_k_values)
     for r in range(n_rounds):
         if len(pool_idx) < batch_size:
             break
@@ -418,7 +973,7 @@ def _run_random(df, seed_idx, oracle_idx, batch_size, n_rounds, seed):
         pool_set = set(batch_idx)
         pool_idx = [i for i in pool_idx if i not in pool_set]
         training_idx.extend(batch_idx)
-        update_history(history, df, training_idx, batch_idx, r)
+        update_history(history, df, training_idx, batch_idx, r, top_k_values=top_k_values)
     return history
 
 
@@ -428,6 +983,16 @@ def _run_random(df, seed_idx, oracle_idx, batch_size, n_rounds, seed):
 
 
 def plot_results(all_results, output_path="benchmark_output.png"):
+    """Generate a two-panel benchmark summary figure.
+
+    Panel A: Best-so-far convergence curves for all strategies.
+    Panel B: Top-k recall bar chart comparing strategies at each k.
+
+    Args:
+        all_results: Dict mapping strategy name to result dict with
+            ``history`` and ``metrics`` keys.
+        output_path: File path for the saved PNG figure (300 dpi).
+    """
     try:
         import matplotlib
 
@@ -497,6 +1062,12 @@ def plot_results(all_results, output_path="benchmark_output.png"):
 
 
 def main():
+    """CLI entry point for the standalone benchmark runner.
+
+    Parses command-line arguments, loads and encodes the dataset, runs
+    each requested strategy, prints a summary table, saves results to
+    JSON, and optionally generates a summary plot.
+    """
     parser = argparse.ArgumentParser(
         description="LNPBO Benchmark: Simulated closed-loop BO evaluation",
     )
@@ -531,13 +1102,41 @@ def main():
         "--feature-type",
         type=str,
         default="mfp",
-        choices=["mfp", "mordred", "unimol", "count_mfp", "rdkit", "chemeleon",
-                 "raw_mfp", "raw_unimol", "raw_count_mfp", "raw_rdkit", "raw_chemeleon",
-                 "concat", "raw_concat", "lantern", "raw_lantern",
-                 "lantern_unimol", "raw_lantern_unimol",
-                 "lantern_mordred", "raw_lantern_mordred",
-                 "lantern_il_only", "lantern_il_hl", "lantern_il_noratios",
-                 "chemeleon_il_only", "chemeleon_helper_only", "ratios_only"],
+        choices=[
+            "mfp",
+            "mordred",
+            "unimol",
+            "count_mfp",
+            "rdkit",
+            "chemeleon",
+            "lion",
+            "raw_mfp",
+            "raw_unimol",
+            "raw_count_mfp",
+            "raw_rdkit",
+            "raw_chemeleon",
+            "concat",
+            "raw_concat",
+            "lantern",
+            "raw_lantern",
+            "lantern_unimol",
+            "raw_lantern_unimol",
+            "lantern_mordred",
+            "raw_lantern_mordred",
+            "lantern_il_only",
+            "lantern_il_hl",
+            "lantern_il_noratios",
+            "lion_il_only",
+            "mordred_il_only",
+            "unimol_il_only",
+            "mfp_il_only",
+            "count_mfp_il_only",
+            "chemeleon_il_only",
+            "chemeleon_helper_only",
+            "agile",
+            "agile_il_only",
+            "ratios_only",
+        ],
         help="Feature type (default: mfp).",
     )
     parser.add_argument("--n-pcs", type=int, default=None, help="Override PCA/PLS components per role")
@@ -554,11 +1153,15 @@ def main():
         help="Include one-hot experimental context (cell type, target, RoA, etc.)",
     )
     parser.add_argument(
-        "--fp-radius", type=int, default=None,
+        "--fp-radius",
+        type=int,
+        default=None,
         help="Morgan FP radius (default: 3 for mfp, 3 for count_mfp)",
     )
     parser.add_argument(
-        "--fp-bits", type=int, default=None,
+        "--fp-bits",
+        type=int,
+        default=None,
         help="Morgan FP bit size (default: 1024 for mfp, 2048 for count_mfp)",
     )
     args = parser.parse_args()
@@ -625,6 +1228,31 @@ def main():
             context_features=args.context_features,
         )
 
+    aitchison_data = None
+    if any(s in AITCHISON_STRATEGIES for s in strategies):
+        aitchison_data = prepare_benchmark_data(
+            n_seed=args.n_seeds,
+            random_seed=args.seed,
+            subset=args.subset,
+            reduction="none",
+            feature_type="ratios_only",
+            context_features=args.context_features,
+        )
+
+    compositional_data = None
+    compositional_kernel_kwargs = None
+    if any(s in COMPOSITIONAL_STRATEGIES or s in MIXED_STRATEGIES for s in strategies):
+        compositional_data = prepare_benchmark_data(
+            n_seed=args.n_seeds,
+            random_seed=args.seed,
+            subset=args.subset,
+            reduction="pca",
+            feature_type="lantern",
+            context_features=args.context_features,
+        )
+        _, _comp_df, comp_fcols, _, _, _ = compositional_data
+        compositional_kernel_kwargs = classify_feature_columns(comp_fcols)
+
     # Run strategies
     all_results = {}
     for strategy in strategies:
@@ -633,7 +1261,11 @@ def main():
         print(f"{'=' * 70}")
         t0 = time.time()
 
-        if strategy in TANIMOTO_STRATEGIES and tanimoto_data is not None:
+        if (strategy in COMPOSITIONAL_STRATEGIES or strategy in MIXED_STRATEGIES) and compositional_data is not None:
+            s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = compositional_data
+        elif strategy in AITCHISON_STRATEGIES and aitchison_data is not None:
+            s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = aitchison_data
+        elif strategy in TANIMOTO_STRATEGIES and tanimoto_data is not None:
             s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = tanimoto_data
         elif strategy in PLS_STRATEGIES and pls_data is not None:
             s_dataset, s_df, s_fcols, s_seed, s_oracle, s_topk = pls_data
@@ -643,49 +1275,47 @@ def main():
         config = STRATEGY_CONFIGS[strategy]
         if config["type"] == "random":
             history = _run_random(s_df, s_seed, s_oracle, args.batch_size, args.rounds, args.seed)
-        elif config["type"] == "discrete":
-            from ._discrete_common import run_discrete_strategy
-            history = run_discrete_strategy(
-                s_df, s_fcols, s_seed, s_oracle,
-                surrogate=config["surrogate"], batch_size=args.batch_size,
-                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
-                normalize=args.normalize, encoded_dataset=s_dataset,
-            )
-        elif config["type"] == "discrete_ts_batch":
-            from ._discrete_common import run_discrete_ts_batch_strategy
-            history = run_discrete_ts_batch_strategy(
-                s_df, s_fcols, s_seed, s_oracle,
-                surrogate=config["surrogate"], batch_size=args.batch_size,
-                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
-                normalize=args.normalize, encoded_dataset=s_dataset,
-            )
         elif config["type"] == "discrete_online_conformal":
-            from ._discrete_common import run_discrete_online_conformal_strategy
             history = run_discrete_online_conformal_strategy(
-                s_df, s_fcols, s_seed, s_oracle,
+                s_df,
+                s_fcols,
+                s_seed,
+                s_oracle,
                 batch_size=args.batch_size,
-                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
-                normalize=args.normalize, encoded_dataset=s_dataset,
-            )
-        elif config["type"] == "casmopolitan":
-            from LNPBO.optimization.casmopolitan import run_casmopolitan_strategy
-            history = run_casmopolitan_strategy(
-                s_df, s_fcols, s_seed, s_oracle,
-                batch_size=args.batch_size,
-                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
+                n_rounds=args.rounds,
+                seed=args.seed,
+                kappa=args.kappa,
                 normalize=args.normalize,
-                acq_func=config.get("acq_func", "ucb"),
-            )
-        elif config["type"] == "gp":
-            from ._gp_bo_common import run_gp_strategy
-            history = run_gp_strategy(
-                s_dataset, s_df, s_fcols, s_seed, s_oracle,
-                acq_type=config["acq_type"], batch_size=args.batch_size,
-                n_rounds=args.rounds, seed=args.seed, kappa=args.kappa,
-                xi=args.xi, normalize=args.normalize,
+                encoded_dataset=s_dataset,
             )
         else:
-            raise ValueError(f"Unknown strategy type: {config['type']!r}")
+            from LNPBO.optimization.optimizer import Optimizer
+
+            from ._optimizer_runner import OptimizerRunner
+
+            gp_kernel_kwargs = None
+            if strategy in COMPOSITIONAL_STRATEGIES or strategy in MIXED_STRATEGIES:
+                gp_kernel_kwargs = compositional_kernel_kwargs
+            opt_kwargs = strategy_to_optimizer_kwargs(strategy, kernel_kwargs=gp_kernel_kwargs)
+            optimizer = Optimizer(
+                random_seed=args.seed,
+                kappa=args.kappa,
+                xi=args.xi,
+                normalize=args.normalize,
+                batch_size=args.batch_size,
+                **opt_kwargs,
+            )
+            runner = OptimizerRunner(optimizer)
+            history = runner.run(
+                s_df,
+                s_fcols,
+                s_seed,
+                s_oracle,
+                n_rounds=args.rounds,
+                batch_size=args.batch_size,
+                encoded_dataset=s_dataset,
+                top_k_values=s_topk,
+            )
 
         elapsed = time.time() - t0
         metrics = compute_metrics(history, s_topk, len(s_df))

@@ -29,12 +29,19 @@ from LNPBO.benchmarks.runner import (
 )
 from LNPBO.optimization._normalize import copula_transform
 
-SEEDS = [42, 123, 456, 789, 2024]
+from ..constants import SEEDS
 
 
 def run_xgb_random_acq(
-    encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values,
-    batch_size, n_rounds, seed, normalize="copula",
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    top_k_values,
+    batch_size,
+    n_rounds,
+    seed,
+    normalize="copula",
 ):
     """XGBoost surrogate with random acquisition (no greedy selection)."""
     from xgboost import XGBRegressor
@@ -63,7 +70,10 @@ def run_xgb_random_acq(
 
         # Fit surrogate (same as discrete_xgb_greedy)
         model = XGBRegressor(
-            n_estimators=200, random_state=seed + r, n_jobs=-1, verbosity=0,
+            n_estimators=200,
+            random_state=seed + r,
+            n_jobs=-1,
+            verbosity=0,
         )
         model.fit(X_train_s, y_train)
 
@@ -79,8 +89,7 @@ def run_xgb_random_acq(
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
         print(
-            f"  Round {r+1}: batch_best={batch_best:.3f}, "
-            f"cum_best={cum_best:.3f}",
+            f"  Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}",
             flush=True,
         )
 
@@ -97,17 +106,16 @@ def main():
     parser.add_argument("--subset", type=int, default=None)
     parser.add_argument("--feature-type", type=str, default="lantern_il_only")
     parser.add_argument("--reduction", type=str, default="pca")
-    parser.add_argument("--normalize", type=str, default="copula",
-                        choices=["none", "zscore", "copula"])
+    parser.add_argument("--normalize", type=str, default="copula", choices=["none", "zscore", "copula"])
     args = parser.parse_args()
 
     results_dir = Path(__file__).resolve().parent.parent.parent / "benchmark_results"
     results_dir.mkdir(exist_ok=True)
 
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
     print("XGB Random-Acquisition Ablation")
     print(f"n_seed={args.n_seed}, batch={args.batch_size}, rounds={args.rounds}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     seed_metrics = []
     seed_details = {}
@@ -116,19 +124,24 @@ def main():
         print(f"\n--- Seed {seed} ---")
         t0 = time.time()
 
-        _, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = (
-            prepare_benchmark_data(
-                n_seed=args.n_seed,
-                random_seed=seed,
-                subset=args.subset,
-                reduction=args.reduction,
-                feature_type=args.feature_type,
-            )
+        _, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
+            n_seed=args.n_seed,
+            random_seed=seed,
+            subset=args.subset,
+            reduction=args.reduction,
+            feature_type=args.feature_type,
         )
 
         history = run_xgb_random_acq(
-            encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values,
-            args.batch_size, args.rounds, seed, normalize=args.normalize,
+            encoded_df,
+            feature_cols,
+            seed_idx,
+            oracle_idx,
+            top_k_values,
+            args.batch_size,
+            args.rounds,
+            seed,
+            normalize=args.normalize,
         )
         metrics = compute_metrics(history, top_k_values, len(encoded_df))
         elapsed = time.time() - t0

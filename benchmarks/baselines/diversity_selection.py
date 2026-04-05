@@ -31,12 +31,17 @@ from LNPBO.benchmarks.runner import (
     update_history,
 )
 
-SEEDS = [42, 123, 456, 789, 2024]
+from ..constants import SEEDS
 
 
 def run_diversity_selection(
-    encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values,
-    batch_size, n_rounds,
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    top_k_values,
+    batch_size,
+    n_rounds,
 ):
     """Greedy maximin diversity selection at each round."""
     training_idx = list(seed_idx)
@@ -76,12 +81,15 @@ def run_diversity_selection(
             if remaining_pool and b < batch_size - 1:
                 new_point = X_pool[best_local].reshape(1, -1)
                 dist_to_new = pairwise_distances(
-                    X_pool[remaining_pool], new_point, metric="euclidean",
+                    X_pool[remaining_pool],
+                    new_point,
+                    metric="euclidean",
                 ).ravel()
                 # Update min_dist for remaining candidates
                 for i, pool_local_idx in enumerate(remaining_pool):
                     min_dist[pool_local_idx] = min(
-                        min_dist[pool_local_idx], dist_to_new[i],
+                        min_dist[pool_local_idx],
+                        dist_to_new[i],
                     )
 
         batch_idx = [pool_idx[i] for i in selected_in_round]
@@ -93,8 +101,7 @@ def run_diversity_selection(
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
         print(
-            f"  Round {r+1}: batch_best={batch_best:.3f}, "
-            f"cum_best={cum_best:.3f}",
+            f"  Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}",
             flush=True,
         )
 
@@ -114,10 +121,10 @@ def main():
     results_dir = Path(__file__).resolve().parent.parent.parent / "benchmark_results"
     results_dir.mkdir(exist_ok=True)
 
-    print(f"{'='*70}")
-    print(f"Diversity Selection Baseline (Greedy Maximin)")
+    print(f"{'=' * 70}")
+    print("Diversity Selection Baseline (Greedy Maximin)")
     print(f"n_seed={args.n_seed}, batch={args.batch_size}, rounds={args.rounds}")
-    print(f"{'='*70}")
+    print(f"{'=' * 70}")
 
     seed_metrics = []
     seed_details = {}
@@ -126,19 +133,22 @@ def main():
         print(f"\n--- Seed {seed} ---")
         t0 = time.time()
 
-        _, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = (
-            prepare_benchmark_data(
-                n_seed=args.n_seed,
-                random_seed=seed,
-                subset=args.subset,
-                reduction=args.reduction,
-                feature_type=args.feature_type,
-            )
+        _, encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values = prepare_benchmark_data(
+            n_seed=args.n_seed,
+            random_seed=seed,
+            subset=args.subset,
+            reduction=args.reduction,
+            feature_type=args.feature_type,
         )
 
         history = run_diversity_selection(
-            encoded_df, feature_cols, seed_idx, oracle_idx, top_k_values,
-            args.batch_size, args.rounds,
+            encoded_df,
+            feature_cols,
+            seed_idx,
+            oracle_idx,
+            top_k_values,
+            args.batch_size,
+            args.rounds,
         )
         metrics = compute_metrics(history, top_k_values, len(encoded_df))
         elapsed = time.time() - t0
@@ -181,7 +191,7 @@ def main():
         "seed_results": seed_details,
     }
 
-    print(f"\n--- Summary ---")
+    print("\n--- Summary ---")
     for k in [10, 50, 100]:
         r = recall_arrays[k]
         print(f"  Top-{k}: {r['mean']:.1%} +/- {r['std']:.1%}")

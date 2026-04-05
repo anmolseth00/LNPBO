@@ -13,14 +13,11 @@ Seven hypotheses tested:
   H7: Study-conditional performance (where GPs win)
 """
 
-import json
-import os
-import sys
-from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
@@ -32,70 +29,32 @@ BASE = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_st
 OUT = BASE / "gap_analysis"
 OUT.mkdir(exist_ok=True)
 
-SEEDS = [42, 123, 456, 789, 2024]
+from .constants import SEEDS
+from .stats import benjamini_hochberg
+from .strategy_registry import FAMILY_COLORS, STRATEGY_FAMILIES, strategy_to_family
 
-STRATEGY_FAMILIES = {
-    "LNPBO (GP)": [
-        "lnpbo_ucb", "lnpbo_ei", "lnpbo_logei",
-        "lnpbo_lp_ei", "lnpbo_lp_logei",
-        "lnpbo_pls_logei", "lnpbo_pls_lp_logei",
-        "lnpbo_rkb_logei", "lnpbo_ts_batch", "lnpbo_gibbon", "lnpbo_jes",
-    ],
-    "RF": ["discrete_rf_ucb", "discrete_rf_ts", "discrete_rf_ts_batch"],
-    "XGBoost": [
-        "discrete_xgb_ucb", "discrete_xgb_greedy", "discrete_xgb_cqr",
-        "discrete_xgb_online_conformal", "discrete_xgb_ucb_ts_batch",
-    ],
-    "NGBoost": ["discrete_ngboost_ucb"],
-    "Deep Ensemble": ["discrete_deep_ensemble"],
-    "GP (sklearn)": ["discrete_gp_ucb"],
-    "CASMOPolitan": ["casmopolitan_ei", "casmopolitan_ucb"],
-    "Random": ["random"],
-}
-
-FAMILY_COLORS = {
-    "LNPBO (GP)": "#1f77b4",
-    "RF": "#2ca02c",
-    "XGBoost": "#d62728",
-    "NGBoost": "#ff7f0e",
-    "Deep Ensemble": "#9467bd",
-    "GP (sklearn)": "#8c564b",
-    "CASMOPolitan": "#e377c2",
-    "Random": "#7f7f7f",
-}
+# Collect hypothesis p-values for BH-FDR correction at end
+_hypothesis_pvals = []  # list of (label, p_value)
 
 TREE_FAMILIES = ["RF", "XGBoost", "NGBoost"]
 
-def strategy_to_family(strat):
-    for fam, strats in STRATEGY_FAMILIES.items():
-        if strat in strats:
-            return fam
-    return None
 
 # ---------------------------------------------------------------------------
 # Load all data
 # ---------------------------------------------------------------------------
+from .result_loading import load_benchmark_results
+
 print("=" * 80)
 print("LOADING DATA")
 print("=" * 80)
 
-records = []
-pmid_dirs = [d for d in BASE.iterdir() if d.is_dir() and d.name != "gap_analysis"]
-
-for pdir in sorted(pmid_dirs):
-    for jf in sorted(pdir.glob("*.json")):
-        try:
-            d = json.loads(jf.read_text())
-        except Exception:
-            continue
-        records.append(d)
-
-print(f"Loaded {len(records)} result files from {len(pmid_dirs)} studies")
+records = load_benchmark_results(BASE)
+print(f"Loaded {len(records)} result files")
 
 # Build structured data
 data = {}
 for r in records:
-    pmid = str(int(r["pmid"]))
+    pmid = r.get("study_id", str(int(r["pmid"])))
     strat = r["strategy"]
     seed = r["seed"]
     data[(pmid, strat, seed)] = r
@@ -128,6 +87,7 @@ for pmid in pmids:
     n = study_info[pmid]["n_formulations"]
     print(f"  {pmid}: {nr} rounds, {n} formulations")
 
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -142,6 +102,7 @@ def get_recall(strat, pmid_list=None):
                 vals.append(data[key]["result"]["metrics"]["top_k_recall"]["5"])
     return np.array(vals)
 
+
 def get_family_recall(family, pmid_list=None):
     if pmid_list is None:
         pmid_list = pmids
@@ -153,6 +114,7 @@ def get_family_recall(family, pmid_list=None):
                 if key in data:
                     vals.append(data[key]["result"]["metrics"]["top_k_recall"]["5"])
     return np.array(vals)
+
 
 def get_family_recall_by_study(family, pmid_list=None):
     if pmid_list is None:
@@ -168,6 +130,7 @@ def get_family_recall_by_study(family, pmid_list=None):
         if vals:
             result[pmid] = np.mean(vals)
     return result
+
 
 def get_strategy_recall_by_study(strat, pmid_list=None):
     if pmid_list is None:
@@ -193,11 +156,11 @@ print("=" * 80)
 print(f"{'Family':<20} {'Mean':>8} {'Std':>8} {'Lift':>8} {'N':>6}")
 print("-" * 54)
 random_mean = np.mean(get_family_recall("Random"))
-for fam in ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble",
-            "GP (sklearn)", "LNPBO (GP)", "Random"]:
+for fam in ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]:
     vals = get_family_recall(fam)
-    print(f"{fam:<20} {np.mean(vals):>8.3f} {np.std(vals):>8.3f} "
-          f"{np.mean(vals)/random_mean:>7.2f}x {len(vals):>6}")
+    if len(vals) == 0:
+        continue
+    print(f"{fam:<20} {np.mean(vals):>8.3f} {np.std(vals):>8.3f} {np.mean(vals) / random_mean:>7.2f}x {len(vals):>6}")
 
 
 # ========================================================================
@@ -211,6 +174,7 @@ print("=" * 80)
 # of total rounds (0.0 = seed, 1.0 = final round) and interpolate.
 
 N_INTERP = 16  # interpolation grid points
+
 
 def get_normalized_bsf_curves(family):
     """Get best_so_far curves normalized to [0,1] in round fraction.
@@ -266,6 +230,7 @@ def get_round_best_by_frac(family):
 full_round_pmids = [p for p in pmids if study_n_rounds.get(p, 0) == 15]
 print(f"\nStudies with 15 rounds: {len(full_round_pmids)}/{len(pmids)}")
 
+
 def get_bsf_curves_fixed(family, pmid_list):
     """Get best_so_far curves for studies with identical round counts (15 rounds = 16 entries)."""
     curves = []
@@ -293,14 +258,12 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Random"]:
     se = np.std(curves, axis=0) / np.sqrt(len(curves))
     rounds = np.arange(16)
     color = FAMILY_COLORS[fam]
-    ax.plot(rounds, mc, '-o', markersize=3, label=f"{fam} (n={len(curves)})",
-            color=color, linewidth=1.5)
+    ax.plot(rounds, mc, "-o", markersize=3, label=f"{fam} (n={len(curves)})", color=color, linewidth=1.5)
     ax.fill_between(rounds, mc - se, mc + se, alpha=0.15, color=color)
 
 ax.set_xlabel("Round (0=seed)", fontsize=11)
 ax.set_ylabel("Best z-score so far (mean)", fontsize=11)
-ax.set_title("A. Convergence: best value found (15-round studies)",
-            fontsize=12, fontweight="bold")
+ax.set_title("A. Convergence: best value found (15-round studies)", fontsize=12, fontweight="bold")
 ax.legend(fontsize=8)
 ax.grid(True, alpha=0.3)
 
@@ -309,7 +272,7 @@ ax = axes[1]
 for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Random"]:
     grid, mean_c, sem_c, _ = get_normalized_bsf_curves(fam)
     color = FAMILY_COLORS[fam]
-    ax.plot(grid, mean_c, '-o', markersize=2, label=fam, color=color, linewidth=1.5)
+    ax.plot(grid, mean_c, "-o", markersize=2, label=fam, color=color, linewidth=1.5)
     ax.fill_between(grid, mean_c - sem_c, mean_c + sem_c, alpha=0.15, color=color)
 
 ax.set_xlabel("Fraction of total rounds", fontsize=11)
@@ -332,8 +295,7 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Random"]:
     if len(curves) == 0:
         continue
     mc = np.mean(curves, axis=0)
-    print(f"{fam:<20} {mc[0]:>10.3f} {mc[5]:>10.3f} {mc[10]:>10.3f} "
-          f"{mc[15]:>10.3f} {mc[15]-mc[0]:>10.3f}")
+    print(f"{fam:<20} {mc[0]:>10.3f} {mc[5]:>10.3f} {mc[10]:>10.3f} {mc[15]:>10.3f} {mc[15] - mc[0]:>10.3f}")
 
 print("\nImprovement rates (15-round studies):")
 print(f"{'Family':<20} {'Early (R0-R5)/rnd':>18} {'Late (R5-R15)/rnd':>18} {'Ratio':>10}")
@@ -346,7 +308,7 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]:
     late = (curves[:, 15] - curves[:, 5]) / 10
     me = np.mean(early)
     ml = np.mean(late)
-    ratio = ml / me if abs(me) > 1e-8 else float('inf')
+    ratio = ml / me if abs(me) > 1e-8 else float("inf")
     print(f"{fam:<20} {me:>18.4f} {ml:>18.4f} {ratio:>10.3f}")
 
 
@@ -400,12 +362,16 @@ tree_lifts = np.array(tree_lifts)
 
 r_gap, p_gap = stats.pearsonr(sizes, gaps)
 r_gap_s, p_gap_s = stats.spearmanr(sizes, gaps)
-print(f"\nCorrelation: study size vs (tree - GP) gap in recall:")
+_hypothesis_pvals.append(("H2: size-gap Pearson", float(p_gap)))
+_hypothesis_pvals.append(("H2: size-gap Spearman", float(p_gap_s)))
+print("\nCorrelation: study size vs (tree - GP) gap in recall:")
 print(f"  Pearson  r = {r_gap:.3f}, p = {p_gap:.4f}")
 print(f"  Spearman r = {r_gap_s:.3f}, p = {p_gap_s:.4f}")
 
 r_gp, p_gp = stats.pearsonr(sizes, gp_lifts)
 r_tree, p_tree = stats.pearsonr(sizes, tree_lifts)
+_hypothesis_pvals.append(("H2: GP lift-size", float(p_gp)))
+_hypothesis_pvals.append(("H2: Tree lift-size", float(p_tree)))
 print(f"\nGP lift vs size:   Pearson r = {r_gp:.3f}, p = {p_gp:.4f}")
 print(f"Tree lift vs size: Pearson r = {r_tree:.3f}, p = {p_tree:.4f}")
 
@@ -413,18 +379,24 @@ median_size = np.median(sizes)
 small_mask = sizes <= median_size
 large_mask = sizes > median_size
 print(f"\nMedian study size: {median_size:.0f}")
-print(f"  Small studies (n <= {median_size:.0f}): GP gap = {np.mean(gaps[small_mask]):.3f}, "
-      f"GP lift = {np.mean(gp_lifts[small_mask]):.2f}x, Tree lift = {np.mean(tree_lifts[small_mask]):.2f}x")
-print(f"  Large studies (n > {median_size:.0f}):  GP gap = {np.mean(gaps[large_mask]):.3f}, "
-      f"GP lift = {np.mean(gp_lifts[large_mask]):.2f}x, Tree lift = {np.mean(tree_lifts[large_mask]):.2f}x")
+print(
+    f"  Small studies (n <= {median_size:.0f}): GP gap = {np.mean(gaps[small_mask]):.3f}, "
+    f"GP lift = {np.mean(gp_lifts[small_mask]):.2f}x, Tree lift = {np.mean(tree_lifts[small_mask]):.2f}x"
+)
+print(
+    f"  Large studies (n > {median_size:.0f}):  GP gap = {np.mean(gaps[large_mask]):.3f}, "
+    f"GP lift = {np.mean(gp_lifts[large_mask]):.2f}x, Tree lift = {np.mean(tree_lifts[large_mask]):.2f}x"
+)
 
 # Also test by study type
 for stype in sorted(set(study_types_list)):
     mask_t = np.array([t == stype for t in study_types_list])
     if mask_t.sum() > 1:
         print(f"\n  {stype} ({mask_t.sum()} studies):")
-        print(f"    GP gap: mean={np.mean(gaps[mask_t]):.3f}, "
-              f"GP lift={np.mean(gp_lifts[mask_t]):.2f}x, Tree lift={np.mean(tree_lifts[mask_t]):.2f}x")
+        print(
+            f"    GP gap: mean={np.mean(gaps[mask_t]):.3f}, "
+            f"GP lift={np.mean(gp_lifts[mask_t]):.2f}x, Tree lift={np.mean(tree_lifts[mask_t]):.2f}x"
+        )
 
 fig, axes = plt.subplots(1, 2, figsize=(14, 5.5))
 
@@ -444,15 +416,20 @@ ax = axes[0]
 for st in type_markers:
     mask = np.array([t == st for t in study_types_list])
     if mask.any():
-        ax.scatter(sizes[mask], gaps[mask], marker=type_markers[st],
-                  color=type_colors_plot[st], s=60, alpha=0.8,
-                  label=st.replace("_", " "))
+        ax.scatter(
+            sizes[mask],
+            gaps[mask],
+            marker=type_markers[st],
+            color=type_colors_plot[st],
+            s=60,
+            alpha=0.8,
+            label=st.replace("_", " "),
+        )
 z = np.polyfit(sizes, gaps, 1)
 p_line = np.poly1d(z)
 x_line = np.linspace(sizes.min(), sizes.max(), 100)
-ax.plot(x_line, p_line(x_line), '--', color='gray', linewidth=1.5,
-       label=f"r={r_gap:.2f}, p={p_gap:.3f}")
-ax.axhline(0, color='black', linewidth=0.5, linestyle=':')
+ax.plot(x_line, p_line(x_line), "--", color="gray", linewidth=1.5, label=f"r={r_gap:.2f}, p={p_gap:.3f}")
+ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
 ax.set_xlabel("Study size (n formulations)", fontsize=11)
 ax.set_ylabel("Tree - GP gap (top-5% recall)", fontsize=11)
 ax.set_title("A. Tree-GP gap vs study size", fontsize=12, fontweight="bold")
@@ -461,17 +438,13 @@ ax.grid(True, alpha=0.3)
 
 # Panel B: Lift vs study size for both families
 ax = axes[1]
-ax.scatter(sizes, gp_lifts, marker='o', color=FAMILY_COLORS["LNPBO (GP)"],
-          s=50, alpha=0.7, label="LNPBO (GP)")
-ax.scatter(sizes, tree_lifts, marker='^', color='#d62728',
-          s=50, alpha=0.7, label="Tree models (mean)")
+ax.scatter(sizes, gp_lifts, marker="o", color=FAMILY_COLORS["LNPBO (GP)"], s=50, alpha=0.7, label="LNPBO (GP)")
+ax.scatter(sizes, tree_lifts, marker="^", color="#d62728", s=50, alpha=0.7, label="Tree models (mean)")
 z_gp = np.polyfit(sizes, gp_lifts, 1)
 z_tree = np.polyfit(sizes, tree_lifts, 1)
-ax.plot(x_line, np.poly1d(z_gp)(x_line), '--', color=FAMILY_COLORS["LNPBO (GP)"],
-       linewidth=1.5, alpha=0.7)
-ax.plot(x_line, np.poly1d(z_tree)(x_line), '--', color='#d62728',
-       linewidth=1.5, alpha=0.7)
-ax.axhline(1, color='black', linewidth=0.5, linestyle=':')
+ax.plot(x_line, np.poly1d(z_gp)(x_line), "--", color=FAMILY_COLORS["LNPBO (GP)"], linewidth=1.5, alpha=0.7)
+ax.plot(x_line, np.poly1d(z_tree)(x_line), "--", color="#d62728", linewidth=1.5, alpha=0.7)
+ax.axhline(1, color="black", linewidth=0.5, linestyle=":")
 ax.set_xlabel("Study size (n formulations)", fontsize=11)
 ax.set_ylabel("Lift over random", fontsize=11)
 ax.set_title("B. Lift vs study size by family", fontsize=12, fontweight="bold")
@@ -510,7 +483,7 @@ print(f"\nIL-diverse studies ({len(il_diverse_pmids)}):")
 for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]:
     vals = get_family_recall(fam, il_diverse_pmids)
     r_vals = get_family_recall("Random", il_diverse_pmids)
-    print(f"  {fam:<20s}: mean={np.mean(vals):.3f}, lift={np.mean(vals)/np.mean(r_vals):.2f}x")
+    print(f"  {fam:<20s}: mean={np.mean(vals):.3f}, lift={np.mean(vals) / np.mean(r_vals):.2f}x")
 
 if ratio_only_pmids:
     print(f"\nRatio-only studies ({len(ratio_only_pmids)}):")
@@ -518,15 +491,17 @@ if ratio_only_pmids:
         vals = get_family_recall(fam, ratio_only_pmids)
         r_vals = get_family_recall("Random", ratio_only_pmids)
         if len(vals) > 0 and len(r_vals) > 0:
-            print(f"  {fam:<20s}: mean={np.mean(vals):.3f}, lift={np.mean(vals)/np.mean(r_vals):.2f}x")
+            print(f"  {fam:<20s}: mean={np.mean(vals):.3f}, lift={np.mean(vals) / np.mean(r_vals):.2f}x")
 
 print("\nGP-Tree gap by feature type:")
 for label, plist in [("IL-diverse", il_diverse_pmids), ("Ratio-only", ratio_only_pmids)]:
     gp_r = get_family_recall("LNPBO (GP)", plist)
     tree_r = np.concatenate([get_family_recall(f, plist) for f in TREE_FAMILIES])
     if len(gp_r) > 0 and len(tree_r) > 0:
-        print(f"  {label}: Tree mean={np.mean(tree_r):.3f}, GP mean={np.mean(gp_r):.3f}, "
-              f"gap={np.mean(tree_r)-np.mean(gp_r):.3f}")
+        print(
+            f"  {label}: Tree mean={np.mean(tree_r):.3f}, GP mean={np.mean(gp_r):.3f}, "
+            f"gap={np.mean(tree_r) - np.mean(gp_r):.3f}"
+        )
 
 
 # ========================================================================
@@ -546,16 +521,14 @@ for strat in strategies:
     if len(vals) > 0:
         strat_means[strat] = np.mean(vals)
 
-for strat, mean_val in sorted(strat_means.items(), key=lambda x: -x[1]):
+for strat, _mean_val in sorted(strat_means.items(), key=lambda x: -x[1]):
     vals = get_recall(strat)
-    fam = strategy_to_family(strat)
-    print(f"{strat:<35} {fam:<20} {np.mean(vals):>8.3f} {np.std(vals):>8.3f} "
-          f"{np.mean(vals)/random_mean:>7.2f}x")
+    fam = strategy_to_family(strat) or "Unknown"
+    print(f"{strat:<35} {fam:<20} {np.mean(vals):>8.3f} {np.std(vals):>8.3f} {np.mean(vals) / random_mean:>7.2f}x")
 
 # Key comparison: UCB across surrogates (same acquisition, different surrogate)
 print("\n--- UCB acquisition across surrogates (controls for batch strategy) ---")
-ucb_strats = ["lnpbo_ucb", "discrete_rf_ucb", "discrete_xgb_ucb",
-              "discrete_ngboost_ucb", "discrete_gp_ucb"]
+ucb_strats = ["lnpbo_ucb", "discrete_rf_ucb", "discrete_xgb_ucb", "discrete_ngboost_ucb", "discrete_gp_ucb"]
 for strat in ucb_strats:
     vals = get_recall(strat)
     fam = strategy_to_family(strat)
@@ -571,11 +544,19 @@ batch_groups = {
     "GIBBON": ["lnpbo_gibbon"],
     "PLS": ["lnpbo_pls_logei"],
     "PLS+LP": ["lnpbo_pls_lp_logei"],
+    "Aitchison": ["lnpbo_aitchison_logei", "lnpbo_aitchison_ts"],
+    "Compositional": ["lnpbo_compositional_logei", "lnpbo_compositional_ts"],
+    "DKL": ["lnpbo_dkl_logei", "lnpbo_dkl_ts"],
+    "RF-Kernel": ["lnpbo_rf_kernel_logei", "lnpbo_rf_kernel_ts"],
+    "Tanimoto": ["lnpbo_tanimoto_logei", "lnpbo_tanimoto_ts"],
 }
 for batch_name, strat_list in sorted(batch_groups.items()):
-    vals = np.concatenate([get_recall(s) for s in strat_list])
+    parts = [get_recall(s) for s in strat_list if len(get_recall(s)) > 0]
+    if not parts:
+        continue
+    vals = np.concatenate(parts)
     print(f"  {batch_name:<15} ({', '.join(strat_list)})")
-    print(f"    mean={np.mean(vals):.3f}, std={np.std(vals):.3f}, lift={np.mean(vals)/random_mean:.2f}x")
+    print(f"    mean={np.mean(vals):.3f}, std={np.std(vals):.3f}, lift={np.mean(vals) / random_mean:.2f}x")
 
 # Compare batch strategies within tree models
 print("\nWithin tree models -- batch strategy comparison:")
@@ -591,7 +572,7 @@ tree_batch_groups = {
 }
 for batch_name, strat_list in sorted(tree_batch_groups.items()):
     vals = np.concatenate([get_recall(s) for s in strat_list])
-    print(f"  {batch_name:<20} mean={np.mean(vals):.3f}, lift={np.mean(vals)/random_mean:.2f}x")
+    print(f"  {batch_name:<20} mean={np.mean(vals):.3f}, lift={np.mean(vals) / random_mean:.2f}x")
 
 # Surrogate effect (same batch, different surrogate)
 print("\n--- Surrogate effect (controlling for batch strategy) ---")
@@ -631,7 +612,7 @@ batch_range_in_gp = gp_best_batch - gp_worst_batch_mean
 surrogate_gap_at_ucb = np.mean([np.mean(rf_kb), np.mean(xgb_kb), np.mean(ngb_kb)]) - gp_kb_mean
 total_gap = tree_family_mean - gp_family_mean
 
-print(f"\n--- Gap decomposition ---")
+print("\n--- Gap decomposition ---")
 print(f"  Total family gap (tree - GP): {total_gap:.3f}")
 print(f"  Surrogate gap (UCB head-to-head): {surrogate_gap_at_ucb:.3f}")
 print(f"  Batch strategy range within GP: {batch_range_in_gp:.3f}")
@@ -689,28 +670,35 @@ for group_name, surrogates in acq_groups.items():
         mean_v = np.mean(vals)
         sem_v = np.std(vals) / np.sqrt(len(vals))
         color = colors_map.get(surr_name, "#999999")
-        ax.bar(x_pos, mean_v, width=0.7, color=color, alpha=0.85,
-               yerr=sem_v, capsize=3, edgecolor='white', linewidth=0.5)
+        ax.bar(
+            x_pos, mean_v, width=0.7, color=color, alpha=0.85, yerr=sem_v, capsize=3, edgecolor="white", linewidth=0.5
+        )
         xticks.append(x_pos)
         xtick_labels.append(surr_name)
         x_pos += 1
     group_boundaries.append((group_start, x_pos - 1, group_name))
     x_pos += 0.8
 
-ax.axhline(random_mean, color='gray', linewidth=1, linestyle='--',
-          label=f'Random ({random_mean:.3f})')
+ax.axhline(random_mean, color="gray", linewidth=1, linestyle="--", label=f"Random ({random_mean:.3f})")
 ax.set_xticks(xticks)
-ax.set_xticklabels(xtick_labels, rotation=45, ha='right', fontsize=8)
+ax.set_xticklabels(xtick_labels, rotation=45, ha="right", fontsize=8)
 ax.set_ylabel("Mean top-5% recall", fontsize=11)
 ax.set_title("Surrogate model comparison by acquisition strategy", fontsize=12, fontweight="bold")
 ax.legend(fontsize=9)
-ax.grid(True, alpha=0.2, axis='y')
+ax.grid(True, alpha=0.2, axis="y")
 
 for start, end, name in group_boundaries:
     mid = (start + end) / 2
     ymin = ax.get_ylim()[0]
-    ax.annotate(name, xy=(mid, ymin), xytext=(mid, ymin - 0.04),
-               ha='center', fontsize=9, fontweight='bold', annotation_clip=False)
+    ax.annotate(
+        name,
+        xy=(mid, ymin),
+        xytext=(mid, ymin - 0.04),
+        ha="center",
+        fontsize=9,
+        fontweight="bold",
+        annotation_clip=False,
+    )
 
 plt.tight_layout()
 plt.savefig(OUT / "h4_batch_strategy.png", dpi=200, bbox_inches="tight")
@@ -728,6 +716,7 @@ print("=" * 80)
 # Use best_so_far normalized to [0,1] per run for fair comparison across studies
 # (bsf - bsf[0]) / (bsf[-1] - bsf[0])
 # This shows what fraction of total improvement is achieved by each round fraction
+
 
 def get_normalized_convergence_speed(family):
     """Normalize each run's bsf to [0,1] and interpolate to common grid."""
@@ -757,6 +746,7 @@ def get_normalized_convergence_speed(family):
     arr = np.array(norm_curves)
     return interp_grid, np.mean(arr, axis=0), np.std(arr, axis=0) / np.sqrt(len(arr)), len(arr)
 
+
 # Also for 15-round studies: compute fraction of improvement at early rounds
 print("\nFraction of total improvement achieved (15-round studies):")
 print(f"{'Family':<20} {'By R3':>8} {'By R5':>8} {'By R7':>8} {'By R10':>8}")
@@ -775,6 +765,7 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]:
         fracs[r] = np.mean(imp_at_r / total_imp[mask])
     print(f"{fam:<20} {fracs[3]:>8.1%} {fracs[5]:>8.1%} {fracs[7]:>8.1%} {fracs[10]:>8.1%}")
 
+
 # Per-round batch quality comparison (round_best values)
 # For 15-round studies
 def get_round_best_fixed(family, pmid_list):
@@ -790,6 +781,7 @@ def get_round_best_fixed(family, pmid_list):
                 if len(rb) == 15:
                     curves.append(rb)
     return np.array(curves, dtype=float) if curves else np.empty((0, 15))
+
 
 print("\nMean per-round batch quality (round_best, 15-round studies):")
 print(f"{'Family':<20} {'R0':>8} {'R4':>8} {'R9':>8} {'R14':>8}")
@@ -819,8 +811,7 @@ ax = axes[0]
 for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]:
     grid, mean_n, sem_n, n_runs = get_normalized_convergence_speed(fam)
     color = FAMILY_COLORS[fam]
-    ax.plot(grid * 100, mean_n, '-o', markersize=2, label=f"{fam} (n={n_runs})",
-            color=color, linewidth=1.5)
+    ax.plot(grid * 100, mean_n, "-o", markersize=2, label=f"{fam} (n={n_runs})", color=color, linewidth=1.5)
     ax.fill_between(grid * 100, mean_n - sem_n, mean_n + sem_n, alpha=0.15, color=color)
 ax.set_xlabel("% of total rounds completed", fontsize=11)
 ax.set_ylabel("Fraction of total improvement", fontsize=11)
@@ -840,7 +831,7 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Random"]:
     se = np.std(rb, axis=0) / np.sqrt(len(rb))
     rounds = np.arange(15)
     color = FAMILY_COLORS[fam]
-    ax.plot(rounds, mc, '-o', markersize=3, label=fam, color=color, linewidth=1.5)
+    ax.plot(rounds, mc, "-o", markersize=3, label=fam, color=color, linewidth=1.5)
     ax.fill_between(rounds, mc - se, mc + se, alpha=0.15, color=color)
 ax.set_xlabel("Round", fontsize=11)
 ax.set_ylabel("Best z-score in batch", fontsize=11)
@@ -887,9 +878,10 @@ for strat in sorted(strategies, key=lambda s: -strat_means.get(s, 0)):
 # Family-level
 print(f"\n{'Family':<20} {'Mean':>8} {'Overall SD':>12} {'Mean seed-SD':>14} {'CV':>8}")
 print("-" * 66)
-for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Deep Ensemble", "GP (sklearn)",
-            "CASMOPolitan", "Random"]:
+for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "CASMOPolitan", "Random"]:
     all_vals = get_family_recall(fam)
+    if len(all_vals) == 0:
+        continue
     seed_stds = []
     for strat in STRATEGY_FAMILIES[fam]:
         for pmid in pmids:
@@ -902,8 +894,10 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Deep Ensemble", "GP (skle
                 seed_stds.append(np.std(seed_vals))
     mean_val = np.mean(all_vals)
     cv = np.mean(seed_stds) / mean_val if mean_val > 0 and seed_stds else 0
-    print(f"{fam:<20} {mean_val:>8.3f} {np.std(all_vals):>12.3f} "
-          f"{np.mean(seed_stds) if seed_stds else 0:>14.3f} {cv:>8.3f}")
+    print(
+        f"{fam:<20} {mean_val:>8.3f} {np.std(all_vals):>12.3f} "
+        f"{np.mean(seed_stds) if seed_stds else 0:>14.3f} {cv:>8.3f}"
+    )
 
 # Levene's test: are variances different between GP and tree families?
 gp_vals = get_family_recall("LNPBO (GP)")
@@ -913,20 +907,26 @@ print(f"\nLevene's test (GP vs Trees): F={lev_stat:.2f}, p={lev_p:.4f}")
 
 # Figure
 fig, ax = plt.subplots(figsize=(12, 5.5))
-family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble",
-                "GP (sklearn)", "LNPBO (GP)", "Random"]
+family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]
+# Filter out families with no data
+family_order = [f for f in family_order if len(get_family_recall(f)) > 0]
 box_data = [get_family_recall(f) for f in family_order]
-bp = ax.boxplot(box_data, labels=family_order, patch_artist=True, widths=0.6,
-               showfliers=True, flierprops=dict(markersize=3, alpha=0.5))
-for patch, fam in zip(bp['boxes'], family_order):
+bp = ax.boxplot(
+    box_data,
+    labels=family_order,
+    patch_artist=True,
+    widths=0.6,
+    showfliers=True,
+    flierprops=dict(markersize=3, alpha=0.5),
+)
+for patch, fam in zip(bp["boxes"], family_order):
     patch.set_facecolor(FAMILY_COLORS[fam])
     patch.set_alpha(0.7)
-ax.axhline(random_mean, color='gray', linewidth=1, linestyle='--', alpha=0.5)
+ax.axhline(random_mean, color="gray", linewidth=1, linestyle="--", alpha=0.5)
 ax.set_ylabel("Top-5% recall", fontsize=11)
-ax.set_title("Distribution of top-5% recall by family (all studies, all seeds)",
-            fontsize=12, fontweight="bold")
-ax.grid(True, alpha=0.2, axis='y')
-plt.xticks(rotation=20, ha='right')
+ax.set_title("Distribution of top-5% recall by family (all studies, all seeds)", fontsize=12, fontweight="bold")
+ax.grid(True, alpha=0.2, axis="y")
+plt.xticks(rotation=20, ha="right")
 plt.tight_layout()
 plt.savefig(OUT / "h6_variance.png", dpi=200, bbox_inches="tight")
 plt.savefig(OUT / "h6_variance.pdf", bbox_inches="tight")
@@ -946,8 +946,7 @@ gp_losses = []
 print(f"\n{'PMID':<12} {'Type':<35} {'N':>5} {'GP':>8} {'Tree':>8} {'Gap':>8} {'Winner':>10}")
 print("-" * 94)
 
-for pmid in sorted(pmids, key=lambda p: gp_by_study.get(p, 0) - tree_by_study.get(p, 0),
-                   reverse=True):
+for pmid in sorted(pmids, key=lambda p: gp_by_study.get(p, 0) - tree_by_study.get(p, 0), reverse=True):
     if pmid not in gp_by_study or pmid not in tree_by_study:
         continue
     gp_val = gp_by_study[pmid]
@@ -960,9 +959,9 @@ for pmid in sorted(pmids, key=lambda p: gp_by_study.get(p, 0) - tree_by_study.ge
         gp_wins.append(pmid)
     else:
         gp_losses.append(pmid)
-    print(f"{pmid:<12} {stype:<35} {n:>5} {gp_val:>8.3f} {tree_val:>8.3f} {gap:>+8.3f} {winner:>10}")
+    print(f"{pmid:<20} {stype:<35} {n:>5} {gp_val:>8.3f} {tree_val:>8.3f} {gap:>+8.3f} {winner:>10}")
 
-print(f"\nGP wins {len(gp_wins)}/{len(gp_wins)+len(gp_losses)} studies")
+print(f"\nGP wins {len(gp_wins)}/{len(gp_wins) + len(gp_losses)} studies")
 
 if gp_wins:
     win_sizes = [study_info[p]["n_formulations"] for p in gp_wins]
@@ -971,12 +970,14 @@ if gp_wins:
     print(f"GP-losing studies:   n = {np.mean(lose_sizes):.0f} (mean), {np.median(lose_sizes):.0f} (median)")
 
     if len(win_sizes) >= 2 and len(lose_sizes) >= 2:
-        u_stat, u_p = stats.mannwhitneyu(win_sizes, lose_sizes, alternative='two-sided')
+        u_stat, u_p = stats.mannwhitneyu(win_sizes, lose_sizes, alternative="two-sided")
+        _hypothesis_pvals.append(("H7: GP-win size MWU", float(u_p)))
         print(f"Mann-Whitney U test on study size: U={u_stat:.1f}, p={u_p:.3f}")
 
     win_types = [study_info[p]["study_type"] for p in gp_wins]
     lose_types = [study_info[p]["study_type"] for p in gp_losses]
     from collections import Counter
+
     print(f"\nGP-winning study types: {dict(Counter(win_types))}")
     print(f"GP-losing study types:  {dict(Counter(lose_types))}")
 
@@ -1007,16 +1008,19 @@ for pmid in pmids:
 
 for strat in STRATEGY_FAMILIES["LNPBO (GP)"]:
     strat_by_study = get_strategy_recall_by_study(strat)
-    wins = sum(1 for p in pmids if p in strat_by_study and p in best_tree_fam_by_study
-               and strat_by_study[p] > best_tree_fam_by_study[p])
+    wins = sum(
+        1
+        for p in pmids
+        if p in strat_by_study and p in best_tree_fam_by_study and strat_by_study[p] > best_tree_fam_by_study[p]
+    )
     total = sum(1 for p in pmids if p in strat_by_study and p in best_tree_fam_by_study)
     pct = 100 * wins / total if total > 0 else 0
     print(f"{strat:<30} {wins:>3}/{total} ({pct:.0f}%)")
 
 # Figure: heatmap
 fig, ax = plt.subplots(figsize=(16, 7))
-families_to_plot = ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "CASMOPolitan",
-                    "GP (sklearn)", "Deep Ensemble", "Random"]
+families_to_plot = ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "CASMOPolitan", "GP (sklearn)", "Ridge", "Deep Ensemble", "Random"]
+families_to_plot = [f for f in families_to_plot if len(get_family_recall(f)) > 0]
 n_fams = len(families_to_plot)
 n_studies = len(pmids)
 
@@ -1030,15 +1034,14 @@ sort_idx = np.argsort([gp_by_study.get(p, 0) - tree_by_study.get(p, 0) for p in 
 sorted_pmids = [pmids[i] for i in sort_idx]
 matrix_sorted = matrix[:, sort_idx]
 
-im = ax.imshow(matrix_sorted, aspect='auto', cmap='RdYlGn', vmin=0.2, vmax=1.0)
+im = ax.imshow(matrix_sorted, aspect="auto", cmap="RdYlGn", vmin=0.2, vmax=1.0)
 ax.set_yticks(range(n_fams))
 ax.set_yticklabels(families_to_plot, fontsize=9)
 ax.set_xticks(range(n_studies))
 study_labels = [f"{p}\n({study_info[p]['n_formulations']})" for p in sorted_pmids]
 ax.set_xticklabels(study_labels, fontsize=6, rotation=90)
 ax.set_xlabel("Study (PMID, n_formulations)", fontsize=10)
-ax.set_title("Top-5% recall by family and study (sorted by GP advantage, left=GP best)",
-            fontsize=12, fontweight="bold")
+ax.set_title("Top-5% recall by family and study (sorted by GP advantage, left=GP best)", fontsize=12, fontweight="bold")
 plt.colorbar(im, ax=ax, label="Top-5% recall", shrink=0.8)
 plt.tight_layout()
 plt.savefig(OUT / "h7_study_conditional.png", dpi=200, bbox_inches="tight")
@@ -1061,8 +1064,10 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "CASMOPolitan", "Random"]:
                 if key in data:
                     times.append(data[key]["result"]["elapsed"])
     times = np.array(times)
-    print(f"  {fam:<20}: mean={np.mean(times):>8.1f}s, median={np.median(times):>8.1f}s, "
-          f"max={np.max(times):>8.1f}s, total={np.sum(times)/3600:.1f}h")
+    print(
+        f"  {fam:<20}: mean={np.mean(times):>8.1f}s, median={np.median(times):>8.1f}s, "
+        f"max={np.max(times):>8.1f}s, total={np.sum(times) / 3600:.1f}h"
+    )
 
 
 # ========================================================================
@@ -1072,19 +1077,20 @@ fig, axes = plt.subplots(2, 3, figsize=(18, 11))
 
 # A: Family performance bar chart
 ax = axes[0, 0]
-family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble",
-                "GP (sklearn)", "LNPBO (GP)", "Random"]
+family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]
+family_order = [f for f in family_order if len(get_family_recall(f)) > 0]
 means = [np.mean(get_family_recall(f)) for f in family_order]
 sems = [np.std(get_family_recall(f)) / np.sqrt(len(get_family_recall(f))) for f in family_order]
 colors = [FAMILY_COLORS[f] for f in family_order]
-bars = ax.bar(range(len(family_order)), means, yerr=sems, capsize=3,
-              color=colors, alpha=0.85, edgecolor='white', linewidth=0.5)
-ax.axhline(random_mean, color='gray', linewidth=1, linestyle='--', alpha=0.5)
+bars = ax.bar(
+    range(len(family_order)), means, yerr=sems, capsize=3, color=colors, alpha=0.85, edgecolor="white", linewidth=0.5
+)
+ax.axhline(random_mean, color="gray", linewidth=1, linestyle="--", alpha=0.5)
 ax.set_xticks(range(len(family_order)))
-ax.set_xticklabels(family_order, rotation=35, ha='right', fontsize=8)
+ax.set_xticklabels(family_order, rotation=35, ha="right", fontsize=8)
 ax.set_ylabel("Top-5% recall", fontsize=10)
 ax.set_title("A. Family performance", fontsize=11, fontweight="bold")
-ax.grid(True, alpha=0.2, axis='y')
+ax.grid(True, alpha=0.2, axis="y")
 
 # B: Convergence (15-round studies)
 ax = axes[0, 1]
@@ -1096,8 +1102,8 @@ for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Random"]:
     se = np.std(curves, axis=0) / np.sqrt(len(curves))
     rounds = np.arange(16)
     color = FAMILY_COLORS[fam]
-    ax.plot(rounds, mc, '-o', markersize=2, label=fam, color=color, linewidth=1.3)
-    ax.fill_between(rounds, mc-se, mc+se, alpha=0.1, color=color)
+    ax.plot(rounds, mc, "-o", markersize=2, label=fam, color=color, linewidth=1.3)
+    ax.fill_between(rounds, mc - se, mc + se, alpha=0.1, color=color)
 ax.set_xlabel("Round", fontsize=10)
 ax.set_ylabel("Best z-score so far", fontsize=10)
 ax.set_title("B. Convergence (15-round studies)", fontsize=11, fontweight="bold")
@@ -1109,7 +1115,7 @@ ax = axes[0, 2]
 for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]:
     grid, mean_n, sem_n, n_runs = get_normalized_convergence_speed(fam)
     color = FAMILY_COLORS[fam]
-    ax.plot(grid * 100, mean_n, '-o', markersize=2, label=fam, color=color, linewidth=1.3)
+    ax.plot(grid * 100, mean_n, "-o", markersize=2, label=fam, color=color, linewidth=1.3)
     ax.fill_between(grid * 100, mean_n - sem_n, mean_n + sem_n, alpha=0.1, color=color)
 ax.set_xlabel("% of rounds completed", fontsize=10)
 ax.set_ylabel("Fraction of improvement", fontsize=10)
@@ -1122,14 +1128,20 @@ ax = axes[1, 0]
 for st in type_markers:
     mask = np.array([t == st for t in study_types_list])
     if mask.any():
-        ax.scatter(sizes[mask], gaps[mask], marker=type_markers[st],
-                  color=type_colors_plot[st], s=50, alpha=0.8,
-                  label=st.replace("_", " "))
+        ax.scatter(
+            sizes[mask],
+            gaps[mask],
+            marker=type_markers[st],
+            color=type_colors_plot[st],
+            s=50,
+            alpha=0.8,
+            label=st.replace("_", " "),
+        )
 z = np.polyfit(sizes, gaps, 1)
 p_line_fn = np.poly1d(z)
 x_line = np.linspace(sizes.min(), sizes.max(), 100)
-ax.plot(x_line, p_line_fn(x_line), '--', color='gray', linewidth=1)
-ax.axhline(0, color='black', linewidth=0.5, linestyle=':')
+ax.plot(x_line, p_line_fn(x_line), "--", color="gray", linewidth=1)
+ax.axhline(0, color="black", linewidth=0.5, linestyle=":")
 ax.set_xlabel("Study size", fontsize=10)
 ax.set_ylabel("Tree - GP gap", fontsize=10)
 ax.set_title(f"D. Gap vs study size (r={r_gap:.2f})", fontsize=11, fontweight="bold")
@@ -1139,37 +1151,53 @@ ax.grid(True, alpha=0.2)
 # E: UCB head-to-head
 ax = axes[1, 1]
 surr_names = ["LNPBO\n(GP-UCB)", "RF\n(UCB)", "XGB\n(UCB)", "NGBoost\n(UCB)", "GP-sklearn\n(UCB)"]
-surr_strats = ["lnpbo_ucb", "discrete_rf_ucb", "discrete_xgb_ucb",
-               "discrete_ngboost_ucb", "discrete_gp_ucb"]
-surr_colors = [FAMILY_COLORS["LNPBO (GP)"], FAMILY_COLORS["RF"], FAMILY_COLORS["XGBoost"],
-               FAMILY_COLORS["NGBoost"], FAMILY_COLORS["GP (sklearn)"]]
+surr_strats = ["lnpbo_ucb", "discrete_rf_ucb", "discrete_xgb_ucb", "discrete_ngboost_ucb", "discrete_gp_ucb"]
+surr_colors = [
+    FAMILY_COLORS["LNPBO (GP)"],
+    FAMILY_COLORS["RF"],
+    FAMILY_COLORS["XGBoost"],
+    FAMILY_COLORS["NGBoost"],
+    FAMILY_COLORS["GP (sklearn)"],
+]
 surr_means = [np.mean(get_recall(s)) for s in surr_strats]
 surr_sems = [np.std(get_recall(s)) / np.sqrt(len(get_recall(s))) for s in surr_strats]
-ax.bar(range(len(surr_names)), surr_means, yerr=surr_sems, capsize=3,
-       color=surr_colors, alpha=0.85, edgecolor='white', linewidth=0.5)
-ax.axhline(random_mean, color='gray', linewidth=1, linestyle='--', alpha=0.5)
+ax.bar(
+    range(len(surr_names)),
+    surr_means,
+    yerr=surr_sems,
+    capsize=3,
+    color=surr_colors,
+    alpha=0.85,
+    edgecolor="white",
+    linewidth=0.5,
+)
+ax.axhline(random_mean, color="gray", linewidth=1, linestyle="--", alpha=0.5)
 ax.set_xticks(range(len(surr_names)))
 ax.set_xticklabels(surr_names, fontsize=8)
 ax.set_ylabel("Top-5% recall", fontsize=10)
 ax.set_title("E. UCB head-to-head (same batch)", fontsize=11, fontweight="bold")
-ax.grid(True, alpha=0.2, axis='y')
+ax.grid(True, alpha=0.2, axis="y")
 
 # F: Variance box plot
 ax = axes[1, 2]
 family_short = ["LNPBO (GP)", "RF", "XGBoost", "NGBoost"]
 box_data_short = [get_family_recall(f) for f in family_short]
-bp = ax.boxplot(box_data_short, labels=["LNPBO", "RF", "XGB", "NGB"],
-               patch_artist=True, widths=0.6, showfliers=True,
-               flierprops=dict(markersize=2, alpha=0.4))
-for patch, fam in zip(bp['boxes'], family_short):
+bp = ax.boxplot(
+    box_data_short,
+    labels=["LNPBO", "RF", "XGB", "NGB"],
+    patch_artist=True,
+    widths=0.6,
+    showfliers=True,
+    flierprops=dict(markersize=2, alpha=0.4),
+)
+for patch, fam in zip(bp["boxes"], family_short):
     patch.set_facecolor(FAMILY_COLORS[fam])
     patch.set_alpha(0.7)
 ax.set_ylabel("Top-5% recall", fontsize=10)
 ax.set_title("F. Recall distribution", fontsize=11, fontweight="bold")
-ax.grid(True, alpha=0.2, axis='y')
+ax.grid(True, alpha=0.2, axis="y")
 
-plt.suptitle("Gap Analysis: Why LNPBO (GP) Underperforms Tree Models",
-            fontsize=14, fontweight="bold", y=1.01)
+plt.suptitle("Gap Analysis: Why LNPBO (GP) Underperforms Tree Models", fontsize=14, fontweight="bold", y=1.01)
 plt.tight_layout()
 plt.savefig(OUT / "composite_gap_analysis.png", dpi=200, bbox_inches="tight")
 plt.savefig(OUT / "composite_gap_analysis.pdf", bbox_inches="tight")
@@ -1214,9 +1242,13 @@ H1: GP MODEL FIT / CONVERGENCE
   but the recall gap is real -- tree surrogates make better acquisition decisions.
 
 H2: STUDY SIZE
-  Verdict: {'SUPPORTED' if abs(r_gap) > 0.3 and p_gap < 0.05 else 'NOT SUPPORTED'}.
+  Verdict: {"SUPPORTED" if abs(r_gap) > 0.3 and p_gap < 0.05 else "NOT SUPPORTED"}.
   Pearson r={r_gap:.3f} (p={p_gap:.3f}), Spearman r={r_gap_s:.3f} (p={p_gap_s:.3f}).
-  {'The gap widens significantly with study size, suggesting GPs scale worse.' if r_gap > 0.3 and p_gap < 0.05 else 'No significant relationship between study size and the GP-tree gap.'}
+  {
+    "The gap widens significantly with study size, suggesting GPs scale worse."
+    if r_gap > 0.3 and p_gap < 0.05
+    else "No significant relationship between study size and the GP-tree gap."
+}
   Small studies: gap={np.mean(gaps[small_mask]):.3f}, Large studies: gap={np.mean(gaps[large_mask]):.3f}.
 
 H3: FEATURE DIMENSIONALITY
@@ -1245,12 +1277,33 @@ H6: VARIANCE / CONSISTENCY
   Verdict: {"COMPARABLE" if abs(gp_sd - rf_sd) < 0.02 else "DIFFERENT"}.
   GP SD={gp_sd:.3f}, RF SD={rf_sd:.3f}, XGB SD={xgb_sd:.3f}.
   Levene's test: F={lev_stat:.2f}, p={lev_p:.4f}.
-  {"Variance is not significantly different; the gap is in the mean, not consistency." if lev_p > 0.05 else "Variance differs significantly between GP and tree families."}
+  {
+    "Variance is not significantly different; the gap is in the mean, not consistency."
+    if lev_p > 0.05
+    else "Variance differs significantly between GP and tree families."
+}
 
 H7: STUDY-CONDITIONAL PERFORMANCE
-  Verdict: GPs win in {len(gp_wins)}/{len(gp_wins)+len(gp_losses)} studies.
-  {f'GP-winning studies have mean size {np.mean([study_info[p]["n_formulations"] for p in gp_wins]):.0f} vs {np.mean([study_info[p]["n_formulations"] for p in gp_losses]):.0f} for losses.' if gp_wins else 'GPs never beat tree models on any study.'}
-  {"The GP advantage tends to appear in " + str(dict(Counter([study_info[p]["study_type"] for p in gp_wins]))) + " type studies." if gp_wins else ""}
+  Verdict: GPs win in {len(gp_wins)}/{len(gp_wins) + len(gp_losses)} studies.
+  {
+    (
+        f"GP-winning studies have mean size "
+        f"{np.mean([study_info[p]['n_formulations'] for p in gp_wins]):.0f} vs "
+        f"{np.mean([study_info[p]['n_formulations'] for p in gp_losses]):.0f} "
+        f"for losses."
+    )
+    if gp_wins
+    else "GPs never beat tree models on any study."
+}
+  {
+    (
+        "The GP advantage tends to appear in "
+        + str(dict(Counter([study_info[p]["study_type"] for p in gp_wins])))
+        + " type studies."
+    )
+    if gp_wins
+    else ""
+}
 """)
 
 
@@ -1282,7 +1335,21 @@ The gap is NOT explained by:
 """)
 
 
-print("=" * 80)
+# BH-FDR correction across all hypothesis tests
+if _hypothesis_pvals:
+    print("\n" + "=" * 80)
+    print("MULTIPLE TESTING CORRECTION (BH-FDR across all hypothesis tests)")
+    print("=" * 80)
+    labels = [lbl for lbl, _ in _hypothesis_pvals]
+    raw_ps = np.array([p for _, p in _hypothesis_pvals])
+    adj_ps, rejected = benjamini_hochberg(raw_ps)
+    print(f"\n{'Test':<30}  {'p_raw':>10}  {'p_BH':>10}  {'Sig (0.05)'}")
+    print("-" * 65)
+    for lbl, raw, adj in zip(labels, raw_ps, adj_ps):
+        sig = " *" if adj < 0.05 else ""
+        print(f"{lbl:<30}  {raw:>10.4f}  {adj:>10.4f}  {sig}")
+
+print("\n" + "=" * 80)
 print("FILES SAVED")
 print("=" * 80)
 for f in sorted(OUT.glob("*")):
