@@ -6,7 +6,7 @@ Studies are defined in `experiments/data_integrity/studies.json` (27 entries,
 25 non-pooled). Pooled studies (37661193, 38424061) are split by Model_target
 into sub-studies (e.g., 37661193_liver, 37661193_spleen, 38424061_in_vitro,
 38424061_multiorgan). The 25 non-pooled studies form the analysis set for all
-ablation experiments. The within-study benchmark uses all 27 studies.
+ablation experiments. The within-study benchmark uses all 26 studies.
 
 ---
 
@@ -101,7 +101,7 @@ Expected: ~15 minutes, 15 result files in `benchmark_results/within_study/`.
   - `fig_heatmap.pdf` -- Per-study strategy heatmap
   - `fig_win_matrix.pdf` -- Pairwise win matrix between families
   - `fig_variance.pdf` -- Variance decomposition (Study/Strategy/Seed)
-- **Status**: 27 studies x 38 strategies x 5 seeds = **5,080 runs (COMPLETE)**
+- **Status**: 26 studies x 37 strategies x 5 seeds = **4,810 runs (IN PROGRESS)**
     (50 runs excluded: GP-Mixed strategies on 5 sub-studies lacking ratio features)
   - 38 strategies: random, 8 GP-BO (BoTorch), 6 specialized-kernel GP,
     4 compositional GP, 2 mixed-variable GP, 2 CASMOPolitan, 3 RF, 5 XGBoost,
@@ -367,7 +367,7 @@ Expected: ~15 minutes, 15 result files in `benchmark_results/within_study/`.
   - Core conclusion unchanged: tree surrogates outperform GP-BO regardless of kappa
   - Tanimoto kernel strategies failed (0 rounds) due to feature type mismatch
     in ablation config (lantern_il_only instead of raw count_mfp)
-- **Status**: 27 studies x 34 strategies x 5 seeds = **4,590 runs (COMPLETE)**
+- **Status**: 26 studies x 34 strategies x 5 seeds = **4,420 runs (NOT STARTED)**
   - 170 result files per study
   - 126 broken runs (Tanimoto: 98, DKL: 28) due to feature config mismatch
 - **Compute**: ~65 hours serial, ~8 hours on 8 cores. Same strategy mix as
@@ -387,7 +387,7 @@ Non-BO comparison methods. Each is a single-shot prediction baseline.
 - **Run script**: `python -m benchmarks.baselines.predict_and_rank --resume`
 - **Results**: `benchmark_results/baselines/predict_and_rank/{study_id}/`
 - **Strategies**: predict_rank_xgb, predict_rank_rf, predict_rank_ngboost
-- **Status**: 27 studies x 3 surrogates x 5 seeds = 405 expected; **407 files present (COMPLETE)**
+- **Status**: 26 studies x 3 surrogates x 5 seeds = 390 expected; **391 files present (COMPLETE)**
   (extra files from pooled sub-studies)
 - **Compute**: ~30 minutes serial. Single-shot ranking (no iterative loop),
   ~5 s per run.
@@ -421,7 +421,7 @@ Non-BO comparison methods. Each is a single-shot prediction baseline.
 - **Run script**: `python -m benchmarks.baselines.agile_predictor --resume`
 - **Results**: `benchmark_results/baselines/agile_predictor/{study_id}/`
 - **Strategies**: agile_xgb, agile_rf
-- **Status**: 27 studies x 2 surrogates x 5 seeds = 270 expected; **252 files present (COMPLETE)**
+- **Status**: 26 studies x 2 surrogates x 5 seeds = 260 expected (IN PROGRESS)
   (some studies lack AGILE embeddings)
 - **Compute**: ~20 minutes serial. Uses frozen AGILE embeddings (precomputed
   in `data/agile_embeddings.npz`); XGB/RF fitting ~3 s per run.

@@ -12,42 +12,7 @@ from pathlib import Path
 
 import numpy as np
 
-STRATEGY_FAMILY = {
-    "random": "Random",
-    "lnpbo_ucb": "GP (BoTorch)",
-    "lnpbo_ei": "GP (BoTorch)",
-    "lnpbo_logei": "GP (BoTorch)",
-    "lnpbo_lp_ei": "GP (BoTorch)",
-    "lnpbo_lp_logei": "GP (BoTorch)",
-    "lnpbo_pls_logei": "GP (BoTorch)",
-    "lnpbo_pls_lp_logei": "GP (BoTorch)",
-    "lnpbo_rkb_logei": "GP (BoTorch)",
-    "lnpbo_ts_batch": "GP (BoTorch)",
-    "casmopolitan_ei": "CASMOPolitan",
-    "casmopolitan_ucb": "CASMOPolitan",
-    "discrete_rf_ucb": "RF",
-    "discrete_rf_ts": "RF",
-    "discrete_rf_ts_batch": "RF",
-    "discrete_xgb_ucb": "XGBoost",
-    "discrete_xgb_greedy": "XGBoost",
-    "discrete_xgb_cqr": "XGBoost",
-    "discrete_xgb_online_conformal": "XGBoost",
-    "discrete_xgb_ucb_ts_batch": "XGBoost",
-    "discrete_ngboost_ucb": "NGBoost",
-    "discrete_deep_ensemble": "Deep Ensemble",
-    "discrete_gp_ucb": "GP (sklearn)",
-    "lnpbo_gibbon": "GP (BoTorch)",
-    "lnpbo_tanimoto_ts": "GP (BoTorch)",
-    "lnpbo_tanimoto_logei": "GP (BoTorch)",
-    "lnpbo_aitchison_ts": "GP (BoTorch)",
-    "lnpbo_aitchison_logei": "GP (BoTorch)",
-    "lnpbo_dkl_ts": "GP (BoTorch)",
-    "lnpbo_dkl_logei": "GP (BoTorch)",
-    "lnpbo_rf_kernel_ts": "GP (BoTorch)",
-    "lnpbo_rf_kernel_logei": "GP (BoTorch)",
-    "lnpbo_compositional_ts": "GP (BoTorch)",
-    "lnpbo_compositional_logei": "GP (BoTorch)",
-}
+from LNPBO.benchmarks.strategy_registry import STRATEGY_FAMILY
 
 # Strategies where kappa directly controls UCB exploration weight
 UCB_STRATEGIES = {

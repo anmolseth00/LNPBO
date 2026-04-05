@@ -209,7 +209,7 @@ def print_comparison_table() -> None:
     print("Framework Comparison: LNPBO vs. Standard BO Libraries")
     print("=" * 80)
     print()
-    print("Within-study benchmark: 27 studies, 5 seeds, 25% seed pool, batch 12")
+    print("Within-study benchmark: 26 studies, 5 seeds, 25% seed pool, batch 12")
     print(f"Random baseline Top-5% recall: {random_mean:.3f}")
     print()
     print(fmt(hdr_fw, hdr_eq, hdr_recall, hdr_lift, hdr_note))

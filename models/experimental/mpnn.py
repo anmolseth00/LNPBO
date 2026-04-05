@@ -13,13 +13,7 @@ concatenated with tabular features before the FFN.
 import torch
 import torch.nn as nn
 
-try:
-    from LNPBO.models.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
-except ImportError:
-    raise ImportError(
-        "models.featurize was removed. MPNN is an experimental model "
-        "not wired into the Optimizer. See models/experimental/README."
-    )
+from LNPBO.models.experimental.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph
 
 
 class DMPNNEncoder(nn.Module):

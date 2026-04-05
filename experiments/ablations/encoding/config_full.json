@@ -1,6 +1,6 @@
 {
   "experiment_name": "encoding",
-  "description": "Full encoding ablation: all 34 strategies × 8 encodings × 27 studies × 5 seeds",
+  "description": "Full encoding ablation: all 34 strategies × 8 encodings × 26 studies × 5 seeds",
   "conditions": [
     {"label": "lantern", "feature_type": "lantern_il_only"},
     {"label": "mfp", "feature_type": "mfp_il_only"},

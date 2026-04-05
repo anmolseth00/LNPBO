@@ -216,6 +216,44 @@ def run_single(
     }
 
 
+def _build_conditions(config):
+    """Convert config-specific keys into a unified conditions list."""
+    if "conditions" in config:
+        return config["conditions"]
+
+    conditions = []
+
+    if "batch_sizes" in config:
+        for bs in config["batch_sizes"]:
+            for variant, vconf in config.get("variants", {}).items():
+                n_rounds = vconf.get("rounds_per_batch", {}).get(str(bs), vconf.get("n_rounds", 15))
+                conditions.append({"label": f"batch{bs}_{variant}", "batch_size": bs, "n_rounds": n_rounds})
+        return conditions
+
+    if "configs" in config:
+        for c in config["configs"]:
+            conditions.append({"label": c["name"], "seed_fraction": c.get("seed_fraction"), "n_rounds": c.get("n_rounds", 15)})
+        return conditions
+
+    if "n_pcs_values" in config:
+        for n in config["n_pcs_values"]:
+            conditions.append({"label": f"pca{n}", "n_pcs": n})
+        return conditions
+
+    if "warmup_configs" in config:
+        for wc in config["warmup_configs"]:
+            label = f"w{wc['warmup_size']}_{wc.get('selection', 'random')}_b{wc.get('bo_batch', 12)}"
+            conditions.append({"label": label, "batch_size": wc.get("bo_batch", 12), "warmup": wc})
+        return conditions
+
+    if "kernel_configs" in config:
+        for kc in config["kernel_configs"]:
+            conditions.append({"label": kc.get("label", kc.get("kernel_type", "")), **kc})
+        return conditions
+
+    return [{}]
+
+
 def run_experiment(config, df, studies, args):
     """Run the full ablation experiment defined by config."""
     experiment_name = config["experiment_name"]
@@ -239,7 +277,8 @@ def run_experiment(config, df, studies, args):
     # Include all studies (previously excluded pooled-mixed studies)
 
     # Build run matrix from config "conditions"
-    conditions = config.get("conditions", [{}])
+    # Different config formats use different keys — normalize to a conditions list.
+    conditions = _build_conditions(config)
     if args.condition:
         conditions = [c for c in conditions if c.get("label") == args.condition]
         if not conditions:

@@ -18,13 +18,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-try:
-    from LNPBO.models.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph, MolGraph, mol_to_graph
-except ImportError:
-    raise ImportError(
-        "models.featurize was removed. GPS-MPNN is an experimental model "
-        "not wired into the Optimizer. See models/experimental/README."
-    )
+from LNPBO.models.experimental.featurize import ATOM_FDIM, BOND_FDIM, BatchMolGraph, MolGraph, mol_to_graph
 
 # ---------------------------------------------------------------------------
 # RWSE computation

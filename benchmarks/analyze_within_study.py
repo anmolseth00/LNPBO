@@ -2094,7 +2094,7 @@ def print_caveats():
         ),
         (
             "Limited ratio diversity",
-            "20 of 27 studies use fixed molar ratios (il_diverse_fixed_ratios), meaning the "
+            "20 of 26 studies use fixed molar ratios (il_diverse_fixed_ratios), meaning the "
             "optimization reduces to pure IL structure screening. Only 5 studies have variable "
             "ratios with diverse ILs, and only 2 are ratio-only. Conclusions about continuous "
             "optimization or mixed discrete-continuous settings rest on very few studies.",
@@ -2111,14 +2111,14 @@ def print_caveats():
             "With 27 independent studies, the paired Wilcoxon test has limited power to "
             "detect small effects (Cohen's d < 0.3). Post-hoc power analysis is reported "
             "alongside p-values. For comparisons where power < 0.8, absence of significance "
-            "should not be interpreted as absence of effect. The n=27 sample also limits "
+            "should not be interpreted as absence of effect. The n=26 sample also limits "
             "interaction tests (e.g., study_type x strategy), which are descriptive only.",
         ),
         (
             "Seed sensitivity",
-            "Only 5 random seeds are used. With 27 studies, this yields 135 (study, seed) "
+            "Only 5 random seeds are used. With 26 studies, this yields 130 (study, seed) "
             "pairs per strategy, but seeds within a study are not independent (same data, "
-            "different initial sample). Statistical tests use study-level means (n=27) to "
+            "different initial sample). Statistical tests use study-level means (n=26) to "
             "avoid pseudoreplication.",
         ),
         (

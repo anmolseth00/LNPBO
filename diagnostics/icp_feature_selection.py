@@ -37,26 +37,15 @@ import numpy as np
 from scipy.stats import f_oneway, levene
 from sklearn.linear_model import LinearRegression
 
+from LNPBO.benchmarks.stats import benjamini_hochberg as _bh_full
 from LNPBO.data.study_utils import encode_lantern_il, lantern_il_feature_cols, load_lnpdb_clean
 
 logger = logging.getLogger("lnpbo")
 
 
 def benjamini_hochberg(pvals):
-    """Benjamini-Hochberg adjusted p-values.
-
-    Reference: Benjamini & Hochberg 1995, JRSS-B, Theorem 1.
-    """
-    pvals = np.asarray(pvals, dtype=float)
-    n = len(pvals)
-    sorted_idx = np.argsort(pvals)
-    sorted_pvals = pvals[sorted_idx]
-    adjusted = np.minimum(1.0, sorted_pvals * n / np.arange(1, n + 1))
-    for i in range(n - 2, -1, -1):
-        adjusted[i] = min(adjusted[i], adjusted[i + 1])
-    result = np.empty(n)
-    result[sorted_idx] = adjusted
-    return result
+    """BH-adjusted p-values (wrapper returning only adjusted values)."""
+    return _bh_full(pvals)[0]
 
 
 def compute_invariant_sets(all_results, feat_cols, key_suffix, invariant_key):

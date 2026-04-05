@@ -427,7 +427,7 @@ def analyze_experiment(experiment_name):
 
 def cross_experiment_synthesis():
     """Compare sensitivity across all experiments."""
-    experiments = ["encoding", "batch_size", "budget", "warmup", "pca"]
+    experiments = ["encoding", "batch_size", "budget", "warmup", "pca", "kappa", "kernel"]
     all_variance = {}
 
     for exp in experiments:
@@ -473,7 +473,7 @@ def main():
     FIG_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.experiment == "all":
-        for exp in ["encoding", "batch_size", "budget", "warmup", "pca"]:
+        for exp in ["encoding", "batch_size", "budget", "warmup", "pca", "kappa", "kernel"]:
             analyze_experiment(exp)
         cross_experiment_synthesis()
     else:

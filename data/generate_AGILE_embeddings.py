@@ -10,10 +10,10 @@ This script must be run from the AGILE repository directory using its own
 virtualenv, as AGILE depends on specific PyTorch Geometric versions
 incompatible with the main LNPBO environment::
 
-    cd ~/Documents/GitHub/AGILE
-    .venv/bin/python ~/Documents/GitHub/LNPBO/data/generate_AGILE_embeddings.py \\
+    cd $AGILE_ROOT  # defaults to ../AGILE relative to LNPBO repo
+    .venv/bin/python -m LNPBO.data.generate_AGILE_embeddings \\
         --input /tmp/lnpbo_il_smiles_for_agile.csv \\
-        --output ~/Documents/GitHub/LNPBO/data/agile_embeddings.npz
+        --output data/agile_embeddings.npz
 
 The output ``.npz`` file contains ``smiles`` and ``embeddings`` arrays,
 which are loaded at runtime by ``data/generate_agile_loader.py``.
@@ -34,10 +34,10 @@ import torch
 
 logger = logging.getLogger("lnpbo")
 
-# AGILE repo must be on path
-AGILE_ROOT = Path(__file__).resolve().parent.parent.parent / "AGILE"
-if not AGILE_ROOT.exists():
-    AGILE_ROOT = Path.home() / "Documents" / "GitHub" / "AGILE"
+# AGILE repo must be on path — set AGILE_ROOT env var or clone as sibling
+import os
+
+AGILE_ROOT = Path(os.environ.get("AGILE_ROOT", Path(__file__).resolve().parent.parent.parent / "AGILE"))
 sys.path.insert(0, str(AGILE_ROOT))
 
 

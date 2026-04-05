@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-Data-driven optimization of lipid nanoparticle (LNP) formulations using Bayesian optimization (BO) with tree-ensemble and Gaussian process surrogates. Benchmarked across **38 strategies on 26 published LNP studies** from [LNPDB](https://www.nature.com/articles/s41467-026-68818-1), the best strategies recover 1.34--1.42x more top formulations than random screening.
+Data-driven optimization of lipid nanoparticle (LNP) formulations using Bayesian optimization (BO) with tree-ensemble and Gaussian process surrogates. Benchmarked across **38 strategies on 26 published LNP studies** from [LNPDB](https://www.nature.com/articles/s41467-026-68818-1).
 
 ---
 
