@@ -133,3 +133,8 @@ run_*.sh
 #   - LNPBO.png       (repo diagram)
 #   - LICENSE, README.md
 # ==========================
+
+# ==========================
+# Large files (keep local, don't track)
+# ==========================
+LNPDB.pdf
