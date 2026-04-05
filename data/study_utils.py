@@ -1,9 +1,9 @@
 import numpy as np
 import pandas as pd
 
-from LNPBO.data.context import add_assay_type
-from LNPBO.data.dataset import Dataset
-from LNPBO.data.lnpdb_bridge import load_lnpdb_full
+from .context import add_assay_type
+from .dataset import Dataset
+from .lnpdb_bridge import load_lnpdb_full
 
 
 def add_study_id(df: pd.DataFrame) -> pd.DataFrame:

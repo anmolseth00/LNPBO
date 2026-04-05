@@ -20,7 +20,7 @@ Example:
 
 See Also:
     Collins & Seth et al. (2026). "Benchmarking Optimization Strategies
-    for Lipid Nanoparticle Design: 38 Strategy Configurations Across 27 Studies."
+    for Lipid Nanoparticle Design: 38 Strategy Configurations Across 26 Studies."
 """
 
 __version__ = "0.1.0"

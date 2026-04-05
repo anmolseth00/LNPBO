@@ -145,3 +145,4 @@ experiments/analysis/figures/
 experiments/analysis/_archive/
 experiments/data_integrity/figures/
 tests/
+experiments/data_integrity/studies_with_ids.json
