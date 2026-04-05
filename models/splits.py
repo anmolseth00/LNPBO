@@ -1,7 +1,10 @@
 """Train/val/test splitting utilities (scaffold-based and random)."""
 
+import logging
 
 import numpy as np
+
+logger = logging.getLogger("lnpbo")
 
 
 def _scaffold(smiles: str) -> str:
@@ -14,7 +17,7 @@ def _scaffold(smiles: str) -> str:
         return ""
     try:
         return MurckoScaffoldSmiles(mol=mol, includeChirality=False)
-    except Exception:
+    except (ValueError, RuntimeError):
         return ""
 
 
@@ -41,8 +44,8 @@ def scaffold_split(
 
     largest_frac = len(scaffold_groups[0]) / len(smiles_list) if scaffold_groups else 0
     if largest_frac > 0.5:
-        print(f"Warning: largest scaffold group is {largest_frac:.1%} of data. "
-              f"Falling back to stratified random split.")
+        logger.warning("Largest scaffold group is %s of data. Falling back to stratified random split.",
+                       f"{largest_frac:.1%}")
         return _stratified_random_split(len(smiles_list), sizes, seed)
 
     n = len(smiles_list)

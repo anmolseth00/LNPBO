@@ -1,8 +1,20 @@
+"""Shared MLP base class for neural surrogate models.
+
+Used by SNGP, Laplace, Bradley-Terry, GroupDRO, and V-REx surrogates.
+"""
+
 import torch
 import torch.nn.functional as F
 
 
 class SurrogateMLP(torch.nn.Module):
+    """Three-layer MLP (256 -> 128 -> 1) for regression or utility estimation.
+
+    Also supports functional_forward() for meta-learning algorithms (MAML)
+    that require computing gradients through the forward pass with explicit
+    parameter dictionaries.
+    """
+
     def __init__(self, in_dim):
         super().__init__()
         self.fc1 = torch.nn.Linear(in_dim, 256)
@@ -15,6 +27,7 @@ class SurrogateMLP(torch.nn.Module):
         return self.fc3(x).squeeze(-1)
 
     def functional_forward(self, x, params):
+        """Forward pass with explicit parameter dict (for MAML inner loop)."""
         x = F.relu(F.linear(x, params["fc1.weight"], params["fc1.bias"]))
         x = F.relu(F.linear(x, params["fc2.weight"], params["fc2.bias"]))
         return F.linear(x, params["fc3.weight"], params["fc3.bias"]).squeeze(-1)
