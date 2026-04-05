@@ -150,13 +150,15 @@ def run_benchmark(
         train_y = train_df["Experiment_value"].to_numpy(dtype=float)
         test_y = test_df["Experiment_value"].to_numpy(dtype=float)
 
-        print(f"\n{'='*60}")
+        print(f"\n{'=' * 60}")
         print(f"Study: {study} | Train: {len(train_y)} | Test: {len(test_y)}")
-        print(f"{'='*60}")
+        print(f"{'=' * 60}")
 
         # LANTERN features (always fit on full training set)
         X_train, X_test = encode_lantern(
-            train_smiles, test_smiles, train_y,
+            train_smiles,
+            test_smiles,
+            train_y,
             n_pcs_count_mfp=n_pcs_count_mfp,
             n_pcs_rdkit=n_pcs_rdkit,
             reduction=reduction,
@@ -180,13 +182,12 @@ def run_benchmark(
             # K-fold CV matching paper's protocol: train on 80% of training data,
             # predict on held-out study, average across folds
             from sklearn.model_selection import KFold
+
             kf = KFold(n_splits=cv_folds, shuffle=True, random_state=42)
             fold_rs = []
             fold_r2s = []
             for fold_idx, (tr_idx, _) in enumerate(kf.split(X_train)):
-                preds = _train_and_predict(
-                    X_train[tr_idx], train_y[tr_idx], X_test, seed=fold_idx
-                )
+                preds = _train_and_predict(X_train[tr_idx], train_y[tr_idx], X_test, seed=fold_idx)
                 fold_r, _ = spearmanr(test_y, preds)
                 fold_rs.append(fold_r)
                 fold_r2s.append(r2_score(test_y, preds))
@@ -206,23 +207,25 @@ def run_benchmark(
         print(f"Beat LiON?   {beat_lion}")
         print(f"Beat AGILE?  {beat_agile}")
 
-        results.append({
-            "study": study,
-            "n_train": len(train_y),
-            "n_test": len(test_y),
-            "spearman_r": round(r, 4),
-            "spearman_r_std": round(r_std, 4),
-            "r2": round(r2, 4),
-            "lion_r": lion_r,
-            "agile_r": agile_r,
-            "beat_lion": r > lion_r,
-            "beat_agile": r > agile_r,
-        })
+        results.append(
+            {
+                "study": study,
+                "n_train": len(train_y),
+                "n_test": len(test_y),
+                "spearman_r": round(r, 4),
+                "spearman_r_std": round(r_std, 4),
+                "r2": round(r2, 4),
+                "lion_r": lion_r,
+                "agile_r": agile_r,
+                "beat_lion": r > lion_r,
+                "beat_agile": r > agile_r,
+            }
+        )
 
     # Summary
-    print(f"\n{'='*60}")
+    print(f"\n{'=' * 60}")
     print("SUMMARY")
-    print(f"{'='*60}")
+    print(f"{'=' * 60}")
     df = pd.DataFrame(results)
     print(df.to_string(index=False))
     print(f"\nMean Spearman r:  {df['spearman_r'].mean():.4f}")
@@ -235,13 +238,14 @@ def run_benchmark(
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Benchmark on LNPDB held-out studies", suggest_on_error=True)
+    parser = argparse.ArgumentParser(description="Benchmark on LNPDB held-out studies")
     parser.add_argument("--with-aux", action="store_true", help="Include LiON auxiliary features")
     parser.add_argument("--reduction", default="pca", choices=["pca", "pls", "none"])
     parser.add_argument("--n-pcs-count-mfp", type=int, default=5)
     parser.add_argument("--n-pcs-rdkit", type=int, default=5)
-    parser.add_argument("--cv-folds", type=int, default=1,
-                        help="Number of CV folds (1=single model, 5=match paper protocol)")
+    parser.add_argument(
+        "--cv-folds", type=int, default=1, help="Number of CV folds (1=single model, 5=match paper protocol)"
+    )
     args = parser.parse_args()
 
     run_benchmark(

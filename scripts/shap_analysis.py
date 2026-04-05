@@ -33,8 +33,7 @@ from LNPBO.optimization.optimizer import ENC_PREFIXES
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
-def build_features(df, encoded_df, feature_type="lantern", reduction="pls",
-                   context_features=True):
+def build_features(df, encoded_df, feature_type="lantern", reduction="pls", context_features=True):
     """Build feature matrix with column names for SHAP."""
     feature_cols = []
     for role in ["IL", "HL", "CHL", "PEG"]:
@@ -78,19 +77,21 @@ def categorize_features(feature_cols):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="SHAP analysis of LNPBO XGBoost surrogate", suggest_on_error=True)
+    parser = argparse.ArgumentParser(description="SHAP analysis of LNPBO XGBoost surrogate")
     parser.add_argument("--subset", type=int, default=None, help="Use N-row subset")
     parser.add_argument("--seed", type=int, default=42, help="Random seed")
     parser.add_argument("--no-context", action="store_true", help="Exclude context features")
-    parser.add_argument("--feature-type", type=str, default="lantern",
-                        choices=["mfp", "lantern", "count_mfp", "rdkit"])
-    parser.add_argument("--reduction", type=str, default="pls",
-                        choices=["pca", "pls", "none"])
+    parser.add_argument("--feature-type", type=str, default="lantern", choices=["mfp", "lantern", "count_mfp", "rdkit"])
+    parser.add_argument("--reduction", type=str, default="pls", choices=["pca", "pls", "none"])
     parser.add_argument("--output-dir", type=str, default="shap_output")
     parser.add_argument("--test-size", type=float, default=0.2, help="Test split fraction")
-    parser.add_argument("--split", type=str, default="amine",
-                        choices=["amine", "scaffold", "random"],
-                        help="Split strategy (default: amine on IL_head_name, matching LNPDB paper)")
+    parser.add_argument(
+        "--split",
+        type=str,
+        default="amine",
+        choices=["amine", "scaffold", "random"],
+        help="Split strategy (default: amine on IL_head_name, matching LNPDB paper)",
+    )
     args = parser.parse_args()
 
     output_dir = PROJECT_ROOT / args.output_dir
@@ -146,7 +147,8 @@ def main():
 
     # Build feature matrix
     encoded_df, feature_cols, ctx_cols, _ = build_features(
-        df, encoded_df,
+        df,
+        encoded_df,
         feature_type=args.feature_type,
         reduction=args.reduction,
         context_features=use_context,
@@ -189,7 +191,9 @@ def main():
     if args.split == "scaffold":
         il_smiles = encoded_df["IL_SMILES"].tolist()
         train_idx, val_idx, test_idx = scaffold_split(
-            il_smiles, sizes=(1.0 - args.test_size, 0.0, args.test_size), seed=args.seed,
+            il_smiles,
+            sizes=(1.0 - args.test_size, 0.0, args.test_size),
+            seed=args.seed,
         )
         train_idx = train_idx + val_idx
         X_train, X_test = X[train_idx], X[test_idx]
@@ -197,8 +201,12 @@ def main():
         print(f"Scaffold split — Train: {len(X_train):,}, Test: {len(X_test):,}")
     else:
         from sklearn.model_selection import train_test_split
+
         X_train, X_test, y_train, y_test = train_test_split(
-            X, y, test_size=args.test_size, random_state=args.seed,
+            X,
+            y,
+            test_size=args.test_size,
+            random_state=args.seed,
         )
         print(f"Random split — Train: {len(X_train):,}, Test: {len(X_test):,}")
 
@@ -226,7 +234,8 @@ def main():
     print("\nTraining XGBoost...")
     t0 = time.time()
     model.fit(
-        X_train_s, y_train,
+        X_train_s,
+        y_train,
         eval_set=[(X_test_s, y_test)],
         verbose=False,
     )
@@ -264,11 +273,13 @@ def main():
 
     # Mean absolute SHAP per feature
     mean_abs_shap = np.abs(shap_values).mean(axis=0)
-    feature_importance = pd.DataFrame({
-        "feature": feature_names,
-        "category": [categories[f] for f in feature_names],
-        "mean_abs_shap": mean_abs_shap,
-    }).sort_values("mean_abs_shap", ascending=False)
+    feature_importance = pd.DataFrame(
+        {
+            "feature": feature_names,
+            "category": [categories[f] for f in feature_names],
+            "mean_abs_shap": mean_abs_shap,
+        }
+    ).sort_values("mean_abs_shap", ascending=False)
 
     # Aggregate by category
     cat_importance = feature_importance.groupby("category")["mean_abs_shap"].sum().sort_values(ascending=False)
@@ -284,8 +295,8 @@ def main():
     # Context vs molecular split
     ctx_shap = cat_importance[[c for c in cat_importance.index if c.startswith("Context")]].sum()
     mol_shap = total_shap - ctx_shap
-    print(f"\n  Molecular total:  {mol_shap:.4f} ({mol_shap/total_shap*100:.1f}%)")
-    print(f"  Context total:    {ctx_shap:.4f} ({ctx_shap/total_shap*100:.1f}%)")
+    print(f"\n  Molecular total:  {mol_shap:.4f} ({mol_shap / total_shap * 100:.1f}%)")
+    print(f"  Context total:    {ctx_shap:.4f} ({ctx_shap / total_shap * 100:.1f}%)")
 
     # Top 20 individual features
     print("\nTop 20 features:")
@@ -315,8 +326,9 @@ def main():
             "test_rmse": float(test_rmse),
             "n_estimators": int(model.best_iteration + 1) if hasattr(model, "best_iteration") else 500,
         },
-        "category_importance": {cat: {"shap": float(cat_importance[cat]), "pct": float(cat_pct[cat])}
-                                for cat in cat_importance.index},
+        "category_importance": {
+            cat: {"shap": float(cat_importance[cat]), "pct": float(cat_pct[cat])} for cat in cat_importance.index
+        },
         "molecular_vs_context": {
             "molecular_shap": float(mol_shap),
             "molecular_pct": float(mol_shap / total_shap * 100),
@@ -343,6 +355,7 @@ def main():
     # Generate plots
     try:
         import matplotlib
+
         matplotlib.use("Agg")
         import matplotlib.pyplot as plt
 
@@ -371,7 +384,8 @@ def main():
         # Plot 2: SHAP beeswarm (top 30 features)
         fig, ax = plt.subplots(figsize=(10, 8))
         shap.summary_plot(
-            shap_values, X_test_s,
+            shap_values,
+            X_test_s,
             feature_names=feature_names,
             max_display=30,
             show=False,
@@ -385,8 +399,10 @@ def main():
         fig, ax = plt.subplots(figsize=(6, 6))
         ax.pie(
             [mol_shap, ctx_shap],
-            labels=[f"Molecular\n({mol_shap/total_shap*100:.1f}%)",
-                    f"Context\n({ctx_shap/total_shap*100:.1f}%)"],
+            labels=[
+                f"Molecular\n({mol_shap / total_shap * 100:.1f}%)",
+                f"Context\n({ctx_shap / total_shap * 100:.1f}%)",
+            ],
             colors=["#3498db", "#e74c3c"],
             startangle=90,
             textprops={"fontsize": 12},
@@ -414,7 +430,7 @@ def main():
         print("COMPARISON: WITH vs WITHOUT CONTEXT")
         print(f"{'=' * 70}")
         print(f"  {'Metric':<20} {'With Context':>15} {'No Context':>15}")
-        print(f"  {'-'*50}")
+        print(f"  {'-' * 50}")
 
         if use_context:
             ctx_r2 = test_r2
