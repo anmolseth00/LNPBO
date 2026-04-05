@@ -53,8 +53,6 @@ Desktop.ini
 pipeline_output.csv
 pipeline_encodings.csv
 round_*_gp.pkl
-benchmark_*.json
-benchmark_*.png
 
 # ==========================
 # Lock / temp files
@@ -75,12 +73,12 @@ benchmark_*.png
 events.out.tfevents.*
 
 # ==========================
-# Large model binaries (tracked via results JSON instead)
+# Large model binaries
 # ==========================
 *.pt
 *.joblib
-models/runs/*/model.json
 *.npy
+*.npz
 
 # ==========================
 # Symlinks to external repos
@@ -96,18 +94,31 @@ data/rdkit_cache/
 data/unimol_cache/
 
 # ==========================
-# Benchmark results (only clean-data results are tracked)
+# Benchmark results
 # ==========================
-benchmark_results/*
-!benchmark_results/clean_*
+benchmark_results/
 
 # ==========================
-# Generated outputs
+# Generated reports (regenerable from scripts)
 # ==========================
-proposed_ils.csv
-shap_output/
-slides/
-generative/
+experiments/data_integrity/stratification_report.json
+experiments/data_integrity/stratification_report.md
+experiments/data_integrity/data_landscape.json
+
+# ==========================
+# Paper (LaTeX source, managed separately)
+# ==========================
+paper/
+
+# ==========================
+# MkDocs build output
+# ==========================
+site/
+
+# ==========================
+# Ad-hoc launcher scripts
+# ==========================
+run_*.sh
 
 # ==========================
 # Claude Code
@@ -115,20 +126,10 @@ generative/
 .claude/
 
 # ==========================
-# Benchmark package (not ignored -- replaces benchmark.py)
-# ==========================
-!benchmarks/
-!benchmarks/*.py
-
-# ==========================
 # NOTE: The following are intentionally NOT ignored:
 #   - examples/       (example notebooks, CSVs, and data)
 #   - data/           (LiON model checkpoints, templates, bridge code)
+#   - benchmarks/     (benchmark package)
 #   - LNPBO.png       (repo diagram)
 #   - LICENSE, README.md
-#
-# If example round_*_gp.pkl or example *_encodings.csv files
-# should be kept in the repo, you can override with:
-#   !examples/**/round_*_gp.pkl
-#   !examples/**/*_encodings.csv
 # ==========================
