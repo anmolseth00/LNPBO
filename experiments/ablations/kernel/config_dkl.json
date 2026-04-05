@@ -1,0 +1,17 @@
+{
+  "experiment_name": "kernel",
+  "description": "Deep Kernel Learning (DKL) with LANTERN PCA features and learned NN transform.",
+  "strategies": [
+    "lnpbo_dkl_ts",
+    "lnpbo_dkl_logei"
+  ],
+  "seeds": [42, 123, 456],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}

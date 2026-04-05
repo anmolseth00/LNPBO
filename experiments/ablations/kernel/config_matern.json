@@ -1,0 +1,18 @@
+{
+  "experiment_name": "kernel",
+  "description": "Matern kernel (default) with LANTERN PCA features.",
+  "strategies": [
+    "lnpbo_ts_batch",
+    "lnpbo_logei",
+    "random"
+  ],
+  "seeds": [42, 123, 456],
+  "feature_type": "lantern_il_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "pca",
+  "n_pcs": 5,
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}

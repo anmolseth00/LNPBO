@@ -1,0 +1,17 @@
+{
+  "experiment_name": "kernel",
+  "description": "Aitchison kernel with ratio-only features (no molecular encoding).",
+  "strategies": [
+    "lnpbo_aitchison_ts",
+    "lnpbo_aitchison_logei"
+  ],
+  "seeds": [42, 123, 456],
+  "feature_type": "ratios_only",
+  "batch_size": 12,
+  "n_rounds": 15,
+  "seed_fraction": 0.25,
+  "normalize": "copula",
+  "reduction": "none",
+  "n_pcs": 5,
+  "metrics": ["top_k_recall_5pct", "top_k_recall_10pct", "auc", "final_best"]
+}
