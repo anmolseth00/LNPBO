@@ -1,5 +1,8 @@
+"""Formulation search-space builder for LNP Bayesian optimization."""
+
+from __future__ import annotations
+
 import random
-from typing import Self
 
 import numpy as np
 
@@ -32,6 +35,27 @@ class FormulationSpace:
         random_seed: int | None = None,
         name="screen",
     ):
+        """Initialize a FormulationSpace from explicit component and ratio specs.
+
+        Args:
+            components: Mapping from role (IL, HL, CHL, PEG) to lists of
+                component dicts, each with at least a ``"name"`` key.
+            molratio_bounds: Mapping from role to (min, max) molar ratio
+                bounds.
+            il_mrna_massratio_values: Allowed discrete IL-to-mRNA mass ratio
+                values.
+            target: Name of the target column in the dataset.
+            dataset: Optional encoded ``Dataset`` instance backing the space.
+            component_pcs: Optional mapping from role to encoder-name/n_pcs
+                dicts.
+            fixed_values: Column names mapped to their fixed scalar values
+                (for roles whose ratios do not vary).
+            normalize_molratios: Whether molar ratios should be normalized
+                to sum to 1.
+            random_seed: If provided, seeds both ``random`` and ``numpy``
+                RNGs for reproducibility.
+            name: Human-readable name for this space.
+        """
         self._dataset: Dataset | None = dataset
         self.name = name
 
@@ -145,6 +169,12 @@ class FormulationSpace:
 
     # Validation
     def _validate_inputs(self):
+        """Check that components and molratio_bounds contain all four roles.
+
+        Raises:
+            ValueError: If the keys of ``components`` or ``molratio_bounds``
+                do not match ``ROLES``.
+        """
         if set(self.components.keys()) != set(self.ROLES):
             raise ValueError(f"components must contain {self.ROLES}")
 
@@ -156,8 +186,25 @@ class FormulationSpace:
         cls,
         dataset: Dataset,
         molratio_bounds_override: dict[str, tuple[float, float]] | None = None,
-    ) -> Self:
+    ) -> FormulationSpace:
+        """Construct a FormulationSpace from an encoded Dataset.
 
+        Derives component lists, molar-ratio bounds, IL:mRNA values, and
+        structural PC specifications directly from the dataset metadata
+        and dataframe.
+
+        Args:
+            dataset: An encoded ``Dataset`` (must have populated metadata).
+            molratio_bounds_override: Optional per-role overrides for molar
+                ratio bounds.  Roles not present fall back to data-derived
+                ranges.
+
+        Returns:
+            A fully initialized ``FormulationSpace``.
+
+        Raises:
+            ValueError: If the dataset has not been encoded yet.
+        """
         df = dataset.df
         meta = dataset.metadata
 
@@ -341,15 +388,33 @@ class FormulationSpace:
         return d
 
     def get_parameters(self):
+        """Return the list of BayesParameter objects for this space.
+
+        Returns:
+            List of ``ComponentParameter``, ``MixtureRatiosParameter``,
+            and/or ``DiscreteParameter`` instances.
+        """
         return self.parameters
 
     def get_target(self):
+        """Return the name of the optimization target column.
+
+        Returns:
+            Target column name (default ``"Experiment_value"``).
+        """
         return self.target
 
     def get_fixed_values(self):
+        """Return a dict of column names mapped to their fixed scalar values.
+
+        Returns:
+            Dict mapping column names (e.g. ``"HL_molratio"``) to the
+            constant value used for roles that do not vary in this space.
+        """
         return self.fixed_values
 
     def new_round(self):
+        """Increment the internal round counter by one."""
         self._round_counter += 1
 
     # Sampling (still symmetric)

@@ -1,6 +1,10 @@
+import logging
+
 from ..data.dataset import Dataset
 from ..optimization.optimizer import ACQUISITION_TYPES, ALL_BATCH_STRATEGIES, SURROGATE_TYPES, Optimizer
 from ..space.formulation import FormulationSpace
+
+logger = logging.getLogger("lnpbo")
 
 
 def add_suggest_command(subparsers):
@@ -49,45 +53,75 @@ def add_suggest_command(subparsers):
     parser.add_argument(
         "--feature-type",
         default="lantern",
-        choices=["mfp", "count_mfp", "rdkit", "mordred", "unimol", "chemeleon", "lantern"],
+        choices=["mfp", "count_mfp", "rdkit", "mordred", "unimol", "chemeleon", "lion", "agile", "lantern"],
         help="Feature type (default: lantern). lantern = count Morgan FP + RDKit descriptors.",
     )
     parser.add_argument(
-        "--pool", default=None,
+        "--pool",
+        default=None,
         help="Path to candidate pool CSV. If not set, uses the dataset itself.",
+    )
+    parser.add_argument(
+        "--gp-engine",
+        default="botorch",
+        choices=["botorch", "sklearn"],
+        help="GP backend (default: botorch). Only used when surrogate-type is 'gp'.",
+    )
+    parser.add_argument(
+        "--kernel-type",
+        default="matern",
+        choices=["matern", "tanimoto", "aitchison", "dkl", "rf", "compositional", "robust"],
+        help="GP kernel (default: matern).",
+    )
+    parser.add_argument(
+        "--context-features",
+        action="store_true",
+        help="Include context features (e.g., cell type) in the surrogate model.",
+    )
+    parser.add_argument(
+        "--alpha",
+        type=float,
+        default=1e-6,
+        help="Noise regularization for sklearn GP (default: 1e-6).",
+    )
+    parser.add_argument(
+        "--surrogate-kwargs",
+        default=None,
+        help="JSON string of extra keyword arguments for the surrogate model.",
     )
 
     parser.set_defaults(func=run_suggest)
 
 
 def run_suggest(args):
+    import json
+
+    from ._pool import build_candidate_pool
+
     dataset = Dataset.from_lnpdb_csv(args.dataset)
 
     encoded = dataset.encode_dataset(
-        feature_type=args.feature_type, reduction=args.reduction,
+        feature_type=args.feature_type,
+        reduction=args.reduction,
     )
 
     space = FormulationSpace.from_dataset(encoded)
 
-    # Build candidate pool
-    candidate_pool = None
-    if args.surrogate_type != "gp_sklearn":
-        if args.pool:
-            import pandas as pd
-            pool_df = pd.read_csv(args.pool)
-            pool_dataset = Dataset(pool_df, source="lnpdb", name="candidate_pool")
-            pool_encoded = pool_dataset.encode_dataset(
-                feature_type=args.feature_type,
-                reduction=args.reduction,
-                fitted_transformers_in=encoded.fitted_transformers,
-            )
-            candidate_pool = pool_encoded.df
-        else:
-            candidate_pool = encoded.df
+    candidate_pool = build_candidate_pool(
+        encoded, args.surrogate_type,
+        pool_csv=args.pool,
+        feature_type=args.feature_type,
+        reduction=args.reduction,
+    )
+
+    surrogate_kwargs = None
+    if args.surrogate_kwargs:
+        surrogate_kwargs = json.loads(args.surrogate_kwargs)
 
     optimizer = Optimizer(
         space=space,
         surrogate_type=args.surrogate_type,
+        gp_engine=args.gp_engine,
         acquisition_type=args.acquisition_type,
         batch_strategy=args.batch_strategy,
         kappa=args.kappa,
@@ -96,7 +130,11 @@ def run_suggest(args):
         batch_size=args.batch_size,
         candidate_pool=candidate_pool,
         normalize=args.normalize,
+        context_features=args.context_features,
+        alpha=args.alpha,
+        kernel_type=args.kernel_type,
+        surrogate_kwargs=surrogate_kwargs,
     )
 
     batch = optimizer.suggest(output_csv=args.output)
-    print(f"Suggested {len(batch)} formulations.")
+    logger.info("Suggested %d formulations.", len(batch))

@@ -1,7 +1,19 @@
+"""CLI subcommand for encoding raw formulation CSVs into numeric features."""
+
 from ..data.dataset import Dataset
 
 
 def add_encode_command(subparsers):
+    """Register the ``encode`` subcommand with the argument parser.
+
+    Adds arguments for per-component molecular encoding (Morgan FP, Mordred,
+    LiON, count MFP, RDKit, Uni-Mol), dimensionality reduction, and output
+    control.
+
+    Args:
+        subparsers: The ``argparse`` subparser group returned by
+            ``ArgumentParser.add_subparsers()``.
+    """
     parser = subparsers.add_parser(
         "encode",
         help="Encode raw formulation CSV into numeric features",
@@ -101,6 +113,21 @@ def add_encode_command(subparsers):
 
 
 def run_encode(args):
+    """Encode a raw LNPDB-format CSV into numeric features and write to disk.
+
+    Reads the input CSV, validates encoding constraints (e.g. LiON cannot be
+    combined with Morgan/Mordred for IL), builds the per-component encoding
+    specification, and delegates to ``Dataset.encode_dataset``.
+
+    Args:
+        args: Parsed CLI arguments with attributes ``input``, ``output``,
+            ``reduction``, ``only_encodings``, and per-component PC counts
+            (e.g. ``IL_n_pcs_morgan``).
+
+    Raises:
+        ValueError: If LiON encoding is combined with Morgan or Mordred
+            for IL.
+    """
     dataset = Dataset.from_lnpdb_csv(args.input)
 
     # Validate IL encoding constraints upfront
@@ -112,23 +139,32 @@ def run_encode(args):
 
     enc = {
         "IL": {
-            "mfp": args.IL_n_pcs_morgan, "mordred": args.IL_n_pcs_mordred,
-            "lion": args.IL_n_pcs_lion, "unimol": args.IL_n_pcs_unimol,
-            "count_mfp": args.IL_n_pcs_count_mfp, "rdkit": args.IL_n_pcs_rdkit,
+            "mfp": args.IL_n_pcs_morgan,
+            "mordred": args.IL_n_pcs_mordred,
+            "lion": args.IL_n_pcs_lion,
+            "unimol": args.IL_n_pcs_unimol,
+            "count_mfp": args.IL_n_pcs_count_mfp,
+            "rdkit": args.IL_n_pcs_rdkit,
         },
         "HL": {
-            "mfp": args.HL_n_pcs_morgan, "mordred": args.HL_n_pcs_mordred,
-            "unimol": args.HL_n_pcs_unimol, "count_mfp": args.HL_n_pcs_count_mfp,
+            "mfp": args.HL_n_pcs_morgan,
+            "mordred": args.HL_n_pcs_mordred,
+            "unimol": args.HL_n_pcs_unimol,
+            "count_mfp": args.HL_n_pcs_count_mfp,
             "rdkit": args.HL_n_pcs_rdkit,
         },
         "CHL": {
-            "mfp": args.CHL_n_pcs_morgan, "mordred": args.CHL_n_pcs_mordred,
-            "unimol": args.CHL_n_pcs_unimol, "count_mfp": args.CHL_n_pcs_count_mfp,
+            "mfp": args.CHL_n_pcs_morgan,
+            "mordred": args.CHL_n_pcs_mordred,
+            "unimol": args.CHL_n_pcs_unimol,
+            "count_mfp": args.CHL_n_pcs_count_mfp,
             "rdkit": args.CHL_n_pcs_rdkit,
         },
         "PEG": {
-            "mfp": args.PEG_n_pcs_morgan, "mordred": args.PEG_n_pcs_mordred,
-            "unimol": args.PEG_n_pcs_unimol, "count_mfp": args.PEG_n_pcs_count_mfp,
+            "mfp": args.PEG_n_pcs_morgan,
+            "mordred": args.PEG_n_pcs_mordred,
+            "unimol": args.PEG_n_pcs_unimol,
+            "count_mfp": args.PEG_n_pcs_count_mfp,
             "rdkit": args.PEG_n_pcs_rdkit,
         },
     }

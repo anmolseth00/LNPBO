@@ -1,3 +1,5 @@
+"""Entry point for the ``lnpbo`` command-line interface."""
+
 import argparse
 import sys
 
@@ -9,10 +11,16 @@ from .suggest import add_suggest_command
 
 
 def main():
+    """Parse CLI arguments and dispatch to the selected subcommand.
+
+    Registers all available subcommands (encode, suggest, propose-ils,
+    register, checkpoint), then invokes the handler bound to the chosen
+    subcommand.  Prints help and exits with code 1 if no subcommand is
+    provided.
+    """
     parser = argparse.ArgumentParser(
         prog="lnpbo",
         description="LNP Bayesian Optimization Toolkit",
-        suggest_on_error=True,
     )
 
     subparsers = parser.add_subparsers(dest="command")
