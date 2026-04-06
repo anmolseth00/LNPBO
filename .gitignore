@@ -119,9 +119,9 @@ paper/
 site/
 
 # ==========================
-# Ad-hoc launcher scripts
+# Ad-hoc launcher scripts (not scripts/run_parallel.sh)
 # ==========================
-run_*.sh
+/run_*.sh
 
 # ==========================
 # Claude Code

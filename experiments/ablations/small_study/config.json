@@ -23,5 +23,6 @@
     "top_k_recall_20pct",
     "auc"
   ],
+  "studies_json": "experiments/ablations/small_study/studies_small.json",
   "experiment_name": "small_study_benchmark"
 }

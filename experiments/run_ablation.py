@@ -508,8 +508,10 @@ def main():
 
     config = load_config(args.config)
 
-    # Load studies
+    # Load studies — CLI flag > config key > default path
     studies_path = args.studies_json
+    if not studies_path and "studies_json" in config:
+        studies_path = str(REPO / config["studies_json"])
     if not studies_path:
         default = REPO / "experiments" / "data_integrity" / "studies_with_ids.json"
         if default.exists():
