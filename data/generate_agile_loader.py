@@ -31,7 +31,12 @@ def _load_cache() -> dict[str, np.ndarray]:
             f"AGILE embeddings not found at {_NPZ_PATH}. Run data/generate_AGILE_embeddings.py first."
         )
     data = np.load(_NPZ_PATH, allow_pickle=False)
-    _cache = {str(s): data["embeddings"][i] for i, s in enumerate(data["smiles"])}
+    # Materialize arrays once; accessing data["embeddings"][i] inside the
+    # comprehension re-decompresses the NPZ archive on every iteration on
+    # some numpy versions and blows up memory/time.
+    smiles_arr = data["smiles"]
+    embeddings_arr = data["embeddings"]
+    _cache = {str(s): embeddings_arr[i] for i, s in enumerate(smiles_arr)}
     logger.info("AGILE: loaded %d embeddings from cache", len(_cache))
     return _cache
 
