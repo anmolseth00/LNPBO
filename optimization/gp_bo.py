@@ -11,6 +11,7 @@ Key speedups:
 
 from __future__ import annotations
 
+import os
 import warnings
 from typing import TYPE_CHECKING
 
@@ -35,17 +36,22 @@ if TYPE_CHECKING:
     GPModel = Union[SingleTaskGP, SingleTaskVariationalGP, Model]
 
 
-def get_device(use_mps: bool = False) -> torch.device:
+def get_device(use_mps: bool | None = None) -> torch.device:
     """Select compute device: CUDA > CPU > MPS (opt-in).
 
     Priority:
       1. CUDA if available — full float64 support, best performance.
       2. CPU (default) — reliable float64, always works.
-      3. MPS (opt-in via use_mps=True) — Apple Silicon GPU, float32 only,
-         may cause numerical instability in GP fitting.
+      3. MPS (opt-in) — Apple Silicon GPU, float32 only, may cause
+         numerical instability in GP fitting.
+
+    MPS opt-in resolution order: explicit ``use_mps`` arg, else the
+    ``LNPBO_USE_MPS`` env var (``1``/``true``/``yes``), else False.
     """
     if torch.cuda.is_available():
         return torch.device("cuda")
+    if use_mps is None:
+        use_mps = os.environ.get("LNPBO_USE_MPS", "").lower() in {"1", "true", "yes"}
     if use_mps and torch.backends.mps.is_available():
         warnings.warn(
             "MPS backend uses float32 which may cause numerical instability "

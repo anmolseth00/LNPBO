@@ -52,6 +52,14 @@ with contextlib.suppress(ImportError):
 
     warnings.filterwarnings("ignore", category=NumericalWarning)
 
+# pyro-ppl (a botorch transitive dep) ships LaTeX like `\ge` inside non-raw
+# docstrings at pyro/ops/stats.py. Python 3.14 tightened its invalid-escape
+# SyntaxWarning, so this fires on first import (when .pyc gets compiled).
+# Still present on pyro-ppl master as of Apr 2026 — upstream fix isn't
+# available. This filter must be installed BEFORE the .runner import below
+# because SyntaxWarnings fire at compile time, once, during that import chain.
+warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pyro\..*")
+
 from ..data.context import infer_assay_type_row
 
 from .constants import BATCH_SIZE, MAX_ROUNDS, MIN_SEED, MIN_STUDY_SIZE, SEED_FRACTION, SEEDS

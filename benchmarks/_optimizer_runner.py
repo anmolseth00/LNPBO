@@ -5,6 +5,8 @@ implements the multi-round acquisition loop for all strategies. The
 history dict format is compatible with ``compute_metrics()``.
 """
 
+import time
+
 from .runner import init_history, update_history
 
 
@@ -55,6 +57,15 @@ class OptimizerRunner:
             if len(pool_idx) < batch_size:
                 break
 
+            # Breadcrumb before the potentially long GP fit + acqf solve so
+            # operators can distinguish "working" from "hung" on big studies.
+            print(
+                f"  Round {r + 1}/{n_rounds} starting "
+                f"(pool={len(pool_idx)}, training={len(training_idx)})...",
+                flush=True,
+            )
+            round_t0 = time.time()
+
             try:
                 batch_idx = self.optimizer.suggest_indices(
                     df,
@@ -82,9 +93,11 @@ class OptimizerRunner:
 
             batch_best = df.loc[batch_idx, "Experiment_value"].max()
             cum_best = history["best_so_far"][-1]
+            round_elapsed = time.time() - round_t0
             print(
                 f"  Round {r + 1}: batch_best={batch_best:.3f}, "
-                f"cum_best={cum_best:.3f}, n_new={len(batch_idx)}",
+                f"cum_best={cum_best:.3f}, n_new={len(batch_idx)}, "
+                f"time={round_elapsed:.1f}s",
                 flush=True,
             )
 
