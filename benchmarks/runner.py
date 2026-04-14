@@ -10,12 +10,22 @@ Usage:
 import argparse
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from LNPBO.optimization.optimizer import ENC_PREFIXES
+
+
+def _ts() -> str:
+    """Return a bracketed HH:MM:SS stamp for per-round log lines.
+
+    Shared by all round loops (OptimizerRunner, conformal, random) so
+    output pacing looks consistent across strategy types.
+    """
+    return datetime.now().strftime("[%H:%M:%S]")
 
 STRATEGY_CONFIGS = {
     "random": {"type": "random"},
@@ -427,6 +437,15 @@ def run_discrete_online_conformal_strategy(
         if len(pool_idx) < batch_size:
             break
 
+        # Match OptimizerRunner's output shape so operators see the same
+        # breadcrumb + timestamp + round-time format across strategy types.
+        print(
+            f"  {_ts()} Round {r + 1}/{n_rounds} starting "
+            f"(pool={len(pool_idx)}, training={len(training_idx)})...",
+            flush=True,
+        )
+        round_t0 = time.time()
+
         if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
             encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
 
@@ -485,9 +504,11 @@ def run_discrete_online_conformal_strategy(
 
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
+        round_elapsed = time.time() - round_t0
         print(
-            f"  Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
-            f"coverage={coverage:.2f}, q={new_q:.4f}, n_residuals={calibrator.n_residuals}",
+            f"  {_ts()} Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
+            f"coverage={coverage:.2f}, q={new_q:.4f}, n_residuals={calibrator.n_residuals}, "
+            f"time={round_elapsed:.1f}s",
             flush=True,
         )
 

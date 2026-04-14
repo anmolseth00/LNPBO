@@ -6,14 +6,8 @@ history dict format is compatible with ``compute_metrics()``.
 """
 
 import time
-from datetime import datetime
 
-from .runner import init_history, update_history
-
-
-def _ts() -> str:
-    """Return a bracketed HH:MM:SS stamp for per-round log lines."""
-    return datetime.now().strftime("[%H:%M:%S]")
+from .runner import _ts, init_history, update_history
 
 
 class OptimizerRunner:
