@@ -28,6 +28,8 @@ from .acquisition import _log_h_stable
 
 KERNEL_TYPES = {"matern", "tanimoto", "aitchison", "dkl", "rf", "compositional", "robust"}
 
+_DEVICE_LOGGED = False
+
 if TYPE_CHECKING:
     from typing import Union
 
@@ -47,20 +49,49 @@ def get_device(use_mps: bool | None = None) -> torch.device:
 
     MPS opt-in resolution order: explicit ``use_mps`` arg, else the
     ``LNPBO_USE_MPS`` env var (``1``/``true``/``yes``), else False.
+
+    On the first call of a process, prints a one-line confirmation of the
+    selected device so users can verify GPU engagement from benchmark logs
+    without resorting to nvidia-smi or py-spy.
     """
     if torch.cuda.is_available():
-        return torch.device("cuda")
-    if use_mps is None:
-        use_mps = os.environ.get("LNPBO_USE_MPS", "").lower() in {"1", "true", "yes"}
-    if use_mps and torch.backends.mps.is_available():
-        warnings.warn(
-            "MPS backend uses float32 which may cause numerical instability "
-            "in GP fitting (Cholesky failures, poor hyperparameter optimization). "
-            "Use CPU or CUDA for reliable results.",
-            stacklevel=2,
+        device = torch.device("cuda")
+    else:
+        if use_mps is None:
+            use_mps = os.environ.get("LNPBO_USE_MPS", "").lower() in {"1", "true", "yes"}
+        if use_mps and torch.backends.mps.is_available():
+            warnings.warn(
+                "MPS backend uses float32 which may cause numerical instability "
+                "in GP fitting (Cholesky failures, poor hyperparameter optimization). "
+                "Use CPU or CUDA for reliable results.",
+                stacklevel=2,
+            )
+            device = torch.device("mps")
+        else:
+            device = torch.device("cpu")
+
+    global _DEVICE_LOGGED
+    if not _DEVICE_LOGGED:
+        _DEVICE_LOGGED = True
+        _log_device_selection(device)
+    return device
+
+
+def _log_device_selection(device: torch.device) -> None:
+    """Print a one-line device summary the first time a GP fit picks a device."""
+    if device.type == "cuda":
+        idx = device.index if device.index is not None else torch.cuda.current_device()
+        name = torch.cuda.get_device_name(idx)
+        total_bytes = torch.cuda.get_device_properties(idx).total_memory
+        total_gib = total_bytes / (1024**3)
+        print(
+            f"[GP] Fitting on device=cuda:{idx} ({name}, {total_gib:.1f} GiB)",
+            flush=True,
         )
-        return torch.device("mps")
-    return torch.device("cpu")
+    elif device.type == "mps":
+        print("[GP] Fitting on device=mps (Apple Silicon, float32)", flush=True)
+    else:
+        print("[GP] Fitting on device=cpu (float64)", flush=True)
 
 
 def _to_tensor(

@@ -52,12 +52,14 @@ with contextlib.suppress(ImportError):
 
     warnings.filterwarnings("ignore", category=NumericalWarning)
 
-# pyro-ppl (a botorch transitive dep) ships LaTeX like `\ge` inside non-raw
-# docstrings at pyro/ops/stats.py. Python 3.14 tightened its invalid-escape
-# SyntaxWarning, so this fires on first import (when .pyc gets compiled).
-# Still present on pyro-ppl master as of Apr 2026 — upstream fix isn't
-# available. This filter must be installed BEFORE the .runner import below
-# because SyntaxWarnings fire at compile time, once, during that import chain.
+# pyro-ppl 1.9.1 (latest release, June 2024) ships LaTeX like `\ge` inside a
+# non-raw docstring at pyro/ops/stats.py. Python 3.14 tightened its
+# invalid-escape SyntaxWarning, so this fires on first import when .pyc is
+# compiled. The docstring has already been converted to a raw string on
+# pyro-ppl master (PRs #3402/#3431), but no release has been cut since. This
+# filter bridges the gap until pyro-ppl 1.10+ ships; once Evan/others upgrade
+# it becomes a harmless no-op. Must be installed BEFORE the .runner import
+# below because SyntaxWarnings fire at compile time during that import chain.
 warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pyro\..*")
 
 from ..data.context import infer_assay_type_row
@@ -155,6 +157,74 @@ def get_study_id(study_info):
         Canonical string study identifier.
     """
     return study_info.get("study_id", str(int(float(study_info["pmid"]))))
+
+
+def _format_duration(seconds: float) -> str:
+    """Format an elapsed-time duration as a short human-readable string."""
+    seconds = max(0.0, float(seconds))
+    if seconds < 60:
+        return f"{seconds:.0f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    return f"{hours}h {minutes:02d}m"
+
+
+class _Tee:
+    """Minimal stdout/stderr tee: writes to both a terminal stream and a file."""
+
+    def __init__(self, stream, file_obj):
+        self._stream = stream
+        self._file = file_obj
+
+    def write(self, data):
+        self._stream.write(data)
+        self._file.write(data)
+        # flush eagerly so an SSH disconnect mid-run still leaves a usable log
+        self._file.flush()
+        return len(data)
+
+    def flush(self):
+        self._stream.flush()
+        self._file.flush()
+
+    def __getattr__(self, name):
+        # Delegate isatty, fileno, etc. to the terminal stream so libraries
+        # that probe stdout for TTY capabilities still see the real terminal.
+        return getattr(self._stream, name)
+
+
+@contextlib.contextmanager
+def _setup_log_file(log_file_arg):
+    """Tee stdout and stderr to ``log_file_arg`` for the life of the context.
+
+    ``log_file_arg='auto'`` generates a timestamped filename under
+    ``RESULTS_DIR/logs``. Any other string is used directly as the path.
+    """
+    import sys
+
+    if log_file_arg == "auto":
+        log_dir = RESULTS_DIR / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        log_path = log_dir / f"benchmark-{stamp}.log"
+    else:
+        log_path = Path(log_file_arg).resolve()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Line-buffered so readers tailing the file see output promptly.
+    with open(log_path, "w", buffering=1) as log_f:
+        print(f"Logging output to {log_path}", flush=True)
+        orig_stdout, orig_stderr = sys.stdout, sys.stderr
+        sys.stdout = _Tee(orig_stdout, log_f)
+        sys.stderr = _Tee(orig_stderr, log_f)
+        try:
+            yield log_path
+        finally:
+            sys.stdout, sys.stderr = orig_stdout, orig_stderr
+
+
 
 
 def characterize_studies(df, min_size=MIN_STUDY_SIZE, seed_fraction=SEED_FRACTION):
@@ -864,6 +934,17 @@ def main():
     parser.add_argument("--resume", action="store_true", help="Skip existing results")
     parser.add_argument("--aggregate-only", action="store_true", help="Only aggregate")
     parser.add_argument("--dry-run", action="store_true", help="List runs without executing")
+    parser.add_argument(
+        "--log-file",
+        type=str,
+        default=None,
+        help=(
+            "Tee stdout/stderr to this path as well as the terminal. "
+            "Pass 'auto' to log to RESULTS_DIR/logs/benchmark-<timestamp>.log. "
+            "Intended for long SSH runs where disconnects would otherwise "
+            "lose the output."
+        ),
+    )
     args = parser.parse_args()
 
     seed_fraction = args.seed_fraction
@@ -873,6 +954,18 @@ def main():
     global RESULTS_DIR
     if args.results_dir_override:
         RESULTS_DIR = Path(args.results_dir_override).resolve()
+
+    # Install tee before any meaningful output so the log file captures
+    # everything from the banner onward. An ExitStack registered with atexit
+    # keeps the tee alive for the duration of main() without requiring the
+    # whole function body to be indented under a `with`.
+    if args.log_file:
+        import atexit
+
+        _log_ctx_stack = contextlib.ExitStack()
+        _log_ctx_stack.__enter__()
+        _log_ctx_stack.enter_context(_setup_log_file(args.log_file))
+        atexit.register(_log_ctx_stack.close)
 
     # Load full dataset
     from LNPBO.data.lnpdb_bridge import load_lnpdb_full
@@ -1024,7 +1117,14 @@ def main():
             runs_by_study_seed.setdefault(key, []).append((si, strategy))
 
         completed = 0
+        # Track aggregate runtime so each run header can display an ETA based
+        # on the observed mean time per completed run. Long multi-hour sweeps
+        # are otherwise opaque about remaining wall-clock.
+        benchmark_t0 = time.time()
+        interrupted = False
         for (_study_id, seed), run_list in runs_by_study_seed.items():
+            if interrupted:
+                break
             si = run_list[0][0]
             pmid = si["pmid"]
             pmid_str = str(int(float(pmid)))
@@ -1079,7 +1179,20 @@ def main():
 
             for _, strategy in run_list:
                 completed += 1
-                print(f"\n[{completed}/{total_runs}] {strategy}")
+                elapsed_total = time.time() - benchmark_t0
+                # ETA: extrapolate from the mean per-run time. The first run
+                # has no history, so skip the ETA label until we have data.
+                if completed > 1:
+                    mean_per_run = elapsed_total / (completed - 1)
+                    remaining = total_runs - (completed - 1)
+                    eta_sec = mean_per_run * remaining
+                    eta_str = f", ETA {_format_duration(eta_sec)}"
+                else:
+                    eta_str = ""
+                print(
+                    f"\n[{completed}/{total_runs}] {strategy} "
+                    f"(elapsed {_format_duration(elapsed_total)}{eta_str})"
+                )
                 print("-" * 40)
 
                 is_gp = STRATEGY_CONFIGS[strategy]["type"] in ("gp", "gp_mixed")
@@ -1107,6 +1220,21 @@ def main():
 
                     save_seed_result(pmid, strategy, seed, result, si)
 
+                except KeyboardInterrupt:
+                    # Each completed run is already persisted via save_seed_result
+                    # above, so interrupting mid-strategy only loses the current
+                    # run. Flip the outer-loop flag, break the inner loop, and
+                    # fall through to aggregation so whatever finished still
+                    # produces a summary.
+                    runs_done = completed - 1
+                    print(
+                        f"\n\n*** Interrupted: {runs_done}/{total_runs} runs completed. "
+                        "Partial per-seed results are saved under "
+                        f"{RESULTS_DIR}/per_seed/. Continuing to aggregation ***",
+                        flush=True,
+                    )
+                    interrupted = True
+                    break
                 except Exception as e:
                     print(f"  FAILED: {e}")
                     import traceback

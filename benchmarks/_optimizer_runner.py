@@ -6,8 +6,14 @@ history dict format is compatible with ``compute_metrics()``.
 """
 
 import time
+from datetime import datetime
 
 from .runner import init_history, update_history
+
+
+def _ts() -> str:
+    """Return a bracketed HH:MM:SS stamp for per-round log lines."""
+    return datetime.now().strftime("[%H:%M:%S]")
 
 
 class OptimizerRunner:
@@ -60,7 +66,7 @@ class OptimizerRunner:
             # Breadcrumb before the potentially long GP fit + acqf solve so
             # operators can distinguish "working" from "hung" on big studies.
             print(
-                f"  Round {r + 1}/{n_rounds} starting "
+                f"  {_ts()} Round {r + 1}/{n_rounds} starting "
                 f"(pool={len(pool_idx)}, training={len(training_idx)})...",
                 flush=True,
             )
@@ -77,7 +83,7 @@ class OptimizerRunner:
                     batch_size=batch_size,
                 )
             except Exception as e:
-                print(f"  Round {r + 1}: suggest_indices failed ({e})", flush=True)
+                print(f"  {_ts()} Round {r + 1}: suggest_indices failed ({e})", flush=True)
                 import traceback
 
                 traceback.print_exc()
@@ -95,7 +101,7 @@ class OptimizerRunner:
             cum_best = history["best_so_far"][-1]
             round_elapsed = time.time() - round_t0
             print(
-                f"  Round {r + 1}: batch_best={batch_best:.3f}, "
+                f"  {_ts()} Round {r + 1}: batch_best={batch_best:.3f}, "
                 f"cum_best={cum_best:.3f}, n_new={len(batch_idx)}, "
                 f"time={round_elapsed:.1f}s",
                 flush=True,
