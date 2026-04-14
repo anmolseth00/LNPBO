@@ -103,12 +103,10 @@ packages = [
     "LNPBO.cli",
     "LNPBO.data",
     "LNPBO.diagnostics",
-    "LNPBO.generative",
     "LNPBO.models",
     "LNPBO.optimization",
     "LNPBO.scripts",
     "LNPBO.space",
-    "LNPBO.utils",
 ]
 
 [tool.ruff]
