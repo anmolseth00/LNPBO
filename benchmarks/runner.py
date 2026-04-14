@@ -27,6 +27,36 @@ def _ts() -> str:
     """
     return datetime.now().strftime("[%H:%M:%S]")
 
+
+def _log_round_start(r: int, n_rounds: int, pool_size: int, training_size: int) -> None:
+    """Announce the start of a round before the (potentially long) fit + acq step."""
+    print(
+        f"  {_ts()} Round {r + 1}/{n_rounds} starting "
+        f"(pool={pool_size}, training={training_size})...",
+        flush=True,
+    )
+
+
+def _log_round_complete(
+    r: int,
+    batch_best: float,
+    cum_best: float,
+    elapsed_s: float,
+    **extras: object,
+) -> None:
+    """Report a completed round with its shared core + strategy-specific fields.
+
+    Core fields (round, batch_best, cum_best, time) are formatted identically
+    across strategies. ``extras`` carries strategy-specific fields; callers
+    pass ints/counts directly and pre-format floats that need specific
+    precision (e.g. ``coverage=f"{coverage:.2f}"``) so the helper doesn't
+    second-guess each strategy's output conventions.
+    """
+    fragments = [f"batch_best={batch_best:.3f}", f"cum_best={cum_best:.3f}"]
+    fragments.extend(f"{key}={value}" for key, value in extras.items())
+    fragments.append(f"time={elapsed_s:.1f}s")
+    print(f"  {_ts()} Round {r + 1}: " + ", ".join(fragments), flush=True)
+
 STRATEGY_CONFIGS = {
     "random": {"type": "random"},
     "lnpbo_ucb": {"type": "gp", "acq_type": "UCB"},
@@ -437,13 +467,7 @@ def run_discrete_online_conformal_strategy(
         if len(pool_idx) < batch_size:
             break
 
-        # Match OptimizerRunner's output shape so operators see the same
-        # breadcrumb + timestamp + round-time format across strategy types.
-        print(
-            f"  {_ts()} Round {r + 1}/{n_rounds} starting "
-            f"(pool={len(pool_idx)}, training={len(training_idx)})...",
-            flush=True,
-        )
+        _log_round_start(r, n_rounds, len(pool_idx), len(training_idx))
         round_t0 = time.time()
 
         if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
@@ -504,12 +528,14 @@ def run_discrete_online_conformal_strategy(
 
         batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
         cum_best = history["best_so_far"][-1]
-        round_elapsed = time.time() - round_t0
-        print(
-            f"  {_ts()} Round {r + 1}: batch_best={batch_best:.3f}, cum_best={cum_best:.3f}, "
-            f"coverage={coverage:.2f}, q={new_q:.4f}, n_residuals={calibrator.n_residuals}, "
-            f"time={round_elapsed:.1f}s",
-            flush=True,
+        _log_round_complete(
+            r,
+            batch_best,
+            cum_best,
+            time.time() - round_t0,
+            coverage=f"{coverage:.2f}",
+            q=f"{new_q:.4f}",
+            n_residuals=calibrator.n_residuals,
         )
 
     return history

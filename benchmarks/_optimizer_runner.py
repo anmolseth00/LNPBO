@@ -7,7 +7,7 @@ history dict format is compatible with ``compute_metrics()``.
 
 import time
 
-from .runner import _ts, init_history, update_history
+from .runner import _log_round_complete, _log_round_start, _ts, init_history, update_history
 
 
 class OptimizerRunner:
@@ -57,13 +57,7 @@ class OptimizerRunner:
             if len(pool_idx) < batch_size:
                 break
 
-            # Breadcrumb before the potentially long GP fit + acqf solve so
-            # operators can distinguish "working" from "hung" on big studies.
-            print(
-                f"  {_ts()} Round {r + 1}/{n_rounds} starting "
-                f"(pool={len(pool_idx)}, training={len(training_idx)})...",
-                flush=True,
-            )
+            _log_round_start(r, n_rounds, len(pool_idx), len(training_idx))
             round_t0 = time.time()
 
             try:
@@ -93,12 +87,12 @@ class OptimizerRunner:
 
             batch_best = df.loc[batch_idx, "Experiment_value"].max()
             cum_best = history["best_so_far"][-1]
-            round_elapsed = time.time() - round_t0
-            print(
-                f"  {_ts()} Round {r + 1}: batch_best={batch_best:.3f}, "
-                f"cum_best={cum_best:.3f}, n_new={len(batch_idx)}, "
-                f"time={round_elapsed:.1f}s",
-                flush=True,
+            _log_round_complete(
+                r,
+                batch_best,
+                cum_best,
+                time.time() - round_t0,
+                n_new=len(batch_idx),
             )
 
         return history
