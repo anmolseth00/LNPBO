@@ -37,10 +37,20 @@ import argparse
 import contextlib
 import json
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
+# gpytorch spams NumericalWarning each time it retries Cholesky with extra
+# jitter. It's a benign auto-stabilization mechanism, not a failure — but on
+# large mixed-variable studies it can emit hundreds of lines per iteration.
+# Silence it so progress output stays readable. Real fit failures still raise.
+with contextlib.suppress(ImportError):
+    from gpytorch.utils.warnings import NumericalWarning
+
+    warnings.filterwarnings("ignore", category=NumericalWarning)
 
 from ..data.context import infer_assay_type_row
 
