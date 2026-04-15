@@ -101,9 +101,39 @@ class RandomForestKernel(Kernel):
         self._train_leaves = self.rf.apply(X_np)
 
     def _get_leaves(self, X: torch.Tensor) -> np.ndarray:
-        """Return leaf indices (n, n_trees) for input points."""
+        """Return leaf indices for input points.
+
+        Accepts either 2-D tensors of shape ``(n, d)`` or tensors with
+        leading batch dimensions of shape ``(..., n, d)`` and preserves
+        those leading dimensions in the returned leaf array.
+        """
         X_np = X.detach().cpu().numpy()
-        return self.rf.apply(X_np)
+        if X_np.ndim < 2:
+            raise ValueError("RandomForestKernel expects inputs with at least 2 dimensions")
+        flat = X_np.reshape(-1, X_np.shape[-1])
+        leaves = self.rf.apply(flat)
+        return leaves.reshape(*X_np.shape[:-1], -1)
+
+    def _kernel_from_leaves(self, leaves1: np.ndarray, leaves2: np.ndarray, dtype, device) -> torch.Tensor:
+        """Compute proximities from precomputed leaf indices."""
+        squeeze_batch = False
+        if leaves1.ndim == 2:
+            leaves1 = leaves1[None, ...]
+            leaves2 = leaves2[None, ...]
+            squeeze_batch = True
+
+        n_trees = leaves1.shape[-1]
+        K_np = np.zeros((leaves1.shape[0], leaves1.shape[1], leaves2.shape[1]), dtype=np.float64)
+        for start in range(0, n_trees, self._CHUNK):
+            end = min(start + self._CHUNK, n_trees)
+            # (B, N, C, 1) == (B, 1, C, M) -> (B, N, C, M)
+            lhs = leaves1[:, :, start:end][:, :, :, None]
+            rhs = np.transpose(leaves2[:, :, start:end], (0, 2, 1))[:, None, :, :]
+            K_np += (lhs == rhs).sum(axis=2)
+        K_np /= n_trees
+        if squeeze_batch:
+            K_np = K_np[0]
+        return torch.tensor(K_np, dtype=dtype, device=device)
 
     def forward(
         self,
@@ -120,19 +150,16 @@ class RandomForestKernel(Kernel):
         Trees are processed in chunks of ``_CHUNK`` (default 50), each
         chunk requiring O(n1 * n2 * chunk) temporary memory.
         """
+        batch_shape = torch.broadcast_shapes(x1.shape[:-2], x2.shape[:-2])
         if diag:
-            return torch.ones(x1.shape[0], dtype=x1.dtype, device=x1.device)
+            return torch.ones(*batch_shape, x1.shape[-2], dtype=x1.dtype, device=x1.device)
 
-        leaves1 = self._get_leaves(x1)  # (n1, T)
-        leaves2 = self._get_leaves(x2)  # (n2, T)
-        n_trees = leaves1.shape[1]
+        if x1.dim() == 2 and x2.dim() == 2:
+            return self._kernel_from_leaves(self._get_leaves(x1), self._get_leaves(x2), x1.dtype, x1.device)
 
-        K_np = np.zeros((leaves1.shape[0], leaves2.shape[0]), dtype=np.float64)
-        for start in range(0, n_trees, self._CHUNK):
-            end = min(start + self._CHUNK, n_trees)
-            # (n1, chunk, 1) == (1, chunk, n2) -> (n1, chunk, n2)
-            eq = leaves1[:, start:end, np.newaxis] == leaves2[:, start:end].T[np.newaxis, :, :]
-            K_np += eq.sum(axis=1)
-        K_np /= n_trees
+        x1_exp = x1.expand(*batch_shape, *x1.shape[-2:])
+        x2_exp = x2.expand(*batch_shape, *x2.shape[-2:])
 
-        return torch.tensor(K_np, dtype=x1.dtype, device=x1.device)
+        leaves1 = self._get_leaves(x1_exp)
+        leaves2 = self._get_leaves(x2_exp)
+        return self._kernel_from_leaves(leaves1, leaves2, x1.dtype, x1.device)
