@@ -242,8 +242,14 @@ different integration patterns and are not accessible through `Optimizer`:
 - **MAML** (`maml_surrogate.py`) — Model-Agnostic Meta-Learning for few-shot
   BO. Meta-trains across studies, fine-tunes for target study with k
   observations. *Finn et al. (2017), ICML.*
-- **FSBO** (`fsbo_surrogate.py`) — Warm-started GP hyperparameters from
-  meta-training. *Inspired by Wistuba & Grabocka (2021), ICLR.*
+- **Exact FSBO** (`models/experimental/fsbo/`) — Few-shot Bayesian
+  optimization with a meta-trained deep-kernel GP surrogate, task-scale
+  augmentation, target-task fine-tuning, and Expected Improvement.
+  *Wistuba & Grabocka (2021), ICLR.*
+- **Warm-start GP transfer baseline**
+  (`warm_start_gp_transfer_baseline.py`) — Approximate transfer baseline that
+  warm-starts standard GP hyperparameters from source-task data. This is not
+  the exact FSBO method.
 - **D-MPNN** (`mpnn.py`) — Directed Message Passing Neural Network operating
   on molecular graphs. *Yang et al. (2019), JCIM.*
 - **GPS-MPNN** (`gps_mpnn.py`) — D-MPNN with RWSE positional encodings,
