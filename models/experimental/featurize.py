@@ -205,9 +205,10 @@ def batch_mol_graphs(graphs: list[MolGraph]) -> BatchMolGraph:
     in a2b point to a zero vector.
     """
     # Start with padding atom and bond at index 0
-    # Infer dims from actual graph data (supports augmented features like RWSE)
-    atom_fdim = graphs[0].f_atoms.shape[1] if graphs else ATOM_FDIM
-    bond_fdim = graphs[0].f_bonds.shape[1] if graphs else BOND_FDIM
+    # Infer dims from actual graph data. Use the maximum width so batches can
+    # mix base and augmented feature tensors by zero-padding missing features.
+    atom_fdim = max((g.f_atoms.shape[1] for g in graphs), default=ATOM_FDIM)
+    bond_fdim = max((g.f_bonds.shape[1] for g in graphs), default=BOND_FDIM)
 
     f_atoms = [np.zeros(atom_fdim, dtype=np.float32)]  # padding atom
     f_bonds = [np.zeros(bond_fdim, dtype=np.float32)]   # padding bond
@@ -221,8 +222,15 @@ def batch_mol_graphs(graphs: list[MolGraph]) -> BatchMolGraph:
     b_offset = 1  # current bond offset
 
     for g in graphs:
-        f_atoms.extend(g.f_atoms.tolist())
-        f_bonds.extend(g.f_bonds.tolist())
+        g_atoms = g.f_atoms
+        if g_atoms.shape[1] < atom_fdim:
+            g_atoms = np.pad(g_atoms, ((0, 0), (0, atom_fdim - g_atoms.shape[1])))
+        g_bonds = g.f_bonds
+        if g_bonds.shape[1] < bond_fdim:
+            g_bonds = np.pad(g_bonds, ((0, 0), (0, bond_fdim - g_bonds.shape[1])))
+
+        f_atoms.extend(g_atoms.tolist())
+        f_bonds.extend(g_bonds.tolist())
 
         for atom_bonds in g.a2b:
             a2b_all.append([b + b_offset for b in atom_bonds])

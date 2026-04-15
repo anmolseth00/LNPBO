@@ -14,8 +14,22 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+class _EnsembleMLP(torch.nn.Module):
+    """Simple configurable MLP used only inside DeepEnsemble."""
 
-from .surrogate_mlp import SurrogateMLP
+    def __init__(self, input_dim: int, hidden_dims: tuple[int, ...]):
+        super().__init__()
+        dims = (input_dim, *hidden_dims)
+        self.hidden = torch.nn.ModuleList(
+            [torch.nn.Linear(dims[i], dims[i + 1]) for i in range(len(hidden_dims))]
+        )
+        last_dim = dims[-1] if hidden_dims else input_dim
+        self.output = torch.nn.Linear(last_dim, 1)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for layer in self.hidden:
+            x = F.relu(layer(x))
+        return self.output(x).squeeze(-1)
 
 
 class DeepEnsemble:
@@ -51,7 +65,7 @@ class DeepEnsemble:
         self.hidden_dims = hidden_dims
         self.epochs = epochs
         self.lr = lr
-        self.models: list[SurrogateMLP] = []
+        self.models: list[_EnsembleMLP] = []
 
     def fit(self, X: np.ndarray, y: np.ndarray, bootstrap: bool = True, seed: int = 42):
         """Train each ensemble member independently.
@@ -68,7 +82,7 @@ class DeepEnsemble:
         for _m in range(self.n_models):
             member_seed = rng.randint(0, 2**31)
             torch.manual_seed(member_seed)
-            model = SurrogateMLP(self.input_dim)
+            model = _EnsembleMLP(self.input_dim, self.hidden_dims)
             opt = torch.optim.Adam(model.parameters(), lr=self.lr)
 
             if bootstrap:

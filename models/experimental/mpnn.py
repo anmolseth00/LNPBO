@@ -29,23 +29,27 @@ class DMPNNEncoder(nn.Module):
 
     def __init__(
         self,
+        atom_fdim: int = ATOM_FDIM,
+        bond_fdim: int = BOND_FDIM,
         hidden_size: int = 300,
         depth: int = 3,
         dropout: float = 0.0,
         bias: bool = False,
     ):
         super().__init__()
+        self.atom_fdim = atom_fdim
+        self.bond_fdim = bond_fdim
         self.hidden_size = hidden_size
         self.depth = depth
 
         # Initial message: project [atom_feat, bond_feat] -> hidden
-        self.W_i = nn.Linear(ATOM_FDIM + BOND_FDIM, hidden_size, bias=bias)
+        self.W_i = nn.Linear(atom_fdim + bond_fdim, hidden_size, bias=bias)
 
         # Message update at each depth
         self.W_h = nn.Linear(hidden_size, hidden_size, bias=bias)
 
         # Final atom hidden state: project [atom_feat, aggregated_message] -> hidden
-        self.W_o = nn.Linear(ATOM_FDIM + hidden_size, hidden_size)
+        self.W_o = nn.Linear(atom_fdim + hidden_size, hidden_size)
 
         self.act = nn.ReLU()
         self.dropout = nn.Dropout(dropout)
@@ -119,6 +123,8 @@ class MultiComponentMPNN(nn.Module):
     def __init__(
         self,
         component_names: list[str],
+        atom_fdim: int = ATOM_FDIM,
+        bond_fdim: int = BOND_FDIM,
         hidden_size: int = 300,
         depth: int = 3,
         ffn_hidden_size: int = 300,
@@ -134,6 +140,8 @@ class MultiComponentMPNN(nn.Module):
         # Independent MPNN encoder per component
         self.encoders = nn.ModuleDict({
             name: DMPNNEncoder(
+                atom_fdim=atom_fdim,
+                bond_fdim=bond_fdim,
                 hidden_size=hidden_size,
                 depth=depth,
                 dropout=dropout,

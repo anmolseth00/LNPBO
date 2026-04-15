@@ -101,7 +101,7 @@ class GPSDMPNNEncoder(nn.Module):
 
     def __init__(
         self,
-        atom_fdim: int = ATOM_FDIM,
+        atom_fdim: int,
         bond_fdim: int = BOND_FDIM,
         hidden_size: int = 256,
         depth: int = 4,
@@ -259,8 +259,9 @@ class MultiComponentGPS(nn.Module):
     def __init__(
         self,
         component_names: list[str],
-        atom_fdim: int = ATOM_FDIM,
+        atom_fdim: int | None = None,
         bond_fdim: int = BOND_FDIM,
+        rwse_dim: int = 16,
         hidden_size: int = 256,
         depth: int = 4,
         n_attn_heads: int = 4,
@@ -272,6 +273,8 @@ class MultiComponentGPS(nn.Module):
         super().__init__()
         self.component_names = component_names
         self.hidden_size = hidden_size
+        if atom_fdim is None:
+            atom_fdim = ATOM_FDIM + rwse_dim
 
         self.encoders = nn.ModuleDict({
             name: GPSDMPNNEncoder(
