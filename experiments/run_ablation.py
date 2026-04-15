@@ -6,8 +6,15 @@ dispatches to the existing benchmark strategy runners, and saves per-seed
 results with full config metadata for reproducibility.
 
 Usage:
-    # Run from config file:
+    # Run from config file in the source tree:
     python -m experiments.run_ablation --config experiments/ablations/encoding/config.json
+
+    # Installed-package equivalent:
+    python -m LNPBO.experiments.run_ablation --config experiments/ablations/encoding/config.json
+
+Installed-package runs write results under the current working directory's
+``benchmark_results/`` by default. Source-tree runs keep using the repo-local
+``benchmark_results/`` directory unless ``--results-dir`` is passed.
 
     # Run specific slice:
     python -m experiments.run_ablation --config .../config.json --studies 39060305 --seeds 42
@@ -20,36 +27,69 @@ Usage:
 """
 
 import argparse
+from importlib import import_module
 import json
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
+PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+_BENCHMARKS_BASE = "LNPBO.benchmarks" if (__package__ or "").startswith("LNPBO.") else "benchmarks"
 
-from benchmarks.benchmark import filter_study_df
-from benchmarks.runner import (
-    COMPOSITIONAL_STRATEGIES,
-    STRATEGY_CONFIGS,
-    _run_random,
-    classify_feature_columns,
-    compute_metrics,
-    prepare_benchmark_data,
-    select_warmup_seed,
-)
 
-RESULTS_BASE = REPO / "benchmark_results" / "ablations"
+def _import_benchmark_module(name):
+    """Import benchmark modules through the active source-tree or installed layout."""
+    return import_module(f"{_BENCHMARKS_BASE}.{name}")
+
+
+_benchmark = _import_benchmark_module("benchmark")
+_runner = _import_benchmark_module("runner")
+
+filter_study_df = _benchmark.filter_study_df
+COMPOSITIONAL_STRATEGIES = _runner.COMPOSITIONAL_STRATEGIES
+STRATEGY_CONFIGS = _runner.STRATEGY_CONFIGS
+_run_random = _runner._run_random
+classify_feature_columns = _runner.classify_feature_columns
+compute_metrics = _runner.compute_metrics
+prepare_benchmark_data = _runner.prepare_benchmark_data
+select_warmup_seed = _runner.select_warmup_seed
+
+
+def _default_results_base() -> Path:
+    """Use repo-local outputs in a checkout, but current-working-dir outputs when installed."""
+    if (PACKAGE_ROOT / "pyproject.toml").exists():
+        return PACKAGE_ROOT / "benchmark_results" / "ablations"
+    return Path.cwd().resolve() / "benchmark_results" / "ablations"
+
+
+def _resolve_existing_input_path(path_str: str) -> Path:
+    """Resolve source-tree style relative paths against the active runtime layout.
+
+    Installed-package entrypoints still document repo-style paths like
+    ``experiments/ablations/encoding/config.json``. When running from a wheel,
+    those files live under ``site-packages/LNPBO/...`` rather than the current
+    working directory, so we check both locations.
+    """
+    raw = Path(path_str)
+    candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, PACKAGE_ROOT / raw]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    attempted = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(f"Could not resolve input path {path_str!r}. Looked in: {attempted}")
+
+
+RESULTS_BASE = _default_results_base()
 
 
 def load_config(config_path):
-    with open(config_path) as f:
+    with open(_resolve_existing_input_path(config_path)) as f:
         return json.load(f)
 
 
 def load_studies(studies_json_path):
-    with open(studies_json_path) as f:
+    with open(_resolve_existing_input_path(studies_json_path)) as f:
         return json.load(f)
 
 
@@ -162,8 +202,8 @@ def run_single(
 
     if config["type"] == "random":
         history = _run_random(encoded_df, seed_idx, oracle_idx, batch_size, n_rounds, random_seed)
-    elif config["type"] == "discrete_online_conformal":
-        from benchmarks.runner import run_discrete_online_conformal_strategy
+    elif config["type"] == "discrete_online_conformal_exact":
+        run_discrete_online_conformal_strategy = _import_benchmark_module("runner").run_discrete_online_conformal_strategy
 
         history = run_discrete_online_conformal_strategy(
             encoded_df,
@@ -177,9 +217,26 @@ def run_single(
             normalize=normalize,
             encoded_dataset=encoded_dataset,
         )
+    elif config["type"] == "discrete_online_conformal_baseline":
+        run_discrete_cumulative_split_conformal_ucb_baseline = (
+            _import_benchmark_module("runner").run_discrete_cumulative_split_conformal_ucb_baseline
+        )
+
+        history = run_discrete_cumulative_split_conformal_ucb_baseline(
+            encoded_df,
+            feature_cols,
+            seed_idx,
+            oracle_idx,
+            batch_size=batch_size,
+            n_rounds=n_rounds,
+            seed=random_seed,
+            kappa=kappa,
+            normalize=normalize,
+            encoded_dataset=encoded_dataset,
+        )
     else:
-        from benchmarks._optimizer_runner import OptimizerRunner
-        from benchmarks.runner import strategy_to_optimizer_kwargs
+        OptimizerRunner = _import_benchmark_module("_optimizer_runner").OptimizerRunner
+        strategy_to_optimizer_kwargs = _import_benchmark_module("runner").strategy_to_optimizer_kwargs
         from LNPBO.optimization.optimizer import Optimizer
 
         opt_kwargs = strategy_to_optimizer_kwargs(strategy, kernel_kwargs=kernel_kwargs)
@@ -511,9 +568,9 @@ def main():
     # Load studies — CLI flag > config key > default path
     studies_path = args.studies_json
     if not studies_path and "studies_json" in config:
-        studies_path = str(REPO / config["studies_json"])
+        studies_path = str(_resolve_existing_input_path(config["studies_json"]))
     if not studies_path:
-        default = REPO / "experiments" / "data_integrity" / "studies_with_ids.json"
+        default = PACKAGE_ROOT / "experiments" / "data_integrity" / "studies_with_ids.json"
         if default.exists():
             studies_path = str(default)
         else:

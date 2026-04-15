@@ -14,8 +14,15 @@ For each qualifying study:
   - Feature type is adapted: studies with 1 unique IL use ratios_only
 
 Usage:
-    # Run all strategies on all qualifying studies:
+    # Run all strategies on all qualifying studies from the source tree:
     python -m benchmarks.benchmark
+
+    # Installed-package equivalent:
+    python -m LNPBO.benchmarks.benchmark
+
+Installed-package runs write results under the current working directory's
+``benchmark_results/`` by default. Source-tree runs keep using the repo-local
+``benchmark_results/`` directory unless ``--results-dir-override`` is passed.
 
     # Run specific strategies:
     python -m benchmarks.benchmark --strategies random,discrete_xgb_ucb
@@ -35,6 +42,7 @@ Usage:
 
 import argparse
 import contextlib
+from importlib import import_module
 import json
 import time
 import warnings
@@ -62,7 +70,14 @@ with contextlib.suppress(ImportError):
 # below because SyntaxWarnings fire at compile time during that import chain.
 warnings.filterwarnings("ignore", category=SyntaxWarning, module=r"pyro\..*")
 
-from ..data.context import infer_assay_type_row
+def _load_infer_assay_type_row():
+    """Support both source-tree and installed-package benchmark entrypoints."""
+    if (__package__ or "").startswith("LNPBO."):
+        return import_module("LNPBO.data.context").infer_assay_type_row
+    return import_module("data.context").infer_assay_type_row
+
+
+infer_assay_type_row = _load_infer_assay_type_row()
 
 from .constants import BATCH_SIZE, MAX_ROUNDS, MIN_SEED, MIN_STUDY_SIZE, SEED_FRACTION, SEEDS
 from .runner import (
@@ -135,7 +150,28 @@ ALL_WITHIN_STUDY_STRATEGIES = (
     DISCRETE_STRATEGIES + TS_BATCH_STRATEGIES + ONLINE_CONFORMAL_STRATEGIES + CASMOPOLITAN_STRATEGIES + GP_STRATEGIES
 )
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
+_PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+
+
+def _default_results_dir() -> Path:
+    """Use repo-local outputs in a checkout, but current-working-dir outputs when installed."""
+    if (_PACKAGE_ROOT / "pyproject.toml").exists():
+        return _PACKAGE_ROOT / "benchmark_results" / "within_study"
+    return Path.cwd().resolve() / "benchmark_results" / "within_study"
+
+
+def _resolve_existing_input_path(path_str: str) -> Path:
+    """Resolve runtime input paths from either a checkout or an installed wheel."""
+    raw = Path(path_str)
+    candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, _PACKAGE_ROOT / raw]
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate.resolve()
+    attempted = ", ".join(str(candidate) for candidate in candidates)
+    raise FileNotFoundError(f"Could not resolve input path {path_str!r}. Looked in: {attempted}")
+
+
+RESULTS_DIR = _default_results_dir()
 
 
 # ---------------------------------------------------------------------------
@@ -395,7 +431,7 @@ def run_single_seed(
 ):
     """Run a single strategy for a single seed within a study.
 
-    For ``random`` and ``discrete_xgb_online_conformal``, delegates to their
+    For ``random`` and the custom online-conformal strategies, delegates to their
     dedicated runners. All other 32 strategies go through
     ``OptimizerRunner`` backed by ``Optimizer.suggest_indices()``.
 
@@ -434,10 +470,26 @@ def run_single_seed(
     if config["type"] == "random":
         history = _run_random(s_df, s_seed, s_oracle, batch_size, n_rounds, random_seed, top_k_values=s_topk)
 
-    elif config["type"] == "discrete_online_conformal":
+    elif config["type"] == "discrete_online_conformal_exact":
         from .runner import run_discrete_online_conformal_strategy
 
         history = run_discrete_online_conformal_strategy(
+            s_df,
+            s_fcols,
+            s_seed,
+            s_oracle,
+            batch_size=batch_size,
+            n_rounds=n_rounds,
+            seed=random_seed,
+            kappa=kappa,
+            normalize=normalize,
+            encoded_dataset=s_dataset,
+            top_k_values=s_topk,
+        )
+    elif config["type"] == "discrete_online_conformal_baseline":
+        from .runner import run_discrete_cumulative_split_conformal_ucb_baseline
+
+        history = run_discrete_cumulative_split_conformal_ucb_baseline(
             s_df,
             s_fcols,
             s_seed,
@@ -979,9 +1031,10 @@ def main():
     if args.studies_json:
         import json as _json
 
-        with open(args.studies_json) as _f:
+        studies_path = _resolve_existing_input_path(args.studies_json)
+        with open(studies_path) as _f:
             study_infos = _json.load(_f)
-        print(f"\nLoaded {len(study_infos)} studies from {args.studies_json}")
+        print(f"\nLoaded {len(study_infos)} studies from {studies_path}")
     else:
         study_infos = characterize_studies(df, min_size=min_study_size, seed_fraction=seed_fraction)
         print(f"\n{len(study_infos)} qualifying studies (>= {args.min_study_size} formulations)")

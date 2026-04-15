@@ -7,7 +7,8 @@ name = "LNPBO"
 version = "0.1.0"
 description = "Bayesian Optimization for LNP Formulation Design"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.10"
 authors = [
     {name = "Evan Collins"},
@@ -30,7 +31,6 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
-    "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Intended Audience :: Science/Research",
     "Topic :: Scientific/Engineering :: Chemistry",
@@ -103,10 +103,19 @@ packages = [
     "LNPBO.cli",
     "LNPBO.data",
     "LNPBO.diagnostics",
+    "LNPBO.experiments",
     "LNPBO.models",
+    "LNPBO.models.experimental",
     "LNPBO.optimization",
     "LNPBO.scripts",
     "LNPBO.space",
+]
+py-modules = ["pipeline"]
+include-package-data = false
+
+[tool.setuptools.package-data]
+LNPBO = [
+    "experiments/**/*.json",
 ]
 
 [tool.ruff]
