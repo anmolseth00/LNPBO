@@ -96,6 +96,10 @@ class ManualLastLayerLaplace:
             Phi_aug = torch.cat([Phi, torch.ones(n, 1)], dim=1)
             self._H = (Phi_aug.T @ Phi_aug) / (self.sigma_obs ** 2)
         self._Phi_train = Phi
+        with torch.no_grad():
+            weight = self.model.fc3.weight.detach().reshape(-1)
+            bias = self.model.fc3.bias.detach().reshape(-1)
+            self._w_map = torch.cat([weight, bias])
         self._fitted = True
 
     def optimize_prior_precision(self, method="marginal_likelihood"):
@@ -103,12 +107,13 @@ class ManualLastLayerLaplace:
         candidates = np.logspace(-3, 3, 20)
         best_prec, best_score = 1.0, -np.inf
         d_plus_1 = self._Phi_train.size(1) + 1
+        w_map_sq = float(self._w_map.pow(2).sum())
 
         for prec in candidates:
             if self.hessian_structure == "diag":
                 posterior_diag = self._diag_H + prec
                 log_det = posterior_diag.log().sum()
-                score = 0.5 * d_plus_1 * np.log(prec) - 0.5 * float(log_det)
+                score = 0.5 * d_plus_1 * np.log(prec) - 0.5 * float(log_det) - 0.5 * prec * w_map_sq
             elif self.hessian_structure == "kron":
                 M = self._H + prec * torch.eye(d_plus_1)
                 try:
@@ -116,7 +121,7 @@ class ManualLastLayerLaplace:
                     log_det = 2.0 * L.diagonal().log().sum()
                 except torch.linalg.LinAlgError:
                     continue
-                score = 0.5 * d_plus_1 * np.log(prec) - 0.5 * float(log_det)
+                score = 0.5 * d_plus_1 * np.log(prec) - 0.5 * float(log_det) - 0.5 * prec * w_map_sq
             if score > best_score:
                 best_score = score
                 best_prec = prec
