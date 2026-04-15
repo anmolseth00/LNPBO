@@ -1217,6 +1217,14 @@ def select_batch_mixed(
             kernel_kwargs=kernel_kwargs,
         )
 
+    if use_sparse and batch_strategy.lower() in ("kb", "rkb"):
+        warnings.warn(
+            "Mixed-space KB/RKB requires exact sequential conditioning. "
+            "Disabling the sparse variational GP to preserve the paper-defined algorithm.",
+            stacklevel=2,
+        )
+        use_sparse = False
+
     rng = np.random.RandomState(seed)
     torch.manual_seed(seed)
 
@@ -1308,15 +1316,25 @@ def select_batch_mixed(
         return np.where(available_mask)[0][local_best]
 
     def _kb_condition(cur_model, global_idx, last_slot):
-        """Condition model on the selected point (KB hallucination)."""
-        if last_slot or isinstance(cur_model, SingleTaskVariationalGP):
-            return cur_model
+        """Condition model on the selected point with KB or RKB hallucination."""
+        if last_slot:
+            return cur_model, None
+        if isinstance(cur_model, SingleTaskVariationalGP):
+            raise RuntimeError(
+                "Mixed-space KB/RKB reached a variational GP after sparse mode "
+                "was disabled. This path requires exact conditioning."
+            )
         x_new = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
         with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            y_fantasy = cur_model.posterior(x_new).mean
+            posterior = cur_model.posterior(x_new)
+            if batch_strategy.lower() == "rkb":
+                y_fantasy = posterior.rsample().squeeze(-1)
+            else:
+                y_fantasy = posterior.mean  # type: ignore[union-attr]
         with warnings.catch_warnings():
             warnings.filterwarnings("ignore")
-            return cur_model.condition_on_observations(x_new, y_fantasy)
+            conditioned = cur_model.condition_on_observations(x_new, y_fantasy)
+        return conditioned, float(y_fantasy.item())
 
     for i in range(batch_size):
         acqf = _build_acqf(current_model, y_best_running)
@@ -1357,12 +1375,9 @@ def select_batch_mixed(
         available_mask[global_idx] = False
 
         # KB conditioning for next iteration
-        current_model = _kb_condition(current_model, global_idx, i == batch_size - 1)
-        if i < batch_size - 1:
-            x_sel = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
-            with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                y_fantasy = current_model.posterior(x_sel).mean
-            y_best_running = max(y_best_running, y_fantasy.item())
+        current_model, fantasy_value = _kb_condition(current_model, global_idx, i == batch_size - 1)
+        if fantasy_value is not None:
+            y_best_running = max(y_best_running, fantasy_value)
 
     return selected
 

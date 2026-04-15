@@ -495,7 +495,16 @@ class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
     ) -> np.ndarray:
         """Suggest the next batch point by maximizing a GP posterior sample.
 
-        Each call uses a unique sample seed for batch diversity.
+        Thompson sampling requires optimizing a *single* posterior draw over
+        the domain (Kandasamy et al., 2018). The bayes_opt optimizer evaluates
+        acquisition functions on changing point sets during random search and
+        local refinement, so repeatedly calling ``_sample_f`` inside an
+        acquisition closure does not define one coherent sampled function.
+
+        To preserve joint-sample semantics, we instead draw once over a fixed
+        candidate set sampled from the search space and take the argmax of that
+        draw. This is an approximate optimizer for the sampled function, but it
+        remains faithful to Thompson sampling.
         """
         if len(target_space) == 0:
             raise ValueError(
@@ -508,24 +517,16 @@ class ThompsonSamplingBatch(acquisition.AcquisitionFunction):
         sample_seed = self._sample_counter
         self._sample_counter += 1
 
-        dim = gp.X_train_.shape[1]
+        candidate_rng = np.random.RandomState(random_state) if isinstance(random_state, int) else random_state
+        n_candidates = max(int(n_random), int(n_smart), 1)
+        x_tries = target_space.random_sample(n_candidates, random_state=candidate_rng)
 
-        def ts_acq(x):
-            """Negated posterior sample at x for minimization."""
-            x = np.atleast_2d(x).reshape(-1, dim)
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                samples = _sample_f(gp, x, n_samples=1, random_state=sample_seed)
-            return -samples.ravel()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            samples = _sample_f(gp, x_tries, n_samples=1, random_state=sample_seed).ravel()
 
         self.i += 1
-        x_max = self._acq_min(
-            ts_acq,
-            target_space,
-            n_random=n_random,
-            n_smart=n_smart,
-            random_state=np.random.RandomState(random_state) if isinstance(random_state, int) else random_state,
-        )
+        x_max = x_tries[int(np.argmax(samples))]
         self.pending.append(x_max.copy())
         return x_max
 
