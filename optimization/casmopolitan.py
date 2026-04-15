@@ -1,18 +1,22 @@
-"""CASMOPOLITAN-style mixed-variable Bayesian optimization for LNP formulations.
+"""CASMOPOLITAN mixed-variable Bayesian optimization for LNP formulations.
 
-Implements trust-region-based BO for mixed categorical + continuous search
-spaces, following the CASMOPOLITAN framework. The key insight is that LNP
-formulation design has fundamentally mixed structure: discrete IL identity
-(categorical) and continuous molar ratios (on a simplex). Standard BO treats
-encoded molecular features as continuous, losing the discrete structure.
+Implements the core ingredients of Wan et al. (2021) for mixed categorical +
+continuous BO on a finite candidate pool:
 
-Architecture:
-    1. CategoricalOverlapKernel: k(x,y) = 1 if x==y, lambda otherwise
-    2. MixedProductKernel: categorical overlap x Matern-ARD on continuous dims
-    3. TrustRegion: local search around current best with separate categorical
-       and continuous trust region management
-    4. Mixed acquisition optimization: enumerate/sample categorical configs,
-       L-BFGS-B on continuous dims within trust region bounds
+1. Exponentiated categorical kernel (Eq. 1) with learnable per-dimension
+   lengthscales.
+2. Mixed categorical/continuous kernel (Eq. 4) with a learned additive-vs-
+   product tradeoff.
+3. TuRBO-style trust regions over the continuous coordinates together with
+   Hamming trust regions over the categorical coordinates.
+4. Restart when the trust region collapses, choosing the next center by a
+   global GP-UCB rule over the candidate pool (Eq. 3).
+5. Kriging Believer batching for ``b > 1`` on the discrete pool adaptation.
+
+The LNP search space is mixed by construction: IL identity is categorical,
+while molar ratios and molecular encodings are continuous. The implementation
+here keeps that structure explicit instead of flattening everything into a
+single Euclidean space.
 
 Reference
 ---------
@@ -42,192 +46,126 @@ from sklearn.gaussian_process.kernels import (
 from sklearn.preprocessing import StandardScaler
 
 # ---------------------------------------------------------------------------
-# Categorical overlap kernel
+# Exact CASMOPOLITAN kernels
 # ---------------------------------------------------------------------------
 
 
-class CategoricalOverlapKernel(Kernel):
-    """Overlap (Hamming) kernel for categorical variables.
+class ExponentiatedCategoricalKernel(Kernel):
+    """Exponentiated categorical kernel from Wan et al. (2021), Eq. (1).
 
-    k(x, y) = prod_j (1 if x_j == y_j else lambda_j)
+    k_h(h, h') = exp((1 / d_h) * sum_i ell_i * 1[h_i = h'_i])
 
-    where lambda_j in [0, 1] is a learnable similarity parameter for
-    dimension j, controlling how similar different categories are. When
-    lambda=0, different categories are completely dissimilar (standard
-    Hamming). When lambda=1, the kernel ignores that dimension.
-
-    Reference: Wan et al. (2021), Sec. 3.1, Eq. 2. arXiv:2102.07188.
+    ``ell_i`` are positive lengthscales. With ARD enabled, each categorical
+    coordinate gets its own learned relevance parameter.
     """
 
-    def __init__(self, n_cat_dims=1, lambd=0.5):
-        """Initialize the categorical overlap kernel.
-
-        Args:
-            n_cat_dims: Number of categorical dimensions.
-            lambd: Similarity parameter in [0, 1] for mismatched categories.
-                0 = fully dissimilar (Hamming), 1 = ignore dimension.
-        """
+    def __init__(self, n_cat_dims=1, lengthscales=None):
         self.n_cat_dims = n_cat_dims
-        self.lambd = lambd
+        if lengthscales is None:
+            lengthscales = tuple(np.ones(n_cat_dims, dtype=float).tolist())
+        if np.asarray(lengthscales, dtype=float).shape != (n_cat_dims,):
+            raise ValueError(f"lengthscales must have shape ({n_cat_dims},)")
+        self.lengthscales = lengthscales
 
     @property
-    def hyperparameter_lambd(self):
-        """Sklearn Hyperparameter descriptor for lambda."""
+    def hyperparameter_lengthscales(self):
+        """Sklearn Hyperparameter descriptor for ARD categorical lengthscales."""
         from sklearn.gaussian_process.kernels import Hyperparameter
 
-        return Hyperparameter("lambd", "numeric", (1e-5, 1.0 - 1e-5))
+        return Hyperparameter("lengthscales", "numeric", (1e-5, 1e3), self.n_cat_dims)
 
     def __call__(self, X, Y=None, eval_gradient=False):
-        """Compute the categorical overlap kernel matrix.
-
-        For each categorical dimension j:
-            K_j(x, y) = 1 if x_j == y_j, else lambda
-
-        The full kernel is the product over dimensions.
-
-        Args:
-            X: Array of shape (N, D) with categorical features.
-            Y: Array of shape (M, D), or None for K(X, X).
-            eval_gradient: If True, also return dK/d(log_theta).
-
-        Returns:
-            K: Kernel matrix of shape (N, M).
-            dK: Gradient array of shape (N, M, 1) if eval_gradient.
-        """
         X = np.atleast_2d(X)
         if Y is None:
             Y = X
+        elif eval_gradient:
+            raise ValueError("Gradient can only be evaluated when Y is None.")
 
-        n_x, n_y = X.shape[0], Y.shape[0]
-        K = np.ones((n_x, n_y))
-
-        for j in range(min(self.n_cat_dims, X.shape[1])):
-            match = (X[:, j : j + 1] == Y[:, j : j + 1].T).astype(float)
-            K *= match + (1.0 - match) * self.lambd
+        X_cat = X[:, : self.n_cat_dims]
+        Y_cat = Y[:, : self.n_cat_dims]
+        match = (X_cat[:, np.newaxis, :] == Y_cat[np.newaxis, :, :]).astype(float)
+        ls = np.asarray(self.lengthscales, dtype=float)
+        weighted_match = match * ls[np.newaxis, np.newaxis, :]
+        exponent = weighted_match.sum(axis=2) / max(self.n_cat_dims, 1)
+        K = np.exp(exponent)
 
         if eval_gradient:
-            dK = np.zeros((n_x, n_y, 1))
-            for j in range(min(self.n_cat_dims, X.shape[1])):
-                match = (X[:, j : j + 1] == Y[:, j : j + 1].T).astype(float)
-                # d/d(lambd) of (match + (1-match)*lambd) = (1-match)
-                factor = 1.0 - match
-                # Product rule: derivative w.r.t. lambd of product over dims
-                other_dims = np.ones((n_x, n_y))
-                for k in range(min(self.n_cat_dims, X.shape[1])):
-                    if k != j:
-                        m = (X[:, k : k + 1] == Y[:, k : k + 1].T).astype(float)
-                        other_dims *= m + (1.0 - m) * self.lambd
-                dK[:, :, 0] += factor * other_dims
-            return K, dK * self.lambd
+            dK = K[:, :, np.newaxis] * (
+                match * ls[np.newaxis, np.newaxis, :] / max(self.n_cat_dims, 1)
+            )
+            return K, dK
         return K
 
     def diag(self, X):
-        """Return diagonal of K(X, X), which is all ones for overlap kernel."""
-        return np.ones(X.shape[0])
+        X = np.atleast_2d(X)
+        exponent = np.sum(np.asarray(self.lengthscales, dtype=float)) / max(self.n_cat_dims, 1)
+        return np.full(X.shape[0], np.exp(exponent))
 
     def is_stationary(self):
-        """Return False (overlap kernel is not stationary)."""
         return False
 
     def get_params(self, deep=True):
-        """Get kernel parameters for sklearn compatibility."""
-        return {"n_cat_dims": self.n_cat_dims, "lambd": self.lambd}
+        return {"n_cat_dims": self.n_cat_dims, "lengthscales": self.lengthscales}
 
     def __repr__(self):
-        return f"CategoricalOverlapKernel(n_cat={self.n_cat_dims}, lambd={self.lambd:.3f})"
+        return f"ExponentiatedCategoricalKernel(n_cat={self.n_cat_dims}, lengthscales={self.lengthscales})"
 
     def clone_with_theta(self, theta):
-        """Create a clone of this kernel with new hyperparameters.
-
-        Args:
-            theta: Log-space hyperparameter vector of length 1.
-
-        Returns:
-            New CategoricalOverlapKernel with updated lambda.
-        """
-        clone = CategoricalOverlapKernel(
-            n_cat_dims=self.n_cat_dims,
-            lambd=self.lambd,
-        )
+        clone = ExponentiatedCategoricalKernel(n_cat_dims=self.n_cat_dims, lengthscales=self.lengthscales)
         clone.theta = theta
         return clone
 
     @property
     def theta(self):
-        """Log-space hyperparameters: [log(lambda)]."""
-        return np.log(np.array([self.lambd]))
+        return np.log(np.asarray(self.lengthscales, dtype=float))
 
     @theta.setter
     def theta(self, value):
-        """Set hyperparameters from log-space vector."""
-        self.lambd = np.exp(value[0])
+        self.lengthscales = tuple(np.exp(np.asarray(value, dtype=float)).tolist())
 
     @property
     def bounds(self):
-        """Log-space bounds for lambda: [[log(1e-5), log(1-1e-5)]]."""
-        return np.log(np.array([[1e-5, 1.0 - 1e-5]]))
+        return np.log(np.tile(np.array([[1e-5, 1e3]], dtype=float), (self.n_cat_dims, 1)))
 
     @property
     def n_dims(self):
-        """Number of hyperparameters (1: lambda)."""
-        return 1
+        return self.n_cat_dims
 
 
 # ---------------------------------------------------------------------------
-# Mixed product kernel (categorical x continuous)
+# Mixed CASMOPOLITAN kernel (Eq. 4)
 # ---------------------------------------------------------------------------
 
 
-class MixedProductKernel(Kernel):
-    """Product of categorical overlap kernel on IL identity x Matern-ARD
-    on continuous ratio dimensions.
+class MixedCasmopolitanKernel(Kernel):
+    """Mixed kernel from Wan et al. (2021), Eq. (4).
 
-    k((c, x), (c', x')) = k_cat(c, c') * k_cont(x, x')
+    k(z, z') = lambda * (k_x(x, x') * k_h(h, h'))
+             + (1 - lambda) * (k_h(h, h') + k_x(x, x'))
 
-    where k_cat is the overlap kernel on categorical dims and k_cont is
-    Matern-5/2 with ARD lengthscales on continuous dims.
-
-    The product structure encodes the prior that molecular identity and
-    formulation ratios contribute independently to efficacy, with the
-    relative importance determined by the kernel hyperparameters.
-
-    Reference: Wan et al. (2021), Sec. 3.1. arXiv:2102.07188.
+    where ``k_h`` is the exponentiated categorical kernel (Eq. 1) and
+    ``k_x`` is a Matérn 5/2 kernel over the continuous coordinates.
     """
 
-    def __init__(self, n_cat_dims, n_cont_dims, lambd=0.5):
-        """Initialize the mixed product kernel.
-
-        Args:
-            n_cat_dims: Number of leading categorical dimensions.
-            n_cont_dims: Number of trailing continuous dimensions.
-            lambd: Initial lambda for the categorical overlap kernel.
-
-        Reference:
-            Wan et al. (2021), Sec. 3.1. arXiv:2102.07188.
-        """
+    def __init__(self, n_cat_dims, n_cont_dims, mix_weight=0.5, cat_lengthscales=None):
         self.n_cat_dims = n_cat_dims
         self.n_cont_dims = n_cont_dims
-        self.cat_kernel = CategoricalOverlapKernel(n_cat_dims=n_cat_dims, lambd=lambd)
+        if cat_lengthscales is None:
+            cat_lengthscales = tuple(np.ones(n_cat_dims, dtype=float).tolist())
+        if np.asarray(cat_lengthscales, dtype=float).shape != (n_cat_dims,):
+            raise ValueError(f"cat_lengthscales must have shape ({n_cat_dims},)")
+        self.cat_lengthscales = cat_lengthscales
+        self.cat_kernel = ExponentiatedCategoricalKernel(n_cat_dims=n_cat_dims, lengthscales=self.cat_lengthscales)
         self.cont_kernel = ConstantKernel(1.0) * Matern(
             length_scale=np.ones(n_cont_dims),
             nu=2.5,
         )
+        mix_weight_value = float(mix_weight)
+        if not (0.0 < mix_weight_value < 1.0):
+            raise ValueError("mix_weight must lie strictly between 0 and 1.")
+        self.mix_weight = mix_weight
 
     def __call__(self, X, Y=None, eval_gradient=False):
-        """Compute the product kernel K = K_cat * K_cont.
-
-        Splits input into categorical and continuous columns, evaluates
-        each sub-kernel, and returns their element-wise product.
-
-        Args:
-            X: Array of shape (N, n_cat + n_cont).
-            Y: Array of shape (M, n_cat + n_cont), or None for K(X, X).
-            eval_gradient: If True, also return dK/d(theta_cont).
-
-        Returns:
-            K: Kernel matrix of shape (N, M).
-            dK: Gradient array of shape (N, M, n_theta) if eval_gradient.
-        """
         X = np.atleast_2d(X)
         X_cat = X[:, : self.n_cat_dims]
         X_cont = X[:, self.n_cat_dims :]
@@ -240,79 +178,80 @@ class MixedProductKernel(Kernel):
             Y_cat = Y[:, : self.n_cat_dims]
             Y_cont = Y[:, self.n_cat_dims :]
 
-        K_cat = self.cat_kernel(X_cat, Y_cat)
-        K_cont = self.cont_kernel(X_cont, Y_cont)
+        if not eval_gradient:
+            K_cat = self.cat_kernel(X_cat, Y_cat)
+            K_cont = self.cont_kernel(X_cont, Y_cont)
+            return self.mix_weight * (K_cat * K_cont) + (1.0 - self.mix_weight) * (K_cat + K_cont)
 
-        if eval_gradient:
-            # For sklearn GP optimization, we don't pass gradients through
-            # the categorical kernel (its lambda is not optimized by sklearn).
-            # Only the continuous kernel gradients matter.
-            K_cont_full, dK_cont = self.cont_kernel(X_cont, Y_cont, eval_gradient=True)
-            K = K_cat * K_cont_full
-            # Chain rule: d(K_cat * K_cont)/d(theta_cont) = K_cat * dK_cont
-            dK = K_cat[:, :, np.newaxis] * dK_cont
-            return K, dK
-        return K_cat * K_cont
+        K_cat, dK_cat = self.cat_kernel(X_cat, Y_cat, eval_gradient=True)
+        K_cont, dK_cont = self.cont_kernel(X_cont, Y_cont, eval_gradient=True)
+        K_prod = K_cat * K_cont
+        K_sum = K_cat + K_cont
+        K = self.mix_weight * K_prod + (1.0 - self.mix_weight) * K_sum
+
+        n_cat_params = dK_cat.shape[2]
+        n_cont_params = dK_cont.shape[2]
+        dK = np.zeros((K.shape[0], K.shape[1], 1 + n_cat_params + n_cont_params))
+
+        lam = self.mix_weight
+        dlam_dlogit = lam * (1.0 - lam)
+        dK[:, :, 0] = (K_prod - K_sum) * dlam_dlogit
+
+        cat_weight = (lam * K_cont + (1.0 - lam))[:, :, np.newaxis]
+        dK[:, :, 1 : 1 + n_cat_params] = cat_weight * dK_cat
+
+        cont_weight = (lam * K_cat + (1.0 - lam))[:, :, np.newaxis]
+        dK[:, :, 1 + n_cat_params :] = cont_weight * dK_cont
+        return K, dK
 
     def diag(self, X):
-        """Compute the diagonal of the kernel matrix.
-
-        Args:
-            X: Array of shape (N, n_cat + n_cont).
-
-        Returns:
-            Diagonal array of shape (N,).
-        """
         X = np.atleast_2d(X)
-        return self.cat_kernel.diag(X[:, : self.n_cat_dims]) * self.cont_kernel.diag(X[:, self.n_cat_dims :])
+        d_cat = self.cat_kernel.diag(X[:, : self.n_cat_dims])
+        d_cont = self.cont_kernel.diag(X[:, self.n_cat_dims :])
+        return self.mix_weight * (d_cat * d_cont) + (1.0 - self.mix_weight) * (d_cat + d_cont)
 
     def is_stationary(self):
-        """Return False (mixed kernel is not stationary)."""
         return False
 
     def get_params(self, deep=True):
-        """Get kernel parameters for sklearn compatibility.
-
-        Args:
-            deep: If True, include sub-kernel parameters.
-
-        Returns:
-            Dict of parameter name -> value.
-        """
         params = {
             "n_cat_dims": self.n_cat_dims,
             "n_cont_dims": self.n_cont_dims,
-            "lambd": self.cat_kernel.lambd,
+            "mix_weight": self.mix_weight,
+            "cat_lengthscales": self.cat_lengthscales,
         }
         if deep:
+            cat_params = self.cat_kernel.get_params(deep=True)
+            params.update({f"cat_kernel__{k}": v for k, v in cat_params.items()})
             cont_params = self.cont_kernel.get_params(deep=True)
             params.update({f"cont_kernel__{k}": v for k, v in cont_params.items()})
         return params
 
     def __repr__(self):
-        return (
-            f"MixedProductKernel(n_cat={self.n_cat_dims}, n_cont={self.n_cont_dims}, lambd={self.cat_kernel.lambd:.3f})"
-        )
+        return f"MixedCasmopolitanKernel(n_cat={self.n_cat_dims}, n_cont={self.n_cont_dims}, mix={self.mix_weight:.3f})"
 
     @property
     def theta(self):
-        """Log-space hyperparameters (continuous kernel only)."""
-        return self.cont_kernel.theta
+        mix_logit = np.log(self.mix_weight / (1.0 - self.mix_weight))
+        return np.concatenate([[mix_logit], self.cat_kernel.theta, self.cont_kernel.theta])
 
     @theta.setter
     def theta(self, value):
-        """Set continuous kernel hyperparameters from log-space vector."""
-        self.cont_kernel.theta = value
+        value = np.asarray(value, dtype=float)
+        self.mix_weight = 1.0 / (1.0 + np.exp(-value[0]))
+        n_cat = self.cat_kernel.n_dims
+        self.cat_kernel.theta = value[1 : 1 + n_cat]
+        self.cat_lengthscales = self.cat_kernel.lengthscales
+        self.cont_kernel.theta = value[1 + n_cat :]
 
     @property
     def bounds(self):
-        """Log-space bounds for continuous kernel hyperparameters."""
-        return self.cont_kernel.bounds
+        mix_bounds = np.array([[-6.0, 6.0]])
+        return np.vstack([mix_bounds, self.cat_kernel.bounds, self.cont_kernel.bounds])
 
     @property
     def n_dims(self):
-        """Number of hyperparameters (continuous kernel only)."""
-        return self.cont_kernel.n_dims
+        return 1 + self.cat_kernel.n_dims + self.cont_kernel.n_dims
 
 
 # ---------------------------------------------------------------------------
@@ -377,7 +316,8 @@ class AdditiveProductKernel(Kernel):
         """
         self.n_cat_dims = n_cat_dims
         self.n_cont_dims = n_cont_dims
-        self.cat_kernel = CategoricalOverlapKernel(n_cat_dims=n_cat_dims, lambd=lambd)
+        approx_lengthscale = np.full(n_cat_dims, -np.log(np.clip(lambd, 1e-5, 1.0 - 1e-5)))
+        self.cat_kernel = ExponentiatedCategoricalKernel(n_cat_dims=n_cat_dims, lengthscales=approx_lengthscale)
         self.cont_kernel = ConstantKernel(1.0) * Matern(
             length_scale=np.ones(n_cont_dims),
             nu=2.5,
@@ -494,7 +434,7 @@ class AdditiveProductKernel(Kernel):
         params = {
             "n_cat_dims": self.n_cat_dims,
             "n_cont_dims": self.n_cont_dims,
-            "lambd": self.cat_kernel.lambd,
+            "lambd": float(np.exp(-np.mean(self.cat_kernel.lengthscales))),
             "alpha": self._alpha,
             "beta": self._beta,
             "gamma": self._gamma,
@@ -509,7 +449,7 @@ class AdditiveProductKernel(Kernel):
             f"AdditiveProductKernel(n_cat={self.n_cat_dims}, "
             f"n_cont={self.n_cont_dims}, "
             f"alpha={self._alpha:.3f}, beta={self._beta:.3f}, "
-            f"gamma={self._gamma:.3f}, lambd={self.cat_kernel.lambd:.3f})"
+            f"gamma={self._gamma:.3f}, lambd={float(np.exp(-np.mean(self.cat_kernel.lengthscales))):.3f})"
         )
 
     @property
@@ -618,20 +558,28 @@ class TrustRegion:
             ub = np.minimum(ub, self.cont_bounds[:, 1])
         return np.column_stack([lb, ub])
 
-    def update(self, improved: bool) -> None:
-        """Update trust region based on whether the batch improved."""
+    def update(self, improved: bool) -> bool:
+        """Update trust region based on whether the batch improved.
+
+        Returns ``True`` when the trust region has collapsed to its minimum
+        length and should be restarted according to Wan et al. (2021).
+        """
         if improved:
             self._successes += 1
             self._failures = 0
             if self._successes >= self.success_tol:
                 self.length = min(self.length * 2.0, self.length_max)
                 self._successes = 0
-        else:
-            self._failures += 1
-            self._successes = 0
-            if self._failures >= self.failure_tol:
-                self.length = max(self.length / 2.0, self.length_min)
-                self._failures = 0
+            return False
+
+        self._failures += 1
+        self._successes = 0
+        if self._failures < self.failure_tol:
+            return False
+
+        self.length = max(self.length / 2.0, self.length_min)
+        self._failures = 0
+        return bool(self.length <= self.length_min + 1e-12)
 
     def set_center(self, center_cat: np.ndarray, center_cont: np.ndarray) -> None:
         """Update trust region center to new best point."""
@@ -890,8 +838,293 @@ def select_batch_casmopolitan(
 
 
 # ---------------------------------------------------------------------------
-# Discrete pool scoring for CASMOPOLITAN
+# Discrete-pool helpers for CASMOPOLITAN
 # ---------------------------------------------------------------------------
+
+
+def _assemble_mixed_blocks(cat_block: np.ndarray, cont_block: np.ndarray) -> np.ndarray:
+    """Concatenate categorical and continuous blocks, handling empty sides."""
+    if cat_block.size and cont_block.size:
+        return np.column_stack([cat_block, cont_block])
+    if cat_block.size:
+        return cat_block.copy()
+    return cont_block.copy()
+
+
+def _append_restart_observation(
+    archive_X_raw: np.ndarray | None,
+    archive_y: np.ndarray | None,
+    incumbent_raw: np.ndarray,
+    incumbent_y: float,
+    X_train_raw: np.ndarray,
+    y_train: np.ndarray,
+    rng: np.random.RandomState,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Append a restart center observation following Wan et al. (2021), Eq. (3).
+
+    The paper restarts from local maxima found in previous trust regions and
+    falls back to a random data point when the local maximum duplicates an
+    earlier restart center. We store the archive in raw mixed coordinates so it
+    can be re-embedded under the current round's continuous scaling.
+    """
+    archive_X = (
+        np.empty((0, X_train_raw.shape[1]), dtype=float)
+        if archive_X_raw is None
+        else np.asarray(archive_X_raw, dtype=float).reshape(-1, X_train_raw.shape[1])
+    )
+    archive_targets = np.empty((0,), dtype=float) if archive_y is None else np.asarray(archive_y, dtype=float).ravel()
+
+    candidate_x = np.asarray(incumbent_raw, dtype=float).ravel()
+    candidate_y = float(incumbent_y)
+    duplicate = len(archive_X) > 0 and np.any(np.all(np.isclose(archive_X, candidate_x, atol=1e-12), axis=1))
+    if duplicate:
+        order = rng.permutation(len(X_train_raw))
+        for idx in order:
+            alt_x = np.asarray(X_train_raw[idx], dtype=float).ravel()
+            if len(archive_X) == 0 or not np.any(np.all(np.isclose(archive_X, alt_x, atol=1e-12), axis=1)):
+                candidate_x = alt_x
+                candidate_y = float(y_train[idx])
+                break
+
+    archive_X = np.vstack([archive_X, candidate_x.reshape(1, -1)])
+    archive_targets = np.concatenate([archive_targets, [candidate_y]])
+    return archive_X, archive_targets
+
+
+def _build_casmopolitan_gp(
+    X_train_mixed: np.ndarray,
+    y_train: np.ndarray,
+    n_cat: int,
+    n_cont: int,
+    random_seed: int,
+) -> GaussianProcessRegressor:
+    """Fit the exact Wan et al. mixed kernel with learned tradeoff."""
+    kernel = MixedCasmopolitanKernel(n_cat_dims=n_cat, n_cont_dims=n_cont, mix_weight=0.5)
+    kernel = kernel + WhiteKernel(noise_level=0.1)
+
+    gp = GaussianProcessRegressor(
+        kernel=kernel,
+        alpha=1e-6,
+        n_restarts_optimizer=5,
+        random_state=random_seed,
+    )
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        gp.fit(X_train_mixed, y_train)
+    return gp
+
+
+def _restart_center_from_archive(
+    archive_X_raw: np.ndarray,
+    archive_y: np.ndarray,
+    X_pool_cat: np.ndarray,
+    X_pool_cont: np.ndarray,
+    cont_scaler: StandardScaler,
+    cont_feature_indices: list[int],
+    cat_feature_indices: list[int],
+    random_seed: int,
+    restart_kappa: float,
+) -> np.ndarray:
+    """Choose the next trust-region center by GP-UCB over archived restart maxima."""
+    if len(archive_X_raw) == 0:
+        raise ValueError("Restart archive must be non-empty.")
+
+    n_cat = len(cat_feature_indices)
+    n_cont = len(cont_feature_indices)
+    archive_cat = archive_X_raw[:, cat_feature_indices] if n_cat else np.zeros((len(archive_X_raw), 0))
+    if n_cont:
+        archive_cont = cont_scaler.transform(archive_X_raw[:, cont_feature_indices])
+    else:
+        archive_cont = np.zeros((len(archive_X_raw), 0))
+    archive_mixed = _assemble_mixed_blocks(archive_cat, archive_cont)
+    pool_mixed = _assemble_mixed_blocks(X_pool_cat, X_pool_cont)
+
+    restart_gp = _build_casmopolitan_gp(archive_mixed, archive_y, n_cat=n_cat, n_cont=n_cont, random_seed=random_seed)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mu, sigma = restart_gp.predict(pool_mixed, return_std=True)
+    scores = _ucb_acquisition(mu, sigma, kappa=restart_kappa)
+    return pool_mixed[int(np.argmax(scores))]
+
+
+def _fit_pool_casmopolitan_gp(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_pool: np.ndarray,
+    cont_feature_indices: list[int],
+    cat_feature_indices: list[int],
+    random_seed: int,
+    trust_length: float,
+    trust_region: TrustRegion | None = None,
+    restart_from_archive: bool = False,
+    restart_X_raw: np.ndarray | None = None,
+    restart_y: np.ndarray | None = None,
+    restart_kappa: float = 2.0,
+) -> tuple[np.ndarray, np.ndarray, GaussianProcessRegressor, TrustRegion]:
+    """Fit the mixed GP on a discrete pool and initialize/update the trust region."""
+    n_cat = len(cat_feature_indices)
+    n_cont = len(cont_feature_indices)
+
+    if n_cont:
+        cont_scaler = StandardScaler()
+        X_train_cont = cont_scaler.fit_transform(X_train[:, cont_feature_indices])
+        X_pool_cont = cont_scaler.transform(X_pool[:, cont_feature_indices])
+        # Keep the incumbent inside the clipped region even when the residual
+        # pool no longer spans its coordinate. Otherwise lb/ub can invert and
+        # the optimizer falls back to snapping the center onto an out-of-TR row.
+        cont_all = np.vstack([X_train_cont, X_pool_cont])
+        cont_bounds = np.column_stack([cont_all.min(axis=0), cont_all.max(axis=0)])
+    else:
+        X_train_cont = np.zeros((len(X_train), 0))
+        X_pool_cont = np.zeros((len(X_pool), 0))
+        cont_bounds = np.zeros((0, 2))
+
+    X_train_cat = X_train[:, cat_feature_indices] if n_cat else np.zeros((len(X_train), 0))
+    X_pool_cat = X_pool[:, cat_feature_indices] if n_cat else np.zeros((len(X_pool), 0))
+    X_train_mixed = _assemble_mixed_blocks(X_train_cat, X_train_cont)
+    X_pool_mixed = _assemble_mixed_blocks(X_pool_cat, X_pool_cont)
+
+    gp = _build_casmopolitan_gp(X_train_mixed, y_train, n_cat=n_cat, n_cont=n_cont, random_seed=random_seed)
+
+    best_train_idx = int(np.argmax(y_train))
+    best_cat = X_train_mixed[best_train_idx, :n_cat]
+    best_cont = X_train_mixed[best_train_idx, n_cat:]
+
+    if restart_from_archive:
+        if restart_X_raw is None or restart_y is None or len(restart_X_raw) == 0:
+            raise ValueError("restart_from_archive=True requires a non-empty restart archive.")
+        restart_center = _restart_center_from_archive(
+            np.asarray(restart_X_raw, dtype=float),
+            np.asarray(restart_y, dtype=float),
+            X_pool_cat,
+            X_pool_cont,
+            cont_scaler,
+            cont_feature_indices,
+            cat_feature_indices,
+            random_seed=random_seed,
+            restart_kappa=restart_kappa,
+        )
+        best_cat = restart_center[:n_cat]
+        best_cont = restart_center[n_cat:]
+
+    if trust_region is None or restart_from_archive:
+        trust_region = TrustRegion(
+            center_cat=best_cat,
+            center_cont=best_cont,
+            length=trust_length,
+            n_cat_dims=n_cat,
+            n_cont_dims=n_cont,
+            cont_bounds=cont_bounds,
+        )
+    else:
+        trust_region.cont_bounds = cont_bounds
+        trust_region.set_center(best_cat, best_cont)
+
+    return X_train_mixed, X_pool_mixed, gp, trust_region
+
+
+def _trust_region_pool_mask(
+    X_pool_mixed: np.ndarray,
+    trust_region: TrustRegion,
+    n_cat_dims: int,
+) -> np.ndarray:
+    """Return a boolean mask for pool rows that are inside the current trust region."""
+    in_tr = np.ones(len(X_pool_mixed), dtype=bool)
+
+    if n_cat_dims:
+        cat_block = X_pool_mixed[:, :n_cat_dims]
+        cat_mismatch = np.sum(cat_block != trust_region.center_cat, axis=1)
+        in_tr &= cat_mismatch <= trust_region.n_cat_perturb
+
+    if trust_region.n_cont_dims:
+        tr_cont_bounds = trust_region.get_cont_bounds()
+        cont_pool_vals = X_pool_mixed[:, n_cat_dims:]
+        in_tr &= np.all(
+            (cont_pool_vals >= tr_cont_bounds[:, 0]) & (cont_pool_vals <= tr_cont_bounds[:, 1]),
+            axis=1,
+        )
+
+    return in_tr
+
+
+def _apply_trust_region_penalty(
+    scores: np.ndarray,
+    X_pool_mixed: np.ndarray,
+    trust_region: TrustRegion,
+    n_cat_dims: int,
+) -> np.ndarray:
+    """Penalize candidates outside the current trust region.
+
+    When the pool contains in-region candidates, treat the trust region as a
+    hard feasibility filter and mask everything else. If no pool point falls
+    inside the current region, fall back to an additive distance penalty so we
+    still return a ranking while making farther violations strictly less
+    attractive regardless of the sign of ``scores``.
+    """
+    in_tr = _trust_region_pool_mask(X_pool_mixed, trust_region, n_cat_dims)
+    violation = np.zeros(len(X_pool_mixed), dtype=float)
+
+    if n_cat_dims:
+        cat_block = X_pool_mixed[:, :n_cat_dims]
+        cat_mismatch = np.sum(cat_block != trust_region.center_cat, axis=1)
+        violation += np.clip(cat_mismatch - trust_region.n_cat_perturb, a_min=0.0, a_max=None)
+
+    if trust_region.n_cont_dims:
+        tr_cont_bounds = trust_region.get_cont_bounds()
+        cont_pool_vals = X_pool_mixed[:, n_cat_dims:]
+        lower_gap = np.clip(tr_cont_bounds[:, 0] - cont_pool_vals, a_min=0.0, a_max=None)
+        upper_gap = np.clip(cont_pool_vals - tr_cont_bounds[:, 1], a_min=0.0, a_max=None)
+        cont_violation = np.linalg.norm(lower_gap + upper_gap, axis=1)
+        violation += cont_violation
+
+    penalized = scores.copy()
+    if in_tr.any():
+        penalized[~in_tr] = -np.inf
+        return penalized
+
+    penalty_scale = max(float(np.max(np.abs(scores))), float(np.ptp(scores)), 1.0)
+    penalized -= penalty_scale * (1.0 + violation)
+    return penalized
+
+
+def _map_candidates_to_pool(
+    candidates: np.ndarray,
+    X_pool_mixed: np.ndarray,
+    n_cat_dims: int,
+    trust_region: TrustRegion | None = None,
+) -> np.ndarray:
+    """Map optimized mixed candidates back to the nearest available pool rows."""
+    candidates = np.atleast_2d(candidates)
+    available_mask = np.ones(len(X_pool_mixed), dtype=bool)
+    selected = []
+
+    for candidate in candidates:
+        available_idx = np.where(available_mask)[0]
+        pool_avail = X_pool_mixed[available_mask]
+
+        if trust_region is not None:
+            in_tr_avail = _trust_region_pool_mask(pool_avail, trust_region, n_cat_dims)
+            if in_tr_avail.any():
+                pool_avail = pool_avail[in_tr_avail]
+                available_idx = available_idx[in_tr_avail]
+
+        if n_cat_dims:
+            cat_match = (pool_avail[:, :n_cat_dims] == candidate[:n_cat_dims]).all(axis=1)
+            if cat_match.any():
+                pool_avail = pool_avail[cat_match]
+                available_idx = available_idx[cat_match]
+
+        if pool_avail.shape[1] > n_cat_dims:
+            dists = np.sum((pool_avail[:, n_cat_dims:] - candidate[n_cat_dims:]) ** 2, axis=1)
+        else:
+            dists = np.zeros(len(pool_avail))
+
+        chosen = int(available_idx[int(np.argmin(dists))])
+        selected.append(chosen)
+        available_mask[chosen] = False
+
+    return np.array(selected, dtype=int)
 
 
 def score_pool_casmopolitan(
@@ -945,31 +1178,15 @@ def score_pool_casmopolitan(
     scores : array of shape (n_pool,)
     """
     n_cat = len(cat_feature_indices)
-    n_cont = len(cont_feature_indices)
-
-    # Scale continuous features
-    cont_scaler = StandardScaler()
-    X_train_cont = cont_scaler.fit_transform(X_train[:, cont_feature_indices])
-    X_pool_cont = cont_scaler.transform(X_pool[:, cont_feature_indices])
-
-    # Assemble mixed features: [cat_dims | cont_dims]
-    X_train_mixed = np.column_stack([X_train[:, cat_feature_indices], X_train_cont])
-    X_pool_mixed = np.column_stack([X_pool[:, cat_feature_indices], X_pool_cont])
-
-    # Build mixed kernel
-    kernel = MixedProductKernel(n_cat_dims=n_cat, n_cont_dims=n_cont, lambd=0.5)
-    kernel = kernel + WhiteKernel(noise_level=0.1)
-
-    gp = GaussianProcessRegressor(
-        kernel=kernel,
-        alpha=1e-6,
-        n_restarts_optimizer=5,
-        random_state=random_seed,
+    _, X_pool_mixed, gp, trust_region = _fit_pool_casmopolitan_gp(
+        X_train,
+        y_train,
+        X_pool,
+        cont_feature_indices,
+        cat_feature_indices,
+        random_seed,
+        trust_length,
     )
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        gp.fit(X_train_mixed, y_train)
 
     # Score all pool candidates
     with warnings.catch_warnings():
@@ -982,8 +1199,67 @@ def score_pool_casmopolitan(
     else:
         scores = _ei_acquisition(mu, sigma, y_best)
 
-    top_indices = np.argsort(scores)[-batch_size:][::-1]
-    return top_indices, scores
+    penalized_scores = _apply_trust_region_penalty(scores, X_pool_mixed, trust_region, n_cat)
+    top_indices = np.argsort(penalized_scores)[-batch_size:][::-1]
+    return top_indices, penalized_scores
+
+
+def select_pool_batch_casmopolitan(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    X_pool: np.ndarray,
+    il_cat_train: np.ndarray,
+    il_cat_pool: np.ndarray,
+    cont_feature_indices: list[int],
+    cat_feature_indices: list[int],
+    batch_size: int = 12,
+    kappa: float = 5.0,
+    random_seed: int = 42,
+    trust_length: float = 0.5,
+    acq_func: str = "ucb",
+    trust_region: TrustRegion | None = None,
+    restart_from_archive: bool = False,
+    restart_X_raw: np.ndarray | None = None,
+    restart_y: np.ndarray | None = None,
+    restart_kappa: float = 2.0,
+) -> tuple[np.ndarray, TrustRegion]:
+    """Select a discrete-pool batch using the CASMOPOLITAN trust-region KB loop.
+
+    This finite-pool adaptation keeps the paper's mixed kernel, trust-region,
+    restart, and Kriging Believer mechanisms, then maps each optimized mixed
+    candidate back onto an available pool formulation.
+    """
+    del il_cat_train, il_cat_pool  # categories are already encoded inside X_train / X_pool
+
+    n_cat = len(cat_feature_indices)
+    _, X_pool_mixed, gp, trust_region = _fit_pool_casmopolitan_gp(
+        X_train,
+        y_train,
+        X_pool,
+        cont_feature_indices,
+        cat_feature_indices,
+        random_seed,
+        trust_length,
+        trust_region=trust_region,
+        restart_from_archive=restart_from_archive,
+        restart_X_raw=restart_X_raw,
+        restart_y=restart_y,
+        restart_kappa=restart_kappa,
+    )
+
+    unique_cats = np.unique(X_pool_mixed[:, :n_cat], axis=0) if n_cat else np.zeros((1, 0))
+    candidates = select_batch_casmopolitan(
+        gp,
+        unique_cats,
+        trust_region,
+        n_cat_dims=n_cat,
+        batch_size=batch_size,
+        acq_func=acq_func,
+        kappa=kappa,
+        rng=np.random.RandomState(random_seed),
+    )
+    selected = _map_candidates_to_pool(candidates, X_pool_mixed, n_cat, trust_region=trust_region)
+    return selected, trust_region
 
 
 # ---------------------------------------------------------------------------
@@ -1005,7 +1281,6 @@ def run_casmopolitan_strategy(
     acq_func="ucb",
     use_ilr=True,
     max_train_for_gp=2000,
-    kernel_mode="product",
     top_k_values=None,
 ):
     """Run CASMOPOLITAN mixed-variable BO loop as a benchmark strategy.
@@ -1013,9 +1288,9 @@ def run_casmopolitan_strategy(
     Integrates with the benchmark runner infrastructure. At each round:
     1. Encode IL identity as integer categories
     2. Optionally ILR-transform molar ratios
-    3. Fit GP with mixed product kernel
-    4. Score pool candidates with acquisition function
-    5. Select top-K batch, update training set
+    3. Fit the Wan et al. mixed kernel (Eq. 4)
+    4. Select a sequential KB batch inside the trust region
+    5. Restart via GP-UCB when the trust region collapses
 
     Parameters
     ----------
@@ -1037,14 +1312,8 @@ def run_casmopolitan_strategy(
     use_ilr : bool
         If True, apply ILR transform to molar ratio features.
     max_train_for_gp : int
-        Maximum training set size for GP (subsample if larger, since
-        sklearn GP is O(n^3)).
-    kernel_mode : str, "product" or "additive_product"
-        Kernel structure. "product" uses the pure product kernel
-        k = k_cat * k_cont (original CASMOPOLITAN). "additive_product"
-        uses the additive decomposition
-        k = alpha * k_cat + beta * k_cont + gamma * k_cat * k_cont
-        with learnable weights.
+        Deprecated compatibility argument. The exact CASMOPOLITAN path uses the
+        full training set and the paper's mixed kernel.
 
     Returns
     -------
@@ -1055,7 +1324,7 @@ def run_casmopolitan_strategy(
     from LNPBO.data.compositional import ilr_transform
     from LNPBO.optimization._normalize import copula_transform
 
-    rng = np.random.RandomState(seed)
+    del max_train_for_gp
 
     # Identify feature structure
     ratio_cols = [c for c in feature_cols if c.endswith("_molratio")]
@@ -1077,8 +1346,11 @@ def run_casmopolitan_strategy(
     pool_idx = list(oracle_idx)
     history = init_history(encoded_df, training_idx, top_k_values=top_k_values)
 
-    # Trust region (initialized after first round)
+    # Trust region and restart archive
     trust_region = None
+    round_start_best = None
+    restart_X_raw = None
+    restart_y = None
 
     for r in range(n_rounds):
         if len(pool_idx) < batch_size:
@@ -1125,113 +1397,52 @@ def run_casmopolitan_strategy(
         cont_pool = np.hstack(cont_pool_parts)
         n_cont = cont_train.shape[1]
 
-        # Scale continuous features
-        cont_scaler = StandardScaler()
-        cont_train_s = cont_scaler.fit_transform(cont_train)
-        cont_pool_s = cont_scaler.transform(cont_pool)
-
-        # Integer-encoded IL categories
         cat_train = il_cat_all[training_idx].reshape(-1, 1).astype(float)
         cat_pool = il_cat_all[pool_idx].reshape(-1, 1).astype(float)
-        n_cat = 1
+        X_train_aug = np.column_stack([cat_train, cont_train])
+        X_pool_aug = np.column_stack([cat_pool, cont_pool])
+        cont_indices = list(range(1, X_train_aug.shape[1]))
 
-        # Assemble: [cat | cont]
-        X_train_mixed = np.hstack([cat_train, cont_train_s])
-        X_pool_mixed = np.hstack([cat_pool, cont_pool_s])
+        current_best = float(np.max(y_train))
+        restart_from_archive = False
+        if trust_region is not None and round_start_best is not None:
+            improved = current_best > round_start_best
+            restart_from_archive = trust_region.update(improved)
+            if restart_from_archive:
+                incumbent_idx = int(np.argmax(y_train))
+                restart_X_raw, restart_y = _append_restart_observation(
+                    restart_X_raw,
+                    restart_y,
+                    X_train_aug[incumbent_idx],
+                    current_best,
+                    X_train_aug,
+                    y_train,
+                    np.random.RandomState(seed + r),
+                )
 
-        # Subsample training if too large for GP
-        if len(X_train_mixed) > max_train_for_gp:
-            sub_idx = rng.choice(len(X_train_mixed), size=max_train_for_gp, replace=False)
-            X_train_gp = X_train_mixed[sub_idx]
-            y_train_gp = y_train[sub_idx]
-        else:
-            X_train_gp = X_train_mixed
-            y_train_gp = y_train
-
-        # Build and fit GP with mixed kernel
-        if kernel_mode == "additive_product":
-            kernel = AdditiveProductKernel(
-                n_cat_dims=n_cat,
-                n_cont_dims=n_cont,
-                lambd=0.5,
-            )
-        else:
-            kernel = MixedProductKernel(
-                n_cat_dims=n_cat,
-                n_cont_dims=n_cont,
-                lambd=0.5,
-            )
-        kernel = kernel + WhiteKernel(noise_level=0.1)
-
-        gp = GaussianProcessRegressor(
-            kernel=kernel,
-            alpha=1e-6,
-            n_restarts_optimizer=5,
-            random_state=seed + r,
+        selected_pool_idx, trust_region = select_pool_batch_casmopolitan(
+            X_train_aug,
+            y_train,
+            X_pool_aug,
+            il_cat_train=cat_train.ravel(),
+            il_cat_pool=cat_pool.ravel(),
+            cont_feature_indices=cont_indices,
+            cat_feature_indices=[0],
+            batch_size=batch_size,
+            kappa=kappa,
+            random_seed=seed + r,
+            trust_length=trust_length_init,
+            acq_func=acq_func,
+            trust_region=trust_region,
+            restart_from_archive=restart_from_archive,
+            restart_X_raw=restart_X_raw,
+            restart_y=restart_y,
+            restart_kappa=kappa,
         )
+        batch_idx = [pool_idx[i] for i in selected_pool_idx]
+        round_start_best = current_best
 
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            gp.fit(X_train_gp, y_train_gp)
-
-        # Initialize or update trust region
-        best_train_idx = np.argmax(y_train_gp)
-        best_cat = X_train_gp[best_train_idx, :n_cat]
-        best_cont = X_train_gp[best_train_idx, n_cat:]
-
-        if trust_region is None:
-            cont_bounds = np.column_stack(
-                [
-                    cont_pool_s.min(axis=0),
-                    cont_pool_s.max(axis=0),
-                ]
-            )
-            trust_region = TrustRegion(
-                center_cat=best_cat,
-                center_cont=best_cont,
-                length=trust_length_init,
-                n_cat_dims=n_cat,
-                n_cont_dims=n_cont,
-                cont_bounds=cont_bounds,
-            )
-        else:
-            trust_region.set_center(best_cat, best_cont)
-
-        # Score pool with trust region filtering
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            mu_pool, sigma_pool = gp.predict(X_pool_mixed, return_std=True)
-
-        y_best = float(y_train_gp.max())
-        if acq_func == "ucb":
-            scores = _ucb_acquisition(mu_pool, sigma_pool, kappa)
-        else:
-            scores = _ei_acquisition(mu_pool, sigma_pool, y_best)
-
-        # Apply trust region penalty: discount candidates outside trust region
-        # Vectorized for efficiency over large pools
-        tr_cont_bounds = trust_region.get_cont_bounds()
-
-        # Categorical: penalize candidates with different IL than center
-        cat_match = (X_pool_mixed[:, :n_cat] == trust_region.center_cat).all(axis=1)
-        scores = np.where(cat_match, scores, scores * 0.1)
-
-        # Continuous: penalize candidates outside trust region bounds
-        cont_pool_vals = X_pool_mixed[:, n_cat:]
-        below_lb = np.any(cont_pool_vals < tr_cont_bounds[:, 0], axis=1)
-        above_ub = np.any(cont_pool_vals > tr_cont_bounds[:, 1], axis=1)
-        out_of_tr = below_lb | above_ub
-        scores = np.where(out_of_tr, scores * 0.5, scores)
-
-        # Select top-K
-        top_k_pool = np.argsort(scores)[-batch_size:][::-1]
-        batch_idx = [pool_idx[i] for i in top_k_pool]
-
-        # Update trust region: did we improve?
         batch_vals = encoded_df.loc[batch_idx, "Experiment_value"].values
-        prev_best = history["best_so_far"][-1]
-        improved = float(batch_vals.max()) > prev_best
-        trust_region.update(improved)
 
         # Update pool and training
         batch_set = set(batch_idx)

@@ -282,6 +282,10 @@ class Optimizer:
         self.kernel_type = kernel_type
         self.kernel_kwargs = kernel_kwargs
         self.surrogate_kwargs = surrogate_kwargs
+        self._casmopolitan_trust_region = None
+        self._casmopolitan_round_start_best = None
+        self._casmopolitan_restart_X = None
+        self._casmopolitan_restart_y = None
 
         # Resolve surrogate_type="gp_sklearn" as gp + sklearn engine
         if self.surrogate_type == "gp_sklearn":
@@ -296,6 +300,13 @@ class Optimizer:
         if self.surrogate_type == "gp" and self.gp_engine == "sklearn":
             return "gp_sklearn"
         return SURROGATE_TYPES[self.surrogate_type]
+
+    def _reset_runtime_state(self) -> None:
+        """Clear cross-round state that should not leak across fresh runs."""
+        self._casmopolitan_trust_region = None
+        self._casmopolitan_round_start_best = None
+        self._casmopolitan_restart_X = None
+        self._casmopolitan_restart_y = None
 
     def _validate_config(self):
         """Validate surrogate, acquisition, and batch strategy compatibility."""
@@ -441,6 +452,9 @@ class Optimizer:
 
         bs = batch_size if batch_size is not None else self.batch_size
         seed = self.random_seed + round_num
+
+        if family == "casmopolitan" and round_num == 0:
+            self._reset_runtime_state()
 
         # Prospective PLS refit
         if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
@@ -612,7 +626,7 @@ class Optimizer:
             return [pool_indices[i] for i in top_k]
 
         if family == "casmopolitan":
-            from .casmopolitan import score_pool_casmopolitan
+            from .casmopolitan import _append_restart_observation, select_pool_batch_casmopolitan
 
             acq_func = self.acquisition_type.lower()
             if acq_func == "logei":
@@ -629,7 +643,24 @@ class Optimizer:
             X_pool_aug = np.column_stack([il_cat_pool, X_pool])
             cont_indices = list(range(1, X_train_aug.shape[1]))
 
-            top_indices, _ = score_pool_casmopolitan(
+            current_best = float(np.max(y_train))
+            restart_from_archive = False
+            if self._casmopolitan_trust_region is not None and self._casmopolitan_round_start_best is not None:
+                improved = current_best > self._casmopolitan_round_start_best
+                restart_from_archive = self._casmopolitan_trust_region.update(improved)
+                if restart_from_archive:
+                    incumbent_idx = int(np.argmax(y_train))
+                    self._casmopolitan_restart_X, self._casmopolitan_restart_y = _append_restart_observation(
+                        self._casmopolitan_restart_X,
+                        self._casmopolitan_restart_y,
+                        X_train_aug[incumbent_idx],
+                        current_best,
+                        X_train_aug,
+                        y_train,
+                        np.random.RandomState(seed),
+                    )
+
+            top_indices, self._casmopolitan_trust_region = select_pool_batch_casmopolitan(
                 X_train_aug, y_train, X_pool_aug,
                 il_cat_train=il_cat_train.ravel(),
                 il_cat_pool=il_cat_pool.ravel(),
@@ -639,7 +670,13 @@ class Optimizer:
                 kappa=self.kappa,
                 random_seed=seed,
                 acq_func=acq_func,
+                trust_region=self._casmopolitan_trust_region,
+                restart_from_archive=restart_from_archive,
+                restart_X_raw=self._casmopolitan_restart_X,
+                restart_y=self._casmopolitan_restart_y,
+                restart_kappa=self.kappa,
             )
+            self._casmopolitan_round_start_best = current_best
             return [pool_indices[i] for i in top_indices]
 
         raise ValueError(f"_run_batch_selection does not support family={family!r}")
@@ -797,6 +834,8 @@ class Optimizer:
         dataset = self.space._dataset
         assert dataset is not None
         family = self._family
+        if family == "casmopolitan" and dataset.max_round() <= 0:
+            self._reset_runtime_state()
 
         feature_cols = self._get_feature_cols(dataset.df)
         train_df, pool_df, feature_cols = self._prepare_pool(dataset, feature_cols)

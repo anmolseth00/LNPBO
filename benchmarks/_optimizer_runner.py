@@ -49,6 +49,9 @@ class OptimizerRunner:
         Returns:
             History dict compatible with ``compute_metrics()``.
         """
+        if hasattr(self.optimizer, "_reset_runtime_state"):
+            self.optimizer._reset_runtime_state()
+
         training_idx = list(seed_idx)
         pool_idx = list(oracle_idx)
         history = init_history(df, training_idx, top_k_values=top_k_values)
