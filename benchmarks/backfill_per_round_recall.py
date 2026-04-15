@@ -22,29 +22,28 @@ Usage:
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-REPO = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(REPO))
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, resolve_input_path
 
-from benchmarks.benchmark import (
+from .benchmark import (
     characterize_studies,
     ensure_top_k_pct,
     get_study_id,
     prepare_study_data,
 )
-from benchmarks.runner import (
+from .runner import (
     COMPOSITIONAL_STRATEGIES,
     STRATEGY_CONFIGS,
     classify_feature_columns,
 )
 
-RESULTS_DIR = REPO / "benchmark_results" / "within_study"
-STUDIES_JSON = REPO / "experiments" / "data_integrity" / "studies.json"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
+STUDIES_JSON = resolve_input_path(_PACKAGE_ROOT, "experiments/data_integrity/studies.json")
 from .constants import SEEDS
 
 # Convergence figure families: one representative strategy per family

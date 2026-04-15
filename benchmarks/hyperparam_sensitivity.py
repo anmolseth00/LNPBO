@@ -33,6 +33,8 @@ from pathlib import Path
 
 import numpy as np
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
+
 from .benchmark import (
     characterize_studies,
     ensure_top_k_pct,
@@ -59,6 +61,9 @@ DEFAULT_PMIDS = [
     "35879315",  # N=1080, ratio-only (single MT)
 ]
 
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "analysis" / "within_study" / "sensitivity"
+
 # Strategy key -> (surrogate name, use_ts_batch flag)
 STRATEGY_MAP = {
     "discrete_rf_ts": ("rf_ts", False),
@@ -84,7 +89,6 @@ HYPERPARAM_GRIDS = {
     ],
 }
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "benchmark_results" / "analysis" / "within_study" / "sensitivity"
 PER_RUN_DIR = RESULTS_DIR / "hyperparam_runs"
 
 

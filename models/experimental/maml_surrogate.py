@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 5.1: MAML surrogate for few-shot BO.
+"""MAML surrogate for few-shot BO.
 
 Implements Model-Agnostic Meta-Learning (Finn et al. 2017, ICML)
 without the learn2learn dependency — uses torch.autograd.grad directly.

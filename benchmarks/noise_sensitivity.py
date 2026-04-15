@@ -34,6 +34,8 @@ from pathlib import Path
 
 import numpy as np
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
+
 from .benchmark import (
     characterize_studies,
     ensure_top_k_pct,
@@ -75,7 +77,8 @@ DEFAULT_STRATEGIES = [
     "lnpbo_logei",
 ]
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "benchmark_results" / "analysis" / "within_study" / "sensitivity"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "analysis" / "within_study" / "sensitivity"
 PER_RUN_DIR = RESULTS_DIR / "noise_runs"
 
 

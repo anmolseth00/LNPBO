@@ -51,6 +51,8 @@ from pathlib import Path
 
 import numpy as np
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, resolve_input_path
+
 # gpytorch spams NumericalWarning each time it retries Cholesky with extra
 # jitter. It's a benign auto-stabilization mechanism, not a failure — but on
 # large mixed-variable studies it can emit hundreds of lines per iteration.
@@ -150,28 +152,8 @@ ALL_WITHIN_STUDY_STRATEGIES = (
     DISCRETE_STRATEGIES + TS_BATCH_STRATEGIES + ONLINE_CONFORMAL_STRATEGIES + CASMOPOLITAN_STRATEGIES + GP_STRATEGIES
 )
 
-_PACKAGE_ROOT = Path(__file__).resolve().parent.parent
-
-
-def _default_results_dir() -> Path:
-    """Use repo-local outputs in a checkout, but current-working-dir outputs when installed."""
-    if (_PACKAGE_ROOT / "pyproject.toml").exists():
-        return _PACKAGE_ROOT / "benchmark_results" / "within_study"
-    return Path.cwd().resolve() / "benchmark_results" / "within_study"
-
-
-def _resolve_existing_input_path(path_str: str) -> Path:
-    """Resolve runtime input paths from either a checkout or an installed wheel."""
-    raw = Path(path_str)
-    candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, _PACKAGE_ROOT / raw]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    attempted = ", ".join(str(candidate) for candidate in candidates)
-    raise FileNotFoundError(f"Could not resolve input path {path_str!r}. Looked in: {attempted}")
-
-
-RESULTS_DIR = _default_results_dir()
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
 
 
 # ---------------------------------------------------------------------------
@@ -1031,7 +1013,7 @@ def main():
     if args.studies_json:
         import json as _json
 
-        studies_path = _resolve_existing_input_path(args.studies_json)
+        studies_path = resolve_input_path(_PACKAGE_ROOT, args.studies_json)
         with open(studies_path) as _f:
             study_infos = _json.load(_f)
         print(f"\nLoaded {len(study_infos)} studies from {studies_path}")

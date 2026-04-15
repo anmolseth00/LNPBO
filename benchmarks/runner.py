@@ -17,6 +17,7 @@ import numpy as np
 from sklearn.neighbors import NearestNeighbors
 
 from LNPBO.optimization.optimizer import ENC_PREFIXES
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
 
 def _ts() -> str:
@@ -1339,8 +1340,9 @@ def main():
                 parser.error(f"Unknown strategy: {s}. Choose from: {ALL_STRATEGIES}")
 
     # Output path
-    results_dir = Path(__file__).resolve().parent.parent / "benchmark_results"
-    results_dir.mkdir(exist_ok=True)
+    package_root = package_root_from(__file__, levels_up=2)
+    results_dir = benchmark_results_root(package_root)
+    results_dir.mkdir(parents=True, exist_ok=True)
     if args.output is None:
         output_prefix = str(results_dir / f"{'_'.join(strategies[:3])}")
     else:

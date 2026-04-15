@@ -31,6 +31,8 @@ from pathlib import Path
 import numpy as np
 from scipy import stats as sp_stats
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
+
 from .constants import ASSAY_TYPE_LABELS, MIN_N_CORRELATION, MIN_N_WILCOXON, SEEDS
 from .stats import (
     acceleration_factor,
@@ -44,7 +46,8 @@ from .stats import (
 from .strategy_registry import STRATEGY_FAMILY as _REG_FAMILY
 from .strategy_registry import STRATEGY_SHORT
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
 
 # This script uses "GP (BoTorch)" labeling for figures (differs from registry's "LNPBO (GP)")
 STRATEGY_FAMILY = {

@@ -35,11 +35,12 @@ from xgboost import XGBRegressor
 from LNPBO.benchmarks.benchmark import filter_study_df
 from LNPBO.data.compute_pcs import compute_pcs
 from LNPBO.data.lnpdb_bridge import load_lnpdb_full
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
-_THIS_DIR = Path(__file__).resolve().parent
-_PROJECT_ROOT = _THIS_DIR.parent
-_STUDIES_JSON = _THIS_DIR / "data_integrity" / "studies_with_ids.json"
-_RESULTS_DIR = _PROJECT_ROOT / "benchmark_results" / "cross_study_transfer"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+_EXPERIMENTS_DIR = Path(__file__).resolve().parent
+_STUDIES_JSON = _EXPERIMENTS_DIR / "data_integrity" / "studies_with_ids.json"
+_RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "cross_study_transfer"
 
 SEED_FRACTION = 0.25
 N_SEEDS = 5

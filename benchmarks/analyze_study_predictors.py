@@ -24,9 +24,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats as sp_stats
 
-HERE = Path(__file__).resolve().parent
-REPO = HERE.parent
-sys.path.insert(0, str(REPO))
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, paper_root
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+_RESULTS_ROOT = benchmark_results_root(_PACKAGE_ROOT)
+_PAPER_ROOT = paper_root(_PACKAGE_ROOT)
+sys.path.insert(0, str(_PAPER_ROOT))
 
 from paper.figure_style import (
     DOUBLE_COL,
@@ -37,10 +40,10 @@ from paper.figure_style import (
     setup_style,
 )
 
-RESULTS_DIR = REPO / "benchmark_results" / "within_study"
-STUDIES_JSON = REPO / "experiments" / "data_integrity" / "studies_with_ids.json"
-FIG_DIR = REPO / "paper" / "figures"
-OUTPUT_JSON = REPO / "benchmark_results" / "study_predictor_correlations.json"
+RESULTS_DIR = _RESULTS_ROOT / "within_study"
+STUDIES_JSON = _PACKAGE_ROOT / "experiments" / "data_integrity" / "studies_with_ids.json"
+FIG_DIR = _PAPER_ROOT / "figures"
+OUTPUT_JSON = _RESULTS_ROOT / "study_predictor_correlations.json"
 
 from .constants import SEEDS
 from .strategy_registry import STRATEGY_FAMILY

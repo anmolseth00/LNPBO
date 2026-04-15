@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 4: Unified analysis of ablation experiments.
+"""Unified analysis of ablation experiments.
 
 Loads all ablation results, computes bootstrap CIs, paired Wilcoxon tests,
 and generates publication-ready figures.
@@ -11,7 +11,6 @@ Usage:
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 import matplotlib
@@ -21,13 +20,26 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO))
+from LNPBO.runtime_paths import (
+    benchmark_results_root,
+    import_from_layout,
+    package_root_from,
+    workspace_root,
+)
 
-from benchmarks.stats import benjamini_hochberg, bootstrap_ci, cohens_d_paired, paired_wilcoxon
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+_stats = import_from_layout(
+    __package__,
+    source_name="benchmarks.stats",
+    installed_name="LNPBO.benchmarks.stats",
+)
+benjamini_hochberg = _stats.benjamini_hochberg
+bootstrap_ci = _stats.bootstrap_ci
+cohens_d_paired = _stats.cohens_d_paired
+paired_wilcoxon = _stats.paired_wilcoxon
 
-RESULTS_BASE = REPO / "benchmark_results" / "ablations"
-FIG_DIR = Path(__file__).resolve().parent / "figures"
+RESULTS_BASE = benchmark_results_root(_PACKAGE_ROOT) / "ablations"
+FIG_DIR = workspace_root(_PACKAGE_ROOT) / "experiments" / "analysis" / "figures"
 
 
 def load_experiment_results(experiment_name):

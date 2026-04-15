@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Phase 1: Data landscape and representation skew analysis.
+"""Data landscape and representation skew analysis.
 
 Produces publication figures characterizing LNPDB:
 - Cargo type distribution
@@ -14,7 +14,6 @@ Usage:
 """
 
 import json
-import sys
 from collections import Counter
 from pathlib import Path
 
@@ -25,10 +24,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO))
+from LNPBO.runtime_paths import package_root_from, workspace_root
 
-OUT_DIR = Path(__file__).resolve().parent
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+OUT_DIR = workspace_root(_PACKAGE_ROOT) / "experiments" / "data_integrity"
 FIG_DIR = OUT_DIR / "figures"
 
 

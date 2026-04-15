@@ -18,6 +18,8 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from scipy import stats
@@ -25,7 +27,8 @@ from scipy import stats
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-BASE = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+BASE = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
 OUT = BASE / "gap_analysis"
 OUT.mkdir(exist_ok=True)
 

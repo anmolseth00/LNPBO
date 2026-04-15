@@ -22,8 +22,10 @@ Usage:
 from pathlib import Path
 
 from LNPBO.benchmarks.baselines.predict_and_rank import run_pr_cli
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "benchmark_results" / "baselines" / "agile_predictor"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "baselines" / "agile_predictor"
 
 SURROGATES = {
     "xgb": "XGBoost",

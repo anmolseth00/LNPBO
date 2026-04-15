@@ -25,15 +25,17 @@ Reference for cluster-robust SEs:
 """
 
 import json
-import sys
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
 
-from benchmarks.stats import bootstrap_ci
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent / "benchmark_results" / "within_study"
+from .stats import bootstrap_ci
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
 ANALYSIS_DIR = RESULTS_DIR.parent / "analysis" / "within_study" / "sensitivity"
 
 from .constants import SEEDS

@@ -24,8 +24,11 @@ from pathlib import Path
 import numpy as np
 
 from LNPBO.benchmarks.runner import prepare_benchmark_data
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
 from ..constants import SEEDS
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
 
 
 def compute_recall(selected_indices, top_k_values):
@@ -114,7 +117,7 @@ def main():
 
     total_budget = args.n_seed + args.rounds * args.batch_size
 
-    results_dir = Path(__file__).resolve().parent.parent.parent / "benchmark_results"
+    results_dir = benchmark_results_root(_PACKAGE_ROOT)
     results_dir.mkdir(exist_ok=True)
 
     print(f"{'=' * 70}")

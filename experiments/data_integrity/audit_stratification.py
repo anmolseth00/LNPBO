@@ -1,23 +1,21 @@
-"""Phase 1: Audit sub-study heterogeneity and produce study definitions.
+"""Audit sub-study heterogeneity and produce study definitions.
 
 Outputs:
     stratification_report.json  -- machine-readable audit
     stratification_report.md    -- human-readable summary
-    studies.json                -- study definitions for Phase 3 experiments
+    studies.json                -- study definitions for downstream experiments
 """
 
 import json
-import sys
 from pathlib import Path
 
 import pandas as pd
 
-REPO = Path(__file__).resolve().parent.parent.parent
-sys.path.insert(0, str(REPO))
-
 from LNPBO.data.lnpdb_bridge import load_lnpdb_full
+from LNPBO.runtime_paths import package_root_from, workspace_root
 
-OUT_DIR = Path(__file__).resolve().parent
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+OUT_DIR = workspace_root(_PACKAGE_ROOT) / "experiments" / "data_integrity"
 MIN_STUDY_SIZE = 200
 MIN_SUBGROUP_SIZE = 100  # minimum rows in a (PMID, Model_target) subgroup
 SEED_FRACTION = 0.25
@@ -228,7 +226,7 @@ def _make_study_def(sub: pd.DataFrame, pmid_str: str, suffix: str | None,
 
 
 def write_markdown_report(reports: list[dict], corrected: list[dict], out_path: Path):
-    lines = ["# Phase 1: Stratification Audit Report\n"]
+    lines = ["# Stratification Audit Report\n"]
     lines.append("**Date:** 2026-03-14\n")
     lines.append(f"**Total PMIDs audited:** {len(reports)}\n")
 

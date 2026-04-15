@@ -16,11 +16,15 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, paper_root
+
 from .constants import SEEDS
 from .strategy_registry import STRATEGY_FAMILY as _REG_FAMILY
 
-ROOT = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ROOT / "paper"))
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+_RESULTS_ROOT = benchmark_results_root(_PACKAGE_ROOT)
+_PAPER_ROOT = paper_root(_PACKAGE_ROOT)
+sys.path.insert(0, str(_PAPER_ROOT))
 from figure_style import (
     DOUBLE_COL,
     FAMILY_COLORS,
@@ -32,12 +36,12 @@ from figure_style import (
     setup_style,
 )
 
-WITHIN_DIR = ROOT / "benchmark_results" / "within_study"
-PR_DIR = ROOT / "benchmark_results" / "baselines" / "predict_and_rank"
-AGILE_DIR = ROOT / "benchmark_results" / "baselines" / "agile_predictor"
-META_PATH = ROOT / "experiments" / "data_integrity" / "studies_with_ids.json"
-OUT_JSON = ROOT / "benchmark_results" / "bo_vs_pr_analysis.json"
-OUT_FIG = ROOT / "paper" / "figures" / "fig_bo_vs_pr_analysis.pdf"
+WITHIN_DIR = _RESULTS_ROOT / "within_study"
+PR_DIR = _RESULTS_ROOT / "baselines" / "predict_and_rank"
+AGILE_DIR = _RESULTS_ROOT / "baselines" / "agile_predictor"
+META_PATH = _PACKAGE_ROOT / "experiments" / "data_integrity" / "studies_with_ids.json"
+OUT_JSON = _RESULTS_ROOT / "bo_vs_pr_analysis.json"
+OUT_FIG = _PAPER_ROOT / "figures" / "fig_bo_vs_pr_analysis.pdf"
 
 # BO strategies to consider (iterative, closed-loop)
 BO_STRATEGIES = [

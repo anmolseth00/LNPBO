@@ -2,7 +2,7 @@
 # Parallel benchmark runner — splits studies across N workers.
 #
 # Usage:
-#   ./scripts/run_parallel.sh                    # all phases
+#   ./scripts/run_parallel.sh                    # all sections
 #   ./scripts/run_parallel.sh within-study       # within-study only
 #   ./scripts/run_parallel.sh ablations          # ablations only
 #   ./scripts/run_parallel.sh baselines          # baselines
@@ -17,22 +17,22 @@ cd "$(dirname "$0")/.."
 
 STUDIES_JSON="experiments/data_integrity/studies_with_ids.json"
 N_WORKERS=4  # 4 workers × ~3 cores each = 12 cores
-PHASE="${1:-all}"
+TARGET="${1:-all}"
 
 LOG_DIR="logs/benchmark_$(date +%Y%m%d_%H%M%S)"
 mkdir -p "$LOG_DIR"
 
 echo "=== LNPBO Parallel Benchmark Runner ==="
-echo "Phase: $PHASE"
+echo "Target: $TARGET"
 echo "Workers: $N_WORKERS"
 echo "Logs: $LOG_DIR"
 echo ""
 
 # ---------------------------------------------------------------------------
-# Phase 1: Within-study benchmark (load-balanced across workers)
+# Within-study benchmark (load-balanced across workers)
 # ---------------------------------------------------------------------------
 run_within_study() {
-    echo "--- Phase 1: Within-study benchmark ---"
+    echo "--- Within-study benchmark ---"
 
     # Load-balance studies into N_WORKERS groups by total formulations.
     # Distribute by study_id (not PMID) to avoid conflicts on sub-studies.
@@ -98,10 +98,10 @@ for i, (bucket, load) in enumerate(zip(buckets, loads)):
 }
 
 # ---------------------------------------------------------------------------
-# Phase 2: Ablations (sequential — each config is independent)
+# Ablations (sequential — each config is independent)
 # ---------------------------------------------------------------------------
 run_ablations() {
-    echo "--- Phase 2: Ablation experiments ---"
+    echo "--- Ablation experiments ---"
     local configs=(
         experiments/ablations/encoding/config_full.json
         experiments/ablations/batch_size/config.json
@@ -138,10 +138,10 @@ run_ablations() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 3: Baselines (parallel — independent of each other)
+# Baselines (parallel — independent of each other)
 # ---------------------------------------------------------------------------
 run_baselines() {
-    echo "--- Phase 3: Baselines ---"
+    echo "--- Baselines ---"
     local pids=()
 
     uv run python -m LNPBO.benchmarks.baselines.predict_and_rank \
@@ -163,10 +163,10 @@ run_baselines() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 4: Sensitivity analyses (parallel)
+# Sensitivity analyses (parallel)
 # ---------------------------------------------------------------------------
 run_sensitivity() {
-    echo "--- Phase 4: Sensitivity analyses ---"
+    echo "--- Sensitivity analyses ---"
     local pids=()
 
     uv run python -m LNPBO.benchmarks.threshold_sensitivity \
@@ -192,10 +192,10 @@ run_sensitivity() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 5: Cross-study transfer + calibration
+# Cross-study transfer + calibration
 # ---------------------------------------------------------------------------
 run_analysis() {
-    echo "--- Phase 5: Analysis ---"
+    echo "--- Analysis ---"
     local pids=()
 
     uv run python -m LNPBO.experiments.cross_study_transfer \
@@ -213,10 +213,10 @@ run_analysis() {
 }
 
 # ---------------------------------------------------------------------------
-# Phase 6: Figures
+# Figures
 # ---------------------------------------------------------------------------
 run_figures() {
-    echo "--- Phase 6: Figures ---"
+    echo "--- Figures ---"
     uv run python -m LNPBO.benchmarks.analyze_within_study --aggregate-only \
         > "$LOG_DIR/figures_aggregate.log" 2>&1
     cd paper && uv run python make_all_figures.py \
@@ -227,7 +227,7 @@ run_figures() {
 # ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
-case "$PHASE" in
+case "$TARGET" in
     within-study)   run_within_study ;;
     ablations)      run_ablations ;;
     baselines)      run_baselines ;;
@@ -243,12 +243,12 @@ case "$PHASE" in
         run_figures
         ;;
     *)
-        echo "Unknown phase: $PHASE"
+        echo "Unknown target: $TARGET"
         echo "Valid: within-study, ablations, baselines, sensitivity, analysis, figures, all"
         exit 1
         ;;
 esac
 
 echo ""
-echo "=== Done: $PHASE ==="
+echo "=== Done: $TARGET ==="
 echo "Logs: $LOG_DIR/"

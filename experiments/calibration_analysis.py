@@ -22,7 +22,6 @@ Usage:
 """
 
 import json
-import sys
 import time
 import warnings
 from pathlib import Path
@@ -30,6 +29,8 @@ from pathlib import Path
 import numpy as np
 from scipy import stats
 from sklearn.preprocessing import MinMaxScaler
+
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, paper_root
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -64,9 +65,9 @@ SURROGATE_COLORS = {
     "gp_ucb": "#17becf",
 }
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
-RESULTS_PATH = PROJECT_ROOT / "benchmark_results" / "calibration_analysis.json"
-FIGURE_PATH = PROJECT_ROOT / "paper" / "figures" / "fig_calibration.pdf"
+PROJECT_ROOT = package_root_from(__file__, levels_up=2)
+RESULTS_PATH = benchmark_results_root(PROJECT_ROOT) / "calibration_analysis.json"
+FIGURE_PATH = paper_root(PROJECT_ROOT) / "figures" / "fig_calibration.pdf"
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +209,6 @@ def run_calibration_analysis():
         pmid_str = str(int(float(s["pmid"])))
         if sid in STUDY_PMIDS or pmid_str in STUDY_PMIDS:
             study_map[sid] = s
-
-    # Load full LNPDB
-    sys.path.insert(0, str(PROJECT_ROOT))
-    from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 
     print("\nLoading LNPDB...")
     dataset = load_lnpdb_full()

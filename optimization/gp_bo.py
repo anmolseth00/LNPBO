@@ -247,11 +247,11 @@ def _fit_dkl_gp(
 ) -> SingleTaskGP:
     """Jointly train a DKL model (feature extractor + GP) with Adam.
 
-    Phase 1: Build a temporary SingleTaskGP with the feature extractor as
+    Step 1: Build a temporary SingleTaskGP with the feature extractor as
     input_transform, then optimize the joint marginal log-likelihood over
     all parameters (NN weights + GP hyperparameters) using Adam.
 
-    Phase 2: Freeze the feature extractor, transform training inputs once,
+    Step 2: Freeze the feature extractor, transform training inputs once,
     and construct a fresh SingleTaskGP on the transformed features. This
     gives a clean model where condition_on_observations, posterior, etc.
     all work via BoTorch's standard input_transform machinery.
@@ -267,7 +267,7 @@ def _fit_dkl_gp(
     for p in feature_extractor.parameters():
         p.data = p.data.to(dtype)
 
-    # Phase 1: joint training with a temporary model
+    # Step 1: joint training with a temporary model
     # Build GP on transformed features for initialization
     with torch.no_grad():
         X_init = feature_extractor(X)
@@ -302,7 +302,7 @@ def _fit_dkl_gp(
             no_improve = 0
         prev_loss = curr_loss
 
-    # Phase 2: freeze NN and build final model with input_transform
+    # Step 2: freeze NN and build final model with input_transform
     feature_extractor.eval()
     for p in feature_extractor.parameters():
         p.requires_grad_(False)

@@ -34,7 +34,9 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-PACKAGE_ROOT = Path(__file__).resolve().parent.parent
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, resolve_input_path
+
+PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
 _BENCHMARKS_BASE = "LNPBO.benchmarks" if (__package__ or "").startswith("LNPBO.") else "benchmarks"
 
 
@@ -55,41 +57,16 @@ compute_metrics = _runner.compute_metrics
 prepare_benchmark_data = _runner.prepare_benchmark_data
 select_warmup_seed = _runner.select_warmup_seed
 
-
-def _default_results_base() -> Path:
-    """Use repo-local outputs in a checkout, but current-working-dir outputs when installed."""
-    if (PACKAGE_ROOT / "pyproject.toml").exists():
-        return PACKAGE_ROOT / "benchmark_results" / "ablations"
-    return Path.cwd().resolve() / "benchmark_results" / "ablations"
-
-
-def _resolve_existing_input_path(path_str: str) -> Path:
-    """Resolve source-tree style relative paths against the active runtime layout.
-
-    Installed-package entrypoints still document repo-style paths like
-    ``experiments/ablations/encoding/config.json``. When running from a wheel,
-    those files live under ``site-packages/LNPBO/...`` rather than the current
-    working directory, so we check both locations.
-    """
-    raw = Path(path_str)
-    candidates = [raw] if raw.is_absolute() else [Path.cwd() / raw, PACKAGE_ROOT / raw]
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate.resolve()
-    attempted = ", ".join(str(candidate) for candidate in candidates)
-    raise FileNotFoundError(f"Could not resolve input path {path_str!r}. Looked in: {attempted}")
-
-
-RESULTS_BASE = _default_results_base()
+RESULTS_BASE = benchmark_results_root(PACKAGE_ROOT) / "ablations"
 
 
 def load_config(config_path):
-    with open(_resolve_existing_input_path(config_path)) as f:
+    with open(resolve_input_path(PACKAGE_ROOT, config_path)) as f:
         return json.load(f)
 
 
 def load_studies(studies_json_path):
-    with open(_resolve_existing_input_path(studies_json_path)) as f:
+    with open(resolve_input_path(PACKAGE_ROOT, studies_json_path)) as f:
         return json.load(f)
 
 
@@ -568,7 +545,7 @@ def main():
     # Load studies — CLI flag > config key > default path
     studies_path = args.studies_json
     if not studies_path and "studies_json" in config:
-        studies_path = str(_resolve_existing_input_path(config["studies_json"]))
+        studies_path = str(resolve_input_path(PACKAGE_ROOT, config["studies_json"]))
     if not studies_path:
         default = PACKAGE_ROOT / "experiments" / "data_integrity" / "studies_with_ids.json"
         if default.exists():

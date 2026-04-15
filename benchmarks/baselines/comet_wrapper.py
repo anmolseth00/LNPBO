@@ -51,8 +51,10 @@ from LNPBO.benchmarks.benchmark import (
 )
 from LNPBO.benchmarks.runner import compute_metrics, init_history, update_history
 from LNPBO.benchmarks.stats import bootstrap_ci
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "benchmark_results" / "baselines" / "comet"
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "baselines" / "comet"
 EXPORT_DIR = RESULTS_DIR / "exported_data"
 
 

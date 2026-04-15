@@ -53,6 +53,7 @@ def _build_wheel(tmpdir: str) -> Path:
         "LICENSE",
         "__init__.py",
         "pipeline.py",
+        "runtime_paths.py",
         "pyproject.toml",
     ]:
         shutil.copy2(REPO / name, source_copy / name)
@@ -161,12 +162,15 @@ def test_installed_entrypoints_resolve_packaged_config_and_study_assets() -> Non
     output = _run_from_installed_wheel(
         """
 import json
+from pathlib import Path
 import LNPBO.benchmarks.benchmark as bench
 import LNPBO.experiments.run_ablation as abl
+from LNPBO.runtime_paths import resolve_input_path
 
-config_path = abl._resolve_existing_input_path("experiments/ablations/encoding/config.json")
-studies_with_ids = abl._resolve_existing_input_path("experiments/data_integrity/studies_with_ids.json")
-studies = bench._resolve_existing_input_path("experiments/data_integrity/studies.json")
+package_root = Path(bench.__file__).resolve().parent.parent
+config_path = resolve_input_path(package_root, "experiments/ablations/encoding/config.json")
+studies_with_ids = resolve_input_path(package_root, "experiments/data_integrity/studies_with_ids.json")
+studies = resolve_input_path(package_root, "experiments/data_integrity/studies.json")
 
 print(json.dumps({
     "config": str(config_path),

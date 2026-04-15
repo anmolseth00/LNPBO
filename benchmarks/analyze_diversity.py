@@ -36,13 +36,16 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy import stats as sp_stats
 
-from benchmarks.stats import bootstrap_ci
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from, paper_root
 
-REPO = Path(__file__).resolve().parent.parent
-BO_DIR = REPO / "benchmark_results" / "within_study"
-PR_DIR = REPO / "benchmark_results" / "baselines" / "predict_and_rank"
-FIG_DIR = REPO / "paper" / "figures"
-OUT_JSON = REPO / "benchmark_results" / "diversity_analysis.json"
+from .stats import bootstrap_ci
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
+_RESULTS_ROOT = benchmark_results_root(_PACKAGE_ROOT)
+BO_DIR = _RESULTS_ROOT / "within_study"
+PR_DIR = _RESULTS_ROOT / "baselines" / "predict_and_rank"
+FIG_DIR = paper_root(_PACKAGE_ROOT) / "figures"
+OUT_JSON = _RESULTS_ROOT / "diversity_analysis.json"
 
 from .constants import SEEDS
 
@@ -766,7 +769,7 @@ def analyze_per_study_bo_vs_pr(bo_results, pr_results, matched_sids, bo_study_in
 
 def make_figure(recall_pairs, surrogate_stats, study_diversity, bo_results, bo_study_info):
     try:
-        sys.path.insert(0, str(REPO))
+        sys.path.insert(0, str(paper_root(_PACKAGE_ROOT)))
         from paper.figure_style import (
             DOUBLE_COL,
             light_ygrid,

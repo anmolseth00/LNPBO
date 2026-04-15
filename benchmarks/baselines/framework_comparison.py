@@ -66,7 +66,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-RESULTS_DIR = Path(__file__).resolve().parent.parent.parent / "benchmark_results" / "within_study"
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
+RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
 
 # --------------------------------------------------------------------------- #
 # Mapping: external framework -> closest LNPBO strategy

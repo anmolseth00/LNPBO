@@ -28,8 +28,11 @@ from LNPBO.benchmarks.runner import (
     update_history,
 )
 from LNPBO.optimization._normalize import copula_transform
+from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
 from ..constants import SEEDS
+
+_PACKAGE_ROOT = package_root_from(__file__, levels_up=3)
 
 
 def run_xgb_random_acq(
@@ -109,7 +112,7 @@ def main():
     parser.add_argument("--normalize", type=str, default="copula", choices=["none", "zscore", "copula"])
     args = parser.parse_args()
 
-    results_dir = Path(__file__).resolve().parent.parent.parent / "benchmark_results"
+    results_dir = benchmark_results_root(_PACKAGE_ROOT)
     results_dir.mkdir(exist_ok=True)
 
     print(f"{'=' * 70}")
