@@ -143,16 +143,25 @@ run_ablations() {
 run_baselines() {
     echo "--- Baselines ---"
     local pids=()
+    local agile_root="${AGILE_ROOT:-../AGILE}"
+    local comet_root="${COMET_ROOT:-../COMET}"
+    local comet_weights_dir="${COMET_WEIGHTS_DIR:-${comet_root}/experiments/weights/weights}"
 
-    uv run python -m LNPBO.benchmarks.baselines.predict_and_rank \
+    uv run python -m LNPBO.benchmarks.baselines.predict_and_rank --resume \
         > "$LOG_DIR/baseline_predict_rank.log" 2>&1 &
     pids+=($!)
 
-    uv run python -m LNPBO.benchmarks.baselines.comet_infer \
-        > "$LOG_DIR/baseline_comet.log" 2>&1 &
+    (
+        uv run python -m LNPBO.benchmarks.baselines.comet_wrapper --export &&
+        uv run python -m LNPBO.benchmarks.baselines.comet_wrapper --run \
+            --comet-repo "$comet_root" \
+            --weights-dir "$comet_weights_dir" \
+            --resume &&
+        uv run python -m LNPBO.benchmarks.baselines.comet_wrapper --import-results
+    ) > "$LOG_DIR/baseline_comet.log" 2>&1 &
     pids+=($!)
 
-    uv run python -m LNPBO.benchmarks.baselines.agile_predictor \
+    AGILE_ROOT="$agile_root" uv run python -m LNPBO.benchmarks.baselines.agile_predictor --resume \
         > "$LOG_DIR/baseline_agile.log" 2>&1 &
     pids+=($!)
 

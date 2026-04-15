@@ -51,7 +51,7 @@ run_shell() {
 mkdir -p "$OUT_ROOT" "$OUT_ROOT/logs" tmp/rerun_configs
 
 echo "== Within-study rerun: confirmed invalidated strategies =="
-run_shell "uv run python -m benchmarks.benchmark \
+run_shell "uv run python -m LNPBO.benchmarks.benchmark \
   --studies-json \"$WITHIN_STUDIES_JSON\" \
   --strategies $MAIN_STRATEGIES \
   --seeds \"$SEEDS\" \
@@ -61,7 +61,7 @@ run_shell "uv run python -m benchmarks.benchmark \
 
 if [[ "$INCLUDE_RF_KERNEL" == "1" ]]; then
     echo "== Within-study rerun: conservative RF-kernel bucket =="
-    run_shell "uv run python -m benchmarks.benchmark \
+    run_shell "uv run python -m LNPBO.benchmarks.benchmark \
       --studies-json \"$WITHIN_STUDIES_JSON\" \
       --strategies lnpbo_rf_kernel_ts,lnpbo_rf_kernel_logei \
       --seeds \"$SEEDS\" \
@@ -121,7 +121,7 @@ for src_name, out_name, keep in jobs:
 PY
 
 echo "== Ablation rerun: primary encoding (CASMOPOLITAN-UCB only) =="
-run_shell "uv run python -m experiments.run_ablation \
+run_shell "uv run python -m LNPBO.experiments.run_ablation \
   --config tmp/rerun_configs/encoding_primary_targeted.json \
   --studies-json \"$ABL_STUDIES_JSON\" \
   --results-dir \"$OUT_ROOT/ablations/encoding_primary\" \
@@ -129,7 +129,7 @@ run_shell "uv run python -m experiments.run_ablation \
   2>&1 | tee \"$OUT_ROOT/logs/encoding_primary.log\""
 
 echo "== Ablation rerun: full encoding (affected strategies only) =="
-run_shell "uv run python -m experiments.run_ablation \
+run_shell "uv run python -m LNPBO.experiments.run_ablation \
   --config tmp/rerun_configs/encoding_full_targeted.json \
   --studies-json \"$ABL_STUDIES_JSON\" \
   --results-dir \"$OUT_ROOT/ablations/encoding_full\" \
@@ -137,7 +137,7 @@ run_shell "uv run python -m experiments.run_ablation \
   2>&1 | tee \"$OUT_ROOT/logs/encoding_full.log\""
 
 echo "== Ablation rerun: kappa-optimal benchmark slice (affected strategies only) =="
-run_shell "uv run python -m experiments.run_ablation \
+run_shell "uv run python -m LNPBO.experiments.run_ablation \
   --config tmp/rerun_configs/kappa_optimal_targeted.json \
   --studies-json \"$ABL_STUDIES_JSON\" \
   --results-dir \"$OUT_ROOT/ablations/kappa_optimal\" \
@@ -146,7 +146,7 @@ run_shell "uv run python -m experiments.run_ablation \
 
 if [[ "$INCLUDE_FSBO" == "1" ]]; then
     echo "== Exact FSBO rerun =="
-    run_shell "uv run python -m models.experimental.fsbo \
+    run_shell "uv run python -m LNPBO.models.experimental.fsbo \
       2>&1 | tee \"$OUT_ROOT/logs/fsbo.log\""
     if [[ "$DRY_RUN" != "1" ]]; then
         cp models/fsbo_results.json "$OUT_ROOT/fsbo_results.json"
