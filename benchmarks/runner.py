@@ -80,7 +80,11 @@ STRATEGY_CONFIGS = {
     "discrete_tabpfn": {"type": "discrete", "surrogate": "tabpfn"},
     "discrete_rf_ts_batch": {"type": "discrete_ts_batch", "surrogate": "rf_ucb"},
     "discrete_xgb_ucb_ts_batch": {"type": "discrete_ts_batch", "surrogate": "xgb_ucb"},
-    "discrete_xgb_online_conformal": {"type": "discrete_online_conformal"},
+    "discrete_xgb_online_conformal": {"type": "discrete_online_conformal_exact", "acquisition": "ucb"},
+    "discrete_xgb_cumulative_split_conformal_ucb_baseline": {
+        "type": "discrete_online_conformal_baseline",
+        "acquisition": "ucb",
+    },
     "casmopolitan_ucb": {"type": "casmopolitan", "acq_func": "ucb"},
     "casmopolitan_ei": {"type": "casmopolitan", "acq_func": "ei"},
     "lnpbo_gibbon": {"type": "gp", "acq_type": "GIBBON"},
@@ -164,7 +168,8 @@ STRATEGY_DISPLAY = {
     "discrete_tabpfn": "Discrete TabPFN-UCB",
     "discrete_rf_ts_batch": "Discrete RF TS-Batch",
     "discrete_xgb_ucb_ts_batch": "Discrete XGB-UCB TS-Batch",
-    "discrete_xgb_online_conformal": "Discrete XGB Online Conformal",
+    "discrete_xgb_online_conformal": "Discrete XGB Exact Online Conformal",
+    "discrete_xgb_cumulative_split_conformal_ucb_baseline": "Discrete XGB Cumulative Split-Conformal Baseline",
     "casmopolitan_ucb": "CASMOPOLITAN (UCB)",
     "casmopolitan_ei": "CASMOPOLITAN (EI)",
     "lnpbo_gibbon": "GP + GIBBON",
@@ -206,6 +211,7 @@ STRATEGY_COLORS = {
     "discrete_rf_ts_batch": "#556b2f",
     "discrete_xgb_ucb_ts_batch": "#b8860b",
     "discrete_xgb_online_conformal": "#2f4f4f",
+    "discrete_xgb_cumulative_split_conformal_ucb_baseline": "#556270",
     "casmopolitan_ucb": "#00ced1",
     "casmopolitan_ei": "#8a2be2",
     "lnpbo_gibbon": "#20b2aa",
@@ -409,18 +415,20 @@ def run_discrete_online_conformal_strategy(
     encoded_dataset=None,
     top_k_values=None,
 ):
-    """Run a discrete XGBoost strategy with online conformal recalibration.
+    """Run exact online quantile recalibration BO from Deshpande et al.
 
-    Fits XGBoost at each round, uses ``OnlineConformalCalibrator`` to
-    maintain a growing set of residuals and recompute the conformal
-    quantile after each batch evaluation. The adaptive quantile replaces
-    the fixed MAPIE split-conformal interval width, providing tighter
-    uncertainty estimates as more data is observed.
+    At every BO step:
+    1. Fit the probabilistic base model ``M_t`` on ``D_t``.
+    2. Construct the recalibration dataset with leave-one-out CV
+       (Algorithm 4 / ``CreateSplits``).
+    3. Fit the exact pointwise recalibrator ``R_t`` (Eq. 11).
+    4. Compose the calibrated model ``M_t ◦ R_t`` and evaluate the chosen
+       acquisition on the pool.
 
-    UCB score = mu + kappa * conformal_quantile
-
-    Coverage and conformal quantile are tracked per round and returned
-    in the history dict.
+    The history stores:
+    - ``coverage``: empirical pre-update coverage of the calibrated UCB
+      quantile used for acquisition.
+    - ``conformal_quantile``: the recalibrated level ``R_t(Phi(kappa))``.
 
     Args:
         encoded_df: Encoded DataFrame with feature columns and
@@ -431,29 +439,31 @@ def run_discrete_online_conformal_strategy(
         batch_size: Number of candidates to acquire per round.
         n_rounds: Maximum number of acquisition rounds.
         seed: Integer RNG seed.
-        kappa: UCB exploration weight (default 5.0).
-        alpha: Conformal miscoverage level (default 0.1 for 90%
-            coverage target).
+        kappa: Gaussian quantile z-score used to define the acquisition
+            level ``p_ucb = Phi(kappa)``.
+    alpha: Recalibration step size ``eta`` from Eq. 11 / Algorithm 3.
         normalize: Target normalization method.
         encoded_dataset: Optional ``Dataset`` for prospective PLS refit.
         top_k_values: Optional dict for recall tracking.
 
     Returns:
-        History dict with additional keys ``coverage`` (list of per-round
-        empirical coverage fractions) and ``conformal_quantile`` (list
-        of per-round conformal quantile values).
+        History dict with additional keys ``coverage`` and
+        ``conformal_quantile``.
 
     References:
         Deshpande, S., Marx, C., & Kuleshov, V. (2024). "Online
         Calibrated and Conformal Prediction Improves Bayesian
         Optimization." AISTATS. arXiv:2112.04620.
     """
-    import numpy as np
-    from sklearn.preprocessing import MinMaxScaler
-    from xgboost import XGBRegressor
+    from scipy.stats import norm
 
     from LNPBO.optimization._normalize import copula_transform
-    from LNPBO.optimization.online_conformal import OnlineConformalCalibrator
+    from LNPBO.optimization.online_conformal import (
+        CalibratedProbabilisticModel,
+        ExactOnlineRecalibrator,
+        GaussianXGBQuantileModel,
+        build_recalibration_dataset,
+    )
 
     training_idx = list(seed_idx)
     pool_idx = list(oracle_idx)
@@ -461,7 +471,122 @@ def run_discrete_online_conformal_strategy(
     history["coverage"] = []
     history["conformal_quantile"] = []
 
-    calibrator = OnlineConformalCalibrator(alpha=alpha)
+    p_ucb = float(norm.cdf(kappa))
+
+    for r in range(n_rounds):
+        if len(pool_idx) < batch_size:
+            break
+
+        _log_round_start(r, n_rounds, len(pool_idx), len(training_idx))
+        round_t0 = time.time()
+
+        if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
+            encoded_dataset.refit_pls(training_idx, external_df=encoded_df)
+
+        X_train = encoded_df.loc[training_idx, feature_cols].values
+        y_train_raw = encoded_df.loc[training_idx, "Experiment_value"].values.copy()
+
+        if normalize == "copula":
+            y_train = copula_transform(y_train_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            y_train = (y_train_raw - mu_t) / sigma_t if sigma_t > 0 else y_train_raw.copy()
+        else:
+            y_train = y_train_raw.copy()
+
+        X_pool = encoded_df.loc[pool_idx, feature_cols].values
+
+        base_model = GaussianXGBQuantileModel(
+            n_estimators=200,
+            random_state=seed + r,
+            n_jobs=1,
+        ).fit(X_train, y_train)
+        recal_dataset = build_recalibration_dataset(
+            X_train,
+            y_train,
+            model_factory=lambda: GaussianXGBQuantileModel(
+                n_estimators=200,
+                random_state=seed + r,
+                n_jobs=1,
+            ),
+        )
+        recalibrator = ExactOnlineRecalibrator(eta=alpha).fit(recal_dataset)
+        calibrated_model = CalibratedProbabilisticModel(base_model, recalibrator)
+        q_level = recalibrator.recalibrate(p_ucb)
+        scores = calibrated_model.quantile(X_pool, p_ucb)
+
+        top_indices = np.argsort(scores)[-batch_size:][::-1]
+        batch_idx = [pool_idx[i] for i in top_indices]
+
+        batch_true_raw = encoded_df.loc[batch_idx, "Experiment_value"].values
+        if normalize == "copula":
+            batch_true = copula_transform(y_train_raw, x_new=batch_true_raw)
+        elif normalize == "zscore":
+            mu_t, sigma_t = y_train_raw.mean(), y_train_raw.std()
+            batch_true = (batch_true_raw - mu_t) / sigma_t if sigma_t > 0 else batch_true_raw.copy()
+        else:
+            batch_true = batch_true_raw.copy()
+
+        batch_quantiles = calibrated_model.quantile(
+            encoded_df.loc[batch_idx, feature_cols].values,
+            p_ucb,
+        )
+        coverage = float(np.mean(batch_true <= batch_quantiles))
+        history["coverage"].append(float(coverage))
+        history["conformal_quantile"].append(float(q_level))
+
+        batch_set = set(batch_idx)
+        pool_idx = [i for i in pool_idx if i not in batch_set]
+        training_idx.extend(batch_idx)
+        update_history(history, encoded_df, training_idx, batch_idx, r, top_k_values=top_k_values)
+
+        batch_best = encoded_df.loc[batch_idx, "Experiment_value"].max()
+        cum_best = history["best_so_far"][-1]
+        _log_round_complete(
+            r,
+            batch_best,
+            cum_best,
+            time.time() - round_t0,
+            coverage=f"{coverage:.2f}",
+            q=f"{q_level:.4f}",
+            n_cal=len(recal_dataset.inverse_quantile_levels),
+        )
+
+    return history
+
+
+def run_discrete_cumulative_split_conformal_ucb_baseline(
+    encoded_df,
+    feature_cols,
+    seed_idx,
+    oracle_idx,
+    batch_size,
+    n_rounds,
+    seed,
+    kappa=5.0,
+    alpha=0.1,
+    normalize="copula",
+    encoded_dataset=None,
+    top_k_values=None,
+):
+    """Run the legacy residual-accumulation split-conformal UCB baseline."""
+    import numpy as np
+    from sklearn.preprocessing import MinMaxScaler
+    from xgboost import XGBRegressor
+
+    from LNPBO.optimization._normalize import copula_transform
+    from LNPBO.optimization.online_conformal import (
+        CumulativeSplitConformalUCBBaseline,
+        update_cumulative_split_conformal_batch,
+    )
+
+    training_idx = list(seed_idx)
+    pool_idx = list(oracle_idx)
+    history = init_history(encoded_df, training_idx, top_k_values=top_k_values)
+    history["coverage"] = []
+    history["conformal_quantile"] = []
+
+    calibrator = CumulativeSplitConformalUCBBaseline(alpha=alpha)
 
     for r in range(n_rounds):
         if len(pool_idx) < batch_size:
@@ -487,23 +612,18 @@ def run_discrete_online_conformal_strategy(
         X_pool = encoded_df.loc[pool_idx, feature_cols].values
 
         scaler = MinMaxScaler()
-        X_train_s = scaler.fit_transform(X_train)
-        X_pool_s = scaler.transform(X_pool)
-
+        X_train_scaled = scaler.fit_transform(X_train)
+        X_pool_scaled = scaler.transform(X_pool)
         model = XGBRegressor(n_estimators=200, random_state=seed + r, n_jobs=1, verbosity=0)
-        model.fit(X_train_s, y_train)
-        mu_pool = model.predict(X_pool_s)
+        model.fit(X_train_scaled, y_train)
 
+        y_pred_pool = model.predict(X_pool_scaled)
         q = calibrator.get_quantile()
-        if np.isinf(q):
-            scores = mu_pool
-        else:
-            scores = mu_pool + kappa * q
+        scores = y_pred_pool + kappa * q
 
         top_indices = np.argsort(scores)[-batch_size:][::-1]
         batch_idx = [pool_idx[i] for i in top_indices]
-
-        batch_preds = mu_pool[top_indices]
+        batch_pred = y_pred_pool[top_indices]
 
         batch_true_raw = encoded_df.loc[batch_idx, "Experiment_value"].values
         if normalize == "copula":
@@ -514,12 +634,9 @@ def run_discrete_online_conformal_strategy(
         else:
             batch_true = batch_true_raw.copy()
 
-        calibrator.update(batch_preds, batch_true)
-
-        coverage = calibrator.get_coverage(batch_preds, batch_true)
-        new_q = calibrator.get_quantile()
+        coverage, q_after = update_cumulative_split_conformal_batch(calibrator, batch_pred, batch_true)
         history["coverage"].append(float(coverage))
-        history["conformal_quantile"].append(float(new_q))
+        history["conformal_quantile"].append(float(q_after))
 
         batch_set = set(batch_idx)
         pool_idx = [i for i in pool_idx if i not in batch_set]
@@ -533,9 +650,8 @@ def run_discrete_online_conformal_strategy(
             batch_best,
             cum_best,
             time.time() - round_t0,
-            coverage=f"{coverage:.2f}",
-            q=f"{new_q:.4f}",
-            n_residuals=calibrator.n_residuals,
+            coverage=f"{coverage:.2f}" if not np.isnan(coverage) else "nan",
+            q=f"{q_after:.4f}" if np.isfinite(q_after) else "inf",
         )
 
     return history
@@ -563,15 +679,15 @@ def strategy_to_optimizer_kwargs(strategy_name, kernel_kwargs=None):
 
     Raises:
         ValueError: If the strategy name is unknown or unsupported (e.g.
-            ``"random"`` or ``"discrete_xgb_online_conformal"``).
+            ``"random"`` or custom online conformal strategies).
     """
     config = STRATEGY_CONFIGS[strategy_name]
     stype = config["type"]
 
     if stype == "random":
         raise ValueError("random strategy does not use Optimizer")
-    if stype == "discrete_online_conformal":
-        raise ValueError("discrete_xgb_online_conformal has custom logic and does not use Optimizer")
+    if stype in {"discrete_online_conformal_exact", "discrete_online_conformal_baseline"}:
+        raise ValueError(f"{strategy_name} has custom logic and does not use Optimizer")
 
     kwargs = {}
 
@@ -1322,8 +1438,21 @@ def main():
         config = STRATEGY_CONFIGS[strategy]
         if config["type"] == "random":
             history = _run_random(s_df, s_seed, s_oracle, args.batch_size, args.rounds, args.seed)
-        elif config["type"] == "discrete_online_conformal":
+        elif config["type"] == "discrete_online_conformal_exact":
             history = run_discrete_online_conformal_strategy(
+                s_df,
+                s_fcols,
+                s_seed,
+                s_oracle,
+                batch_size=args.batch_size,
+                n_rounds=args.rounds,
+                seed=args.seed,
+                kappa=args.kappa,
+                normalize=args.normalize,
+                encoded_dataset=s_dataset,
+            )
+        elif config["type"] == "discrete_online_conformal_baseline":
+            history = run_discrete_cumulative_split_conformal_ucb_baseline(
                 s_df,
                 s_fcols,
                 s_seed,

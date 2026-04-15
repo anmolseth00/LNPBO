@@ -567,7 +567,8 @@ tree_batch_groups = {
     "XGB-UCB (KB)": ["discrete_xgb_ucb"],
     "XGB-Greedy": ["discrete_xgb_greedy"],
     "XGB-CQR": ["discrete_xgb_cqr"],
-    "XGB-Conformal": ["discrete_xgb_online_conformal"],
+    "XGB-ExactOnlineConformal": ["discrete_xgb_online_conformal"],
+    "XGB-SplitConformal-Baseline": ["discrete_xgb_cumulative_split_conformal_ucb_baseline"],
     "XGB-UCB-TS-Batch": ["discrete_xgb_ucb_ts_batch"],
 }
 for batch_name, strat_list in sorted(tree_batch_groups.items()):

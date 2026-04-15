@@ -28,7 +28,7 @@ proportionally faster.
 | Random | <0.1 s | No model fitting |
 | RF (UCB, TS, TS-Batch) | 2--3 s | Fastest surrogate |
 | GP sklearn | 0.3 s | Tiny study only; scales poorly |
-| XGB (greedy, UCB, online conformal) | 6--20 s | |
+| XGB (greedy, UCB, exact online conformal) | 6--20 s | |
 | NGBoost UCB | 15--25 s | |
 | Deep Ensemble | 4--23 s | |
 | GP BoTorch standard (UCB, EI, LogEI, RKB) | 6--15 s | |

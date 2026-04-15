@@ -130,10 +130,26 @@ def backfill_study(df, study_info, strategies, seeds, dry_run=False):
                         seed,
                         top_k_values=s_topk,
                     )
-                elif config["type"] == "discrete_online_conformal":
+                elif config["type"] == "discrete_online_conformal_exact":
                     from benchmarks.runner import run_discrete_online_conformal_strategy
 
                     history = run_discrete_online_conformal_strategy(
+                        s_df,
+                        s_fcols,
+                        s_seed_idx,
+                        s_oracle_idx,
+                        batch_size=batch_size,
+                        n_rounds=n_rounds,
+                        seed=seed,
+                        kappa=kappa,
+                        normalize=normalize,
+                        encoded_dataset=s_dataset,
+                        top_k_values=s_topk,
+                    )
+                elif config["type"] == "discrete_online_conformal_baseline":
+                    from benchmarks.runner import run_discrete_cumulative_split_conformal_ucb_baseline
+
+                    history = run_discrete_cumulative_split_conformal_ucb_baseline(
                         s_df,
                         s_fcols,
                         s_seed_idx,
