@@ -98,10 +98,91 @@ for i, (bucket, load) in enumerate(zip(buckets, loads)):
 }
 
 # ---------------------------------------------------------------------------
-# Ablations (sequential — each config is independent)
+# Resource detection — picks worker count from available CPUs and RAM.
+# Overrideable via ABLATION_WORKERS env var. GPU presence is reported but
+# does not constrain CPU-side fan-out (GP strategies handle device selection
+# internally; concurrent processes share the GPU via CUDA's MPS/scheduler).
+# ---------------------------------------------------------------------------
+detect_ablation_workers() {
+    local cpus mem_gb gpus
+    if command -v nproc >/dev/null 2>&1; then
+        cpus=$(nproc)
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        cpus=$(sysctl -n hw.ncpu 2>/dev/null || echo 4)
+    else
+        cpus=4
+    fi
+    if [[ -r /proc/meminfo ]]; then
+        mem_gb=$(awk '/MemTotal/ {print int($2/1024/1024)}' /proc/meminfo)
+    elif [[ "$(uname)" == "Darwin" ]]; then
+        mem_gb=$(($(sysctl -n hw.memsize 2>/dev/null || echo 17179869184) / 1024 / 1024 / 1024))
+    else
+        mem_gb=16
+    fi
+    gpus=0
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        gpus=$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')
+    fi
+    local n="${ABLATION_WORKERS:-}"
+    if [[ -z "$n" ]]; then
+        # 1 worker per 2 CPUs (reserving 2 for system) and 1 per 3GB RAM, capped at 16
+        local by_cpu=$(( (cpus - 2) / 2 ))
+        local by_mem=$(( mem_gb / 3 ))
+        [[ $by_cpu -lt 1 ]] && by_cpu=1
+        [[ $by_mem -lt 1 ]] && by_mem=1
+        n=$by_cpu
+        [[ $by_mem -lt $n ]] && n=$by_mem
+        [[ $n -gt 16 ]] && n=16
+    fi
+    echo "$n|$cpus|$mem_gb|$gpus"
+}
+
+# Extract per-condition labels from an ablation config so we can fan out
+# across them via `run_ablation --condition <label>`. Returns one label
+# per line; empty output means the ablation runs as a single process.
+extract_condition_labels() {
+    local cfg="$1"
+    uv run python - "$cfg" <<'PY'
+import json, sys
+cfg = json.load(open(sys.argv[1]))
+labels = []
+if "conditions" in cfg:
+    labels = [c.get("label") for c in cfg["conditions"] if c.get("label")]
+elif "configs" in cfg:
+    labels = [c["name"] for c in cfg["configs"]]
+elif "n_pcs_values" in cfg:
+    labels = [f"pca{n}" for n in cfg["n_pcs_values"]]
+elif "warmup_configs" in cfg:
+    labels = [
+        f"w{wc['warmup_size']}_{wc.get('selection', 'random')}_b{wc.get('bo_batch', 12)}"
+        for wc in cfg["warmup_configs"]
+    ]
+elif "batch_sizes" in cfg:
+    for bs in cfg["batch_sizes"]:
+        for variant in cfg.get("variants", {}):
+            labels.append(f"batch{bs}_{variant}")
+for l in labels:
+    print(l)
+PY
+}
+
+# ---------------------------------------------------------------------------
+# Ablations — fan out across conditions, scaled by detected resources.
+# Ablations with no labeled conditions (kernel, small_study) run as one
+# process; the rest split N ways and run their conditions in parallel.
 # ---------------------------------------------------------------------------
 run_ablations() {
     echo "--- Ablation experiments ---"
+
+    local meta workers cpus mem_gb gpus
+    meta=$(detect_ablation_workers)
+    workers="${meta%%|*}"
+    cpus=$(echo "$meta" | cut -d'|' -f2)
+    mem_gb=$(echo "$meta" | cut -d'|' -f3)
+    gpus=$(echo "$meta" | cut -d'|' -f4)
+    echo "  Resources: $cpus CPUs, ${mem_gb}GB RAM, $gpus GPU(s) → $workers worker(s) per ablation"
+    echo "  (override with ABLATION_WORKERS=N)"
+
     local configs=(
         experiments/ablations/encoding/config.json
         experiments/ablations/batch_size/config.json
@@ -113,26 +194,44 @@ run_ablations() {
         experiments/ablations/small_study/config.json
     )
 
-    # Run ablations 2 at a time (each uses ~4 cores)
-    local i=0
-    while [ $i -lt ${#configs[@]} ]; do
-        local pids=()
-        for j in 0 1; do
-            local idx=$((i + j))
-            if [ $idx -lt ${#configs[@]} ]; then
-                local cfg="${configs[$idx]}"
-                local name=$(basename "$(dirname "$cfg")")
-                echo "  Launching ablation: $name"
+    for cfg in "${configs[@]}"; do
+        local name
+        name=$(basename "$(dirname "$cfg")")
+
+        local labels=()
+        while IFS= read -r line; do
+            [[ -n "$line" ]] && labels+=("$line")
+        done < <(extract_condition_labels "$cfg" 2>/dev/null)
+
+        local n_cond=${#labels[@]}
+        if [ "$n_cond" -le 1 ]; then
+            echo "  Ablation: $name (serial, no labeled conditions)"
+            uv run python -m LNPBO.experiments.run_ablation \
+                --config "$cfg" --resume \
+                > "$LOG_DIR/ablation_${name}.log" 2>&1 \
+                || echo "  WARNING: ablation $name failed"
+        else
+            local par=$workers
+            [[ $par -gt $n_cond ]] && par=$n_cond
+            echo "  Ablation: $name ($n_cond conditions, $par parallel workers)"
+            local pids=() running=0
+            for label in "${labels[@]}"; do
+                while [ $running -ge $par ]; do
+                    wait -n 2>/dev/null || wait "${pids[0]}"
+                    pids=("${pids[@]:1}")
+                    running=$((running - 1))
+                done
+                local cond_log="$LOG_DIR/ablation_${name}_${label}.log"
                 uv run python -m LNPBO.experiments.run_ablation \
-                    --config "$cfg" --resume \
-                    > "$LOG_DIR/ablation_${name}.log" 2>&1 &
+                    --config "$cfg" --condition "$label" --resume \
+                    > "$cond_log" 2>&1 &
                 pids+=($!)
-            fi
-        done
-        for pid in "${pids[@]}"; do
-            wait "$pid" || echo "  WARNING: ablation PID $pid failed"
-        done
-        i=$((i + 2))
+                running=$((running + 1))
+            done
+            for pid in "${pids[@]}"; do
+                wait "$pid" || echo "  WARNING: ablation $name condition pid=$pid failed"
+            done
+        fi
     done
     echo "  Ablations done."
 }
