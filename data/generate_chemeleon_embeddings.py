@@ -53,11 +53,12 @@ def chemeleon_embeddings(
     scaler=None,
 ) -> tuple[np.ndarray, StandardScaler]:
     """Extract CheMeleon D-MPNN embeddings for a list of SMILES."""
-    from chemprop.data.collate import BatchMolGraph
-    from chemprop.featurizers import SimpleMoleculeMolGraphFeaturizer
-    from rdkit import Chem
 
     def _compute(todo):
+        from chemprop.data.collate import BatchMolGraph
+        from chemprop.featurizers import SimpleMoleculeMolGraphFeaturizer
+        from rdkit import Chem
+
         mp, agg = _get_chemeleon_model()
         featurizer = SimpleMoleculeMolGraphFeaturizer()
         result = {}
