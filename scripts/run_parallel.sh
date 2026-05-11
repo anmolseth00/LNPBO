@@ -103,7 +103,7 @@ for i, (bucket, load) in enumerate(zip(buckets, loads)):
 run_ablations() {
     echo "--- Ablation experiments ---"
     local configs=(
-        experiments/ablations/encoding/config_full.json
+        experiments/ablations/encoding/config.json
         experiments/ablations/batch_size/config.json
         experiments/ablations/pca/config.json
         experiments/ablations/budget/config.json
