@@ -15,7 +15,6 @@
     "discrete_rf_ts",
     "discrete_xgb_ucb",
     "discrete_ngboost_ucb",
-    "casmopolitan_ucb",
     "random"
   ],
   "seeds": [42, 123, 456, 789, 2024],
