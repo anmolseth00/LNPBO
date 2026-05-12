@@ -236,20 +236,47 @@ def mixture_doe(
         return _random_simplex_samples(n_samples, components, bounds, rng, target_sum)
 
     if method == "extreme_vertices":
-        return _extreme_vertices(components, bounds, target_sum)
-
-    if method == "centroid_axial":
-        return _centroid_axial(components, bounds, target_sum)
-
-    if method == "full_factorial":
-        return _full_factorial_mixture(
+        design = _extreme_vertices(components, bounds, target_sum)
+    elif method == "centroid_axial":
+        design = _centroid_axial(components, bounds, target_sum)
+    elif method == "full_factorial":
+        design = _full_factorial_mixture(
             components=components,
             bounds=bounds,
             levels=levels,
             target_sum=target_sum,
         )
+    else:
+        raise ValueError(f"Unknown mixture DOE method: {method}")
 
-    raise ValueError(f"Unknown mixture DOE method: {method}")
+    return _resize_structural_design(design, n_samples, method, rng)
+
+
+def _resize_structural_design(
+    design: list[dict[str, float]],
+    n_samples: int,
+    method: str,
+    rng: np.random.Generator,
+) -> list[dict[str, float]]:
+    """Enforce ``n_samples`` on a structural design: subsample or raise.
+
+    Structural designs (extreme vertices, centroid+axial, full factorial)
+    have a fixed maximum size determined by component count, bounds, and
+    grid levels. We raise rather than silently undersize if the requested
+    batch cannot be produced, and randomly subsample (without replacement)
+    when more candidates are generated than requested.
+    """
+    if len(design) < n_samples:
+        raise ValueError(
+            f"DOE method '{method}' produced only {len(design)} points but "
+            f"n_samples={n_samples} were requested. Increase 'levels' for "
+            f"full_factorial or relax per-component bounds to admit more "
+            f"feasible vertices."
+        )
+    if len(design) == n_samples:
+        return design
+    chosen = rng.choice(len(design), size=n_samples, replace=False)
+    return [design[int(i)] for i in chosen]
 
 
 def _full_factorial_mixture(
