@@ -431,6 +431,7 @@ class Optimizer:
         round_num=0,
         encoded_dataset=None,
         batch_size=None,
+        train_Yvar=None,
     ):
         """Select batch indices from a pre-split pool.
 
@@ -589,7 +590,7 @@ class Optimizer:
                     "surrogate_type='multitask_gp' requires study_id column in the "
                     "training data. Ensure your dataset includes study_id."
                 )
-            model = fit_multitask_gp(X_train, y_train, task_indices)
+            model = fit_multitask_gp(X_train, y_train, task_indices, train_Yvar=train_Yvar)
             # Score the pool (append a dummy task index — use the most common
             # training task for prediction context)
             from collections import Counter

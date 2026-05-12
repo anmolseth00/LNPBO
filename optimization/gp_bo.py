@@ -471,6 +471,7 @@ def fit_multitask_gp(
     task_indices: np.ndarray,
     device: torch.device | None = None,
     rank: int = 3,
+    train_Yvar: np.ndarray | None = None,
 ) -> "Model":
     """Fit a Multi-Task GP with low-rank ICM coregionalization.
 
@@ -506,6 +507,7 @@ def fit_multitask_gp(
         try:
             return _fit_multitask_gp_on_device(
                 X_train, y_train, task_indices, device, rank=rank,
+                train_Yvar=train_Yvar,
             )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
             if "out of memory" not in str(e).lower():
@@ -516,6 +518,7 @@ def fit_multitask_gp(
 
     return _fit_multitask_gp_on_device(
         X_train, y_train, task_indices, device, rank=rank,
+        train_Yvar=train_Yvar,
     )
 
 
@@ -526,6 +529,7 @@ def _fit_multitask_gp_on_device(
     device: torch.device,
     *,
     rank: int,
+    train_Yvar: np.ndarray | None = None,
 ):
     """Body of fit_multitask_gp once device has been chosen."""
     import contextlib
@@ -541,19 +545,35 @@ def _fit_multitask_gp_on_device(
     n_tasks = len(np.unique(task_indices))
     effective_rank = min(rank, n_tasks)
 
-    likelihood = gpytorch.likelihoods.GaussianLikelihood(
-        noise_constraint=gpytorch.constraints.GreaterThan(1e-4),
-    )
-    likelihood.noise = 0.5
-
-    model = MultiTaskGP(
-        train_X=X,
-        train_Y=y,
-        task_feature=-1,
-        rank=effective_rank,
-        likelihood=likelihood,
-        all_tasks=sorted(set(task_indices.tolist())),
-    )
+    if train_Yvar is not None:
+        # Per-point variance path: MultiTaskGP accepts train_Yvar in
+        # modern botorch (>=0.10). When provided, the per-task noise
+        # hyperparameter is replaced by a fixed per-point variance --
+        # the lab's honest_noise helper composes ensemble std +
+        # conformal half-width into this array.
+        clipped = np.where(np.asarray(train_Yvar) > 0, train_Yvar, 1e-4)
+        Yvar = _to_tensor(clipped.ravel(), device).unsqueeze(-1)
+        model = MultiTaskGP(
+            train_X=X,
+            train_Y=y,
+            train_Yvar=Yvar,
+            task_feature=-1,
+            rank=effective_rank,
+            all_tasks=sorted(set(task_indices.tolist())),
+        )
+    else:
+        likelihood = gpytorch.likelihoods.GaussianLikelihood(
+            noise_constraint=gpytorch.constraints.GreaterThan(1e-4),
+        )
+        likelihood.noise = 0.5
+        model = MultiTaskGP(
+            train_X=X,
+            train_Y=y,
+            task_feature=-1,
+            rank=effective_rank,
+            likelihood=likelihood,
+            all_tasks=sorted(set(task_indices.tolist())),
+        )
     model.to(device)
 
     mll = ExactMarginalLogLikelihood(model.likelihood, model)
@@ -575,6 +595,7 @@ def fit_gp(
     _rng: np.random.RandomState | None = None,
     kernel_type: str = "matern",
     kernel_kwargs: dict | None = None,
+    train_Yvar: np.ndarray | None = None,
 ) -> SingleTaskGP | SingleTaskVariationalGP:
     """Fit a GP surrogate model.
 
@@ -595,6 +616,15 @@ def fit_gp(
         Extra arguments passed to kernel constructors. For
         ``kernel_type="compositional"``, must include ``fp_indices``,
         ``ratio_indices``, and ``synth_indices`` (lists of int).
+    train_Yvar : (N,) per-point observation variance, optional.
+        When provided, the GP fits with FixedNoiseGP rather than the
+        default GaussianLikelihood. Each point's noise is treated as
+        a known constant rather than a learned hyperparameter; this
+        is the channel for downstream callers to propagate calibrated
+        uncertainty (e.g. honest-MTP ensemble std + conformal
+        half-width) into the surrogate posterior. Variances must be
+        positive; values <= 0 are clipped to 1e-4. Ignored when
+        ``use_sparse=True`` (variational GP has no FixedNoise variant).
 
     Returns
     -------
@@ -612,6 +642,7 @@ def fit_gp(
                 X_train, y_train, device,
                 use_sparse=use_sparse, n_inducing=n_inducing,
                 _rng=_rng, kernel_type=kernel_type, kernel_kwargs=kernel_kwargs,
+                train_Yvar=train_Yvar,
             )
         except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
             if "out of memory" not in str(e).lower():
@@ -624,6 +655,7 @@ def fit_gp(
         X_train, y_train, device,
         use_sparse=use_sparse, n_inducing=n_inducing,
         _rng=_rng, kernel_type=kernel_type, kernel_kwargs=kernel_kwargs,
+        train_Yvar=train_Yvar,
     )
 
 
@@ -637,10 +669,18 @@ def _fit_gp_on_device(
     _rng: np.random.RandomState | None,
     kernel_type: str,
     kernel_kwargs: dict | None,
+    train_Yvar: np.ndarray | None = None,
 ) -> SingleTaskGP | SingleTaskVariationalGP:
     """Body of fit_gp once device has been chosen. See fit_gp() docstring."""
     X = _to_tensor(X_train, device)
     y = _to_tensor(y_train.ravel(), device).unsqueeze(-1)
+    Yvar = None
+    if train_Yvar is not None:
+        # Clip non-positive variances so the GaussianLikelihood does not
+        # collapse to a delta function; matches the floor convention in
+        # the lab-side honest_noise helper.
+        clipped = np.where(np.asarray(train_Yvar) > 0, train_Yvar, 1e-4)
+        Yvar = _to_tensor(clipped.ravel(), device).unsqueeze(-1)
 
     if kernel_type == "dkl":
         return _fit_dkl_gp(X, y, device)
@@ -727,7 +767,12 @@ def _fit_gp_on_device(
                     no_improve = 0
                 prev_loss = curr_loss
         else:
-            model = SingleTaskGP(X, y, covar_module=covar_module)
+            # SingleTaskGP accepts train_Yvar directly in modern botorch
+            # (>=0.10). When train_Yvar is None it falls through to a
+            # learned GaussianLikelihood; when present, BoTorch wires a
+            # FixedNoiseGaussianLikelihood internally and treats each
+            # point's variance as a known constant.
+            model = SingleTaskGP(X, y, train_Yvar=Yvar, covar_module=covar_module)
             model.to(device)
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
             fit_gpytorch_mll(mll)
