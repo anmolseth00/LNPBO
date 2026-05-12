@@ -142,20 +142,26 @@ def run_casmopolitan_strategy(
         X_pool_aug = np.column_stack([cat_pool, np.hstack(cont_pool_parts)])
         cont_indices = list(range(1, X_train_aug.shape[1]))
 
-        current_best = float(np.max(y_train))
+        # TR success/failure must be judged on raw Experiment_value: the
+        # normalized y_train is refit each round (copula ranks shift, z-score
+        # mean/std shift), so np.max(y_train) grows monotonically with N even
+        # when no new best is observed — that would make `improved` always
+        # True and disable TR shrink/restart.
+        raw_y_train = y_all[training_idx]
+        current_best = float(np.max(raw_y_train))
         restart_from_archive = False
         if trust_region is not None and round_start_best is not None:
             improved = current_best > round_start_best
             restart_from_archive = trust_region.update(improved)
             if restart_from_archive:
-                incumbent_idx = int(np.argmax(y_train))
+                incumbent_idx = int(np.argmax(raw_y_train))
                 restart_X_raw, restart_y = _append_restart_observation(
                     restart_X_raw,
                     restart_y,
                     X_train_aug[incumbent_idx],
                     current_best,
                     X_train_aug,
-                    y_train,
+                    raw_y_train,
                     np.random.RandomState(seed + r),
                 )
 
