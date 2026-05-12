@@ -30,6 +30,8 @@ class OptimizerRunner:
         batch_size,
         encoded_dataset=None,
         top_k_values=None,
+        resume_state=None,
+        checkpoint_callback=None,
     ):
         """Execute a multi-round closed-loop acquisition simulation.
 
@@ -49,14 +51,37 @@ class OptimizerRunner:
         Returns:
             History dict compatible with ``compute_metrics()``.
         """
-        if hasattr(self.optimizer, "_reset_runtime_state"):
+        if resume_state is not None and getattr(
+            self.optimizer, "has_unrepresented_runtime_state", False
+        ):
+            raise RuntimeError(
+                f"Cannot resume from partial checkpoint: optimizer "
+                f"(surrogate_type={getattr(self.optimizer, 'surrogate_type', '?')!r}) "
+                "maintains cross-round runtime state that is not captured by the "
+                "checkpoint. Restart this seed from round 0 instead."
+            )
+
+        if hasattr(self.optimizer, "_reset_runtime_state") and resume_state is None:
             self.optimizer._reset_runtime_state()
 
-        training_idx = list(seed_idx)
-        pool_idx = list(oracle_idx)
-        history = init_history(df, training_idx, top_k_values=top_k_values)
+        if resume_state is not None:
+            training_idx = list(resume_state["training_idx"])
+            pool_idx = list(resume_state["pool_idx"])
+            history = resume_state["history"]
+            start_round = int(resume_state.get("completed_rounds", len(history.get("round_best", []))))
+            if start_round > 0 and start_round < n_rounds:
+                print(
+                    f"  {_ts()} Resuming from round {start_round + 1}/{n_rounds} "
+                    f"(pool={len(pool_idx)}, training={len(training_idx)})",
+                    flush=True,
+                )
+        else:
+            training_idx = list(seed_idx)
+            pool_idx = list(oracle_idx)
+            history = init_history(df, training_idx, top_k_values=top_k_values)
+            start_round = 0
 
-        for r in range(n_rounds):
+        for r in range(start_round, n_rounds):
             if len(pool_idx) < batch_size:
                 break
 
@@ -97,5 +122,15 @@ class OptimizerRunner:
                 time.time() - round_t0,
                 n_new=len(batch_idx),
             )
+
+            if checkpoint_callback is not None:
+                checkpoint_callback(
+                    {
+                        "completed_rounds": r + 1,
+                        "training_idx": list(training_idx),
+                        "pool_idx": list(pool_idx),
+                        "history": history,
+                    }
+                )
 
         return history

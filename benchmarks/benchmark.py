@@ -44,6 +44,7 @@ import argparse
 import contextlib
 from importlib import import_module
 import json
+import os
 import time
 import warnings
 from datetime import datetime
@@ -187,6 +188,32 @@ def _format_duration(seconds: float) -> str:
     hours = int(seconds // 3600)
     minutes = int((seconds % 3600) // 60)
     return f"{hours}h {minutes:02d}m"
+
+
+def _estimate_remaining_eta(remaining_runs, completed_run_stats):
+    """Estimate remaining wall-clock from observed per-strategy runtimes."""
+    if not completed_run_stats:
+        return None
+
+    durations = np.array([item["elapsed"] for item in completed_run_stats], dtype=float)
+    overall_median = float(np.median(durations))
+
+    per_strategy = {}
+    for item in completed_run_stats:
+        per_strategy.setdefault(item["strategy"], []).append(float(item["elapsed"]))
+
+    estimate_s = 0.0
+    used_fallback = False
+    for _si, strategy, _seed in remaining_runs:
+        observed = per_strategy.get(strategy)
+        if observed:
+            estimate_s += float(np.mean(observed))
+        else:
+            estimate_s += overall_median
+            used_fallback = True
+
+    label = "rough ETA" if used_fallback else "ETA"
+    return label, estimate_s
 
 
 class _Tee:
@@ -410,6 +437,8 @@ def run_single_seed(
     study_info,
     pca_data=None,
     kernel_kwargs=None,
+    resume_state=None,
+    checkpoint_callback=None,
 ):
     """Run a single strategy for a single seed within a study.
 
@@ -512,6 +541,8 @@ def run_single_seed(
             batch_size=batch_size,
             encoded_dataset=s_dataset,
             top_k_values=s_topk,
+            resume_state=resume_state,
+            checkpoint_callback=checkpoint_callback,
         )
 
     elapsed = time.time() - t0
@@ -552,6 +583,34 @@ def _per_seed_path(pmid, strategy, seed, *, study_id=None):
     return RESULTS_DIR / folder / f"{strategy}_s{seed}.json"
 
 
+def _partial_seed_path(pmid, strategy, seed, *, study_id=None):
+    """Build the filesystem path for a round-level partial checkpoint JSON."""
+    folder = study_id if study_id else str(int(float(pmid)))
+    return RESULTS_DIR / "_partial" / folder / f"{strategy}_s{seed}.partial.json"
+
+
+def _serialize_history(history):
+    """Convert a runtime history dict into a JSON-serializable payload."""
+    serializable = dict(history)
+    serializable["all_evaluated"] = sorted(int(i) for i in history.get("all_evaluated", set()))
+    if "per_round_recall" in history:
+        serializable["per_round_recall"] = {
+            str(k): list(v) for k, v in history["per_round_recall"].items()
+        }
+    return serializable
+
+
+def _deserialize_history(history_payload):
+    """Restore a serialized history payload back into runtime form."""
+    history = dict(history_payload)
+    history["all_evaluated"] = set(history.get("all_evaluated", []))
+    if "per_round_recall" in history:
+        history["per_round_recall"] = {
+            int(k): list(v) for k, v in history["per_round_recall"].items()
+        }
+    return history
+
+
 def save_seed_result(pmid, strategy, seed, result, study_info):
     """Persist a single seed's benchmark result to a JSON file.
 
@@ -579,6 +638,38 @@ def save_seed_result(pmid, strategy, seed, result, study_info):
         json.dump(data, f, indent=2, default=str)
 
 
+def save_partial_seed_result(pmid, strategy, seed, partial_state, study_info):
+    """Persist a round-level partial checkpoint for an in-flight run.
+
+    The write is staged through ``<path>.tmp`` and then ``os.replace``-d into
+    place so a SIGKILL mid-write leaves the previous valid checkpoint (or no
+    file at all) rather than a truncated one that load would reject.
+    """
+    path = _partial_seed_path(pmid, strategy, seed, study_id=study_info.get("study_id"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    study_id = get_study_id(study_info)
+    data = {
+        "pmid": pmid,
+        "study_id": study_id,
+        "strategy": strategy,
+        "seed": seed,
+        # Save full study_info (including top_k_pct) so the loader can fingerprint
+        # it against the current study_info and reject stale checkpoints.
+        "study_info": dict(study_info),
+        "partial": {
+            "completed_rounds": int(partial_state.get("completed_rounds", 0)),
+            "training_idx": [int(i) for i in partial_state.get("training_idx", [])],
+            "pool_idx": [int(i) for i in partial_state.get("pool_idx", [])],
+            "history": _serialize_history(partial_state.get("history", {})),
+        },
+        "timestamp": datetime.now().isoformat(),
+    }
+    tmp_path = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp_path, "w") as f:
+        json.dump(data, f, indent=2, default=str)
+    os.replace(tmp_path, path)
+
+
 def load_seed_result(pmid, strategy, seed, *, study_id=None):
     """Load a previously saved per-seed benchmark result.
 
@@ -598,6 +689,112 @@ def load_seed_result(pmid, strategy, seed, *, study_id=None):
     with open(path) as f:
         data = json.load(f)
     return data.get("result")
+
+
+# Fields whose value affects either the trajectory (and therefore which batches
+# the saved training_idx/pool_idx correspond to) or the history schema (the
+# per_round_recall key set). If any of these differ between the saved
+# checkpoint's study_info and the current study_info, the checkpoint is stale
+# and must be discarded.
+_CHECKPOINT_FINGERPRINT_FIELDS = (
+    "n_rounds",
+    "batch_size",
+    "n_seed",
+    "feature_type",
+    "study_id",
+)
+
+
+def _checkpoint_fingerprint(study_info):
+    """Build the comparison fingerprint for checkpoint compatibility checks."""
+    fp = {k: study_info.get(k) for k in _CHECKPOINT_FINGERPRINT_FIELDS}
+    top_k = study_info.get("top_k_pct") or {}
+    # Coerce to strings for stable comparison across JSON roundtrip (which
+    # turns int dict keys into strings).
+    fp["top_k_pct_keys"] = sorted(str(k) for k in top_k.keys())
+    lnp_ids = study_info.get("lnp_ids")
+    fp["lnp_ids"] = sorted(str(i) for i in lnp_ids) if lnp_ids is not None else None
+    return fp
+
+
+def load_partial_seed_result(pmid, strategy, seed, *, study_id=None, study_info=None):
+    """Load a round-level partial checkpoint if one exists and is compatible.
+
+    A SIGKILL during a previous save can leave the partial file truncated or
+    otherwise un-parseable. In that case we delete the corrupt file and treat
+    the seed as if no checkpoint existed (the run restarts from round 0).
+
+    If ``study_info`` is supplied, the loader also rejects checkpoints whose
+    saved ``study_info`` disagrees with the current one on any field that
+    affects the trajectory (``n_rounds``, ``batch_size``, ``n_seed``,
+    ``feature_type``, ``study_id``, ``top_k_pct`` key set, ``lnp_ids``). A
+    stale checkpoint of the wrong shape would otherwise either silently
+    truncate / extend the run or raise ``KeyError`` deep in ``update_history``.
+    """
+    path = _partial_seed_path(pmid, strategy, seed, study_id=study_id)
+    if not path.exists():
+        return None
+    try:
+        with open(path) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        print(
+            f"  WARNING: partial checkpoint at {path} is unreadable ({e!s}); "
+            "discarding and restarting from round 0",
+            flush=True,
+        )
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+        return None
+    partial = data.get("partial")
+    if not isinstance(partial, dict):
+        return None
+    required = ("completed_rounds", "training_idx", "pool_idx", "history")
+    if not all(k in partial for k in required):
+        print(
+            f"  WARNING: partial checkpoint at {path} is missing required keys "
+            f"(have {sorted(partial)}); discarding",
+            flush=True,
+        )
+        with contextlib.suppress(FileNotFoundError):
+            path.unlink()
+        return None
+    if study_info is not None:
+        saved_si = data.get("study_info", {})
+        saved_fp = _checkpoint_fingerprint(saved_si)
+        current_fp = _checkpoint_fingerprint(study_info)
+        # n_rounds is part of the fingerprint but a *larger* new n_rounds is
+        # always safe (we just run more rounds). Allow that one direction.
+        if saved_fp["n_rounds"] != current_fp["n_rounds"]:
+            saved_n = saved_fp["n_rounds"]
+            current_n = current_fp["n_rounds"]
+            done = int(partial.get("completed_rounds", 0))
+            if (
+                isinstance(saved_n, int)
+                and isinstance(current_n, int)
+                and current_n >= saved_n
+                and done <= current_n
+            ):
+                saved_fp["n_rounds"] = current_fp["n_rounds"]
+        diffs = [k for k in saved_fp if saved_fp[k] != current_fp[k]]
+        if diffs:
+            print(
+                f"  WARNING: partial checkpoint at {path} disagrees with current "
+                f"study_info on {diffs}; discarding and restarting from round 0",
+                flush=True,
+            )
+            with contextlib.suppress(FileNotFoundError):
+                path.unlink()
+            return None
+    partial["history"] = _deserialize_history(partial.get("history", {}))
+    return partial
+
+
+def clear_partial_seed_result(pmid, strategy, seed, *, study_id=None):
+    """Delete a round-level partial checkpoint after a successful run."""
+    path = _partial_seed_path(pmid, strategy, seed, study_id=study_id)
+    with contextlib.suppress(FileNotFoundError):
+        path.unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -965,7 +1162,11 @@ def main():
         default=None,
         help="Override results directory (default: benchmark_results/within_study)",
     )
-    parser.add_argument("--resume", action="store_true", help="Skip existing results")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip existing results and resume GP partial checkpoints when available",
+    )
     parser.add_argument("--aggregate-only", action="store_true", help="Only aggregate")
     parser.add_argument("--dry-run", action="store_true", help="List runs without executing")
     parser.add_argument(
@@ -1126,7 +1327,7 @@ def main():
     print(f"Seeds: {seeds}")
     print(f"Total runs needed: {total_runs}")
     if args.resume:
-        print("Mode: RESUME (skipping existing results)")
+        print("Mode: RESUME (skipping existing results, resuming GP partial checkpoints)")
     if args.aggregate_only:
         print("Mode: AGGREGATE ONLY")
     print()
@@ -1151,13 +1352,20 @@ def main():
             key = (get_study_id(si), seed)
             runs_by_study_seed.setdefault(key, []).append((si, strategy))
 
+        queued_runs = []
+        for (_study_id, seed), run_list in runs_by_study_seed.items():
+            for run_si, strategy in run_list:
+                queued_runs.append((run_si, strategy, seed))
+
         completed = 0
+        completed_run_stats = []
         # Track aggregate runtime so each run header can display an ETA based
-        # on the observed mean time per completed run. Long multi-hour sweeps
-        # are otherwise opaque about remaining wall-clock.
+        # on observed per-strategy runtimes. Mixed-GP runs can differ from
+        # fast discrete strategies by orders of magnitude, so a flat average
+        # is misleading once the queue contains both.
         benchmark_t0 = time.time()
         interrupted = False
-        for (_study_id, seed), run_list in runs_by_study_seed.items():
+        for (study_id, seed), run_list in runs_by_study_seed.items():
             if interrupted:
                 break
             si = run_list[0][0]
@@ -1166,11 +1374,12 @@ def main():
 
             print(f"\n{'=' * 50}")
             print(
-                f"PMID {pmid_str} | seed={seed} | "
+                f"Study {study_id} (PMID {pmid_str}) | seed={seed} | "
                 f"N={si['n_formulations']} | n_seed={si['n_seed']} | "
                 f"type={si['study_type']}"
             )
             print(f"{'=' * 50}")
+            print("Strategies this seed:", ", ".join(strategy for _, strategy in run_list))
 
             try:
                 pca_data = prepare_study_data(df, si, seed)
@@ -1215,17 +1424,18 @@ def main():
             for _, strategy in run_list:
                 completed += 1
                 elapsed_total = time.time() - benchmark_t0
-                # ETA: extrapolate from the mean per-run time. The first run
-                # has no history, so skip the ETA label until we have data.
-                if completed > 1:
-                    mean_per_run = elapsed_total / (completed - 1)
-                    remaining = total_runs - (completed - 1)
-                    eta_sec = mean_per_run * remaining
-                    eta_str = f", ETA {_format_duration(eta_sec)}"
+                current_queue_idx = completed - 1
+                eta_estimate = _estimate_remaining_eta(
+                    queued_runs[current_queue_idx:],
+                    completed_run_stats,
+                )
+                if eta_estimate is not None:
+                    eta_label, eta_sec = eta_estimate
+                    eta_str = f", {eta_label} {_format_duration(eta_sec)}"
                 else:
                     eta_str = ""
                 print(
-                    f"\n[{completed}/{total_runs}] {strategy} "
+                    f"\n[{completed}/{total_runs}] {study_id} | seed={seed} | {strategy} "
                     f"(elapsed {_format_duration(elapsed_total)}{eta_str})"
                 )
                 print("-" * 40)
@@ -1245,8 +1455,42 @@ def main():
 
                 needs_kernel_kw = strategy in COMPOSITIONAL_STRATEGIES or strategy in MIXED_STRATEGIES
                 kw = comp_kernel_kwargs if needs_kernel_kw else None
+                partial_state = None
+                checkpoint_callback = None
+                supports_partial_resume = STRATEGY_CONFIGS[strategy]["type"] in ("gp", "gp_mixed")
+                if args.resume and supports_partial_resume:
+                    partial_state = load_partial_seed_result(
+                        pmid,
+                        strategy,
+                        seed,
+                        study_id=si.get("study_id"),
+                        study_info=si,
+                    )
+                    if partial_state is not None:
+                        done_rounds = int(partial_state.get("completed_rounds", 0))
+                        print(
+                            f"  Found partial checkpoint: completed_rounds={done_rounds}/{si['n_rounds']}, "
+                            f"training={len(partial_state.get('training_idx', []))}, "
+                            f"pool={len(partial_state.get('pool_idx', []))}",
+                            flush=True,
+                        )
+                if supports_partial_resume:
+                    def checkpoint_callback(state, *, _pmid=pmid, _strategy=strategy, _seed=seed, _si=si):
+                        try:
+                            save_partial_seed_result(_pmid, _strategy, _seed, state, _si)
+                        except Exception as e:
+                            print(f"  WARNING: failed to write partial checkpoint ({e})", flush=True)
+
                 try:
-                    result = run_single_seed(strategy, seed, si, pca_data=data_for_run, kernel_kwargs=kw)
+                    result = run_single_seed(
+                        strategy,
+                        seed,
+                        si,
+                        pca_data=data_for_run,
+                        kernel_kwargs=kw,
+                        resume_state=partial_state,
+                        checkpoint_callback=checkpoint_callback,
+                    )
 
                     recall_str = ", ".join(
                         f"Top-{k}%={result['metrics']['top_k_recall'].get(str(k), 0):.1%}" for k in [5, 10, 20]
@@ -1254,6 +1498,8 @@ def main():
                     print(f"  Done in {result['elapsed']:.1f}s | {recall_str}")
 
                     save_seed_result(pmid, strategy, seed, result, si)
+                    clear_partial_seed_result(pmid, strategy, seed, study_id=si.get("study_id"))
+                    completed_run_stats.append({"strategy": strategy, "elapsed": result["elapsed"]})
 
                 except KeyboardInterrupt:
                     # Each completed run is already persisted via save_seed_result
@@ -1264,8 +1510,9 @@ def main():
                     runs_done = completed - 1
                     print(
                         f"\n\n*** Interrupted: {runs_done}/{total_runs} runs completed. "
-                        "Partial per-seed results are saved under "
-                        f"{RESULTS_DIR}/per_seed/. Continuing to aggregation ***",
+                        "Completed per-seed results are saved under "
+                        f"{RESULTS_DIR}/<study_id>/ and round-level partial checkpoints under "
+                        f"{RESULTS_DIR}/_partial/. Continuing to aggregation ***",
                         flush=True,
                     )
                     interrupted = True

@@ -308,6 +308,17 @@ class Optimizer:
         self._casmopolitan_restart_X = None
         self._casmopolitan_restart_y = None
 
+    @property
+    def has_unrepresented_runtime_state(self) -> bool:
+        """Whether this optimizer maintains cross-round state that is not
+        captured by ``OptimizerRunner``'s round-level checkpoint.
+
+        Resuming such an optimizer from a partial checkpoint would silently
+        drop that state (e.g. casmopolitan's adaptive trust region), so
+        ``OptimizerRunner.run`` refuses to resume when this is True.
+        """
+        return self.surrogate_type == "casmopolitan"
+
     def _validate_config(self):
         """Validate surrogate, acquisition, and batch strategy compatibility."""
         if self.surrogate_type not in SURROGATE_TYPES:
