@@ -192,7 +192,17 @@ class MixedCasmopolitanKernel(Kernel):
 
 
 class AdditiveProductKernel(Kernel):
-    """Additive decomposition of categorical and continuous kernels."""
+    """Additive decomposition of categorical and continuous kernels.
+
+    Specializes Wan et al. (2021) to the ``d_h = 1`` case used in LNP design
+    (a single categorical variable, the ionizable lipid identity). With one
+    categorical dimension the per-dimension lengthscale of the exponentiated
+    categorical kernel is non-identifiable from the additive mixing weights
+    ``alpha``/``gamma``, so the categorical lengthscale is initialized from
+    ``lambd`` and held fixed (it is intentionally excluded from ``theta``
+    and from MLE). Only ``log_alpha``, ``log_beta``, ``log_gamma``, and the
+    continuous kernel parameters are optimized.
+    """
 
     def __init__(self, n_cat_dims, n_cont_dims, lambd=0.5, alpha=1.0, beta=1.0, gamma=1.0):
         self.n_cat_dims = n_cat_dims
