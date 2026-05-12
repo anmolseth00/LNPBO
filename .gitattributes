@@ -1,0 +1,19 @@
+# Enforce LF line endings on text source. Shell scripts in particular
+# break under bash when checked out with CRLF (`bash setup.sh` runs into
+# `\r: not found` errors that look like missing commands).
+* text=auto eol=lf
+
+*.sh   text eol=lf
+*.py   text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml  text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+
+# Binary blobs: don't try to normalize.
+*.npz binary
+*.tar binary
+*.png binary
+*.jpg binary
+*.pt  binary
