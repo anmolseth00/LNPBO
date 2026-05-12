@@ -219,6 +219,12 @@ class GaussianXGBQuantileModel:
         )
         self.mean_model_.fit(X_scaled, y)
 
+        # sigma_ is the in-sample residual std of the mean model. This is a
+        # biased-low estimate of the predictive variance because the same data
+        # is used to fit and to score; downstream coverage is restored by the
+        # quantile recalibrator (ExactOnlineRecalibrator), not by this base
+        # model. If the base model is used without recalibration, this sigma
+        # will underestimate predictive uncertainty.
         mu_train = self.mean_model_.predict(X_scaled)
         residuals = y - mu_train
         sigma = float(np.std(residuals, ddof=1)) if len(residuals) > 1 else float(np.std(residuals))
