@@ -18,7 +18,10 @@ else
 fi
 
 echo "Installing chemprop v1 and dependencies..."
+# setuptools<82 keeps pkg_resources available — hyperopt's atpe.py imports it
+# at module load time and setuptools 82+ ships without it.
 uv pip install --python "$VENV_DIR/bin/python" \
+    "setuptools<82" \
     "chemprop==1.7.1" \
     "torch>=1.9,<2.1" \
     "rdkit" \
