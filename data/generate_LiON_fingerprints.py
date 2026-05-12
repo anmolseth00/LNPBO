@@ -168,6 +168,9 @@ def lion_fingerprints(
             str(features_tmp),
             "--preds_path",
             str(output_csv),
+            # Pin to CPU: fingerprinting is a small forward pass and the
+            # parallel ablation workers may already be holding GPU memory.
+            "--no_cuda",
         ]
         try:
             subprocess.run(
