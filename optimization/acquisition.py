@@ -425,13 +425,16 @@ class LocalPenalization(acquisition.AcquisitionFunction):
         return acq
 
     def _estimate_lipschitz(self, gp):
-        """Estimate Lipschitz constant from GP kernel hyperparameters.
+        """Estimate a characteristic gradient scale from GP kernel hyperparameters.
 
-        Uses L = lipschitz_scale * sqrt(variance) / min(lengthscale) as
-        a conservative upper bound on ||d mu/dx||. The paper's GP-LCA method
-        (Gonzalez et al. 2016, Sec. 3.2) maximizes ||d mu/dx|| numerically,
-        but this requires predictive_gradients() which scikit-learn does not
-        expose. The kernel-based bound is always >= the true Lipschitz constant.
+        Returns L = lipschitz_scale * sqrt(variance) / min(lengthscale), used
+        as the radius scale for LocalPenalization exclusion balls. This is a
+        characteristic gradient scale derived from the kernel amplitude and
+        smallest lengthscale, not a true upper bound on ||d mu/dx||: the data-
+        dependent term in the posterior mean gradient (involving alpha^T K alpha)
+        is not included. The paper's GP-LCA method (Gonzalez et al. 2016, Sec. 3.2)
+        maximizes ||d mu/dx|| numerically, but this requires predictive_gradients()
+        which scikit-learn does not expose.
         """
         try:
             params = gp.kernel_.get_params()
