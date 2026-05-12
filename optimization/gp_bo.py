@@ -30,6 +30,11 @@ KERNEL_TYPES = {"matern", "tanimoto", "aitchison", "dkl", "rf", "compositional",
 
 _DEVICE_LOGGED = False
 
+# Minimum free VRAM (GiB) required before claiming CUDA. Tuned so that 4-8
+# parallel ablation workers can coexist on a 24 GiB GPU without one of them
+# tripping OOM at model.to(device). Override via LNPBO_GPU_MIN_FREE_GIB.
+_DEFAULT_GPU_MIN_FREE_GIB = 2.0
+
 if TYPE_CHECKING:
     from typing import Union
 
@@ -38,24 +43,53 @@ if TYPE_CHECKING:
     GPModel = Union[SingleTaskGP, SingleTaskVariationalGP, Model]
 
 
+def _gpu_has_headroom(min_free_gib: float) -> tuple[bool, float]:
+    """Return (ok, free_gib) where ok=True means CUDA has min_free_gib free.
+
+    Uses ``torch.cuda.mem_get_info()`` which reports the driver's view of
+    free VRAM, accounting for other processes (other ablation workers,
+    chemprop subprocesses, anything else holding GPU memory).
+    """
+    try:
+        free_bytes, _ = torch.cuda.mem_get_info()
+    except (RuntimeError, AssertionError):
+        return False, 0.0
+    free_gib = free_bytes / (1024**3)
+    return free_gib >= min_free_gib, free_gib
+
+
 def get_device(use_mps: bool | None = None) -> torch.device:
-    """Select compute device: CUDA > CPU > MPS (opt-in).
+    """Select compute device with memory-aware CUDA fallback.
 
     Priority:
-      1. CUDA if available — full float64 support, best performance.
-      2. CPU (default) — reliable float64, always works.
-      3. MPS (opt-in) — Apple Silicon GPU, float32 only, may cause
-         numerical instability in GP fitting.
-
-    MPS opt-in resolution order: explicit ``use_mps`` arg, else the
-    ``LNPBO_USE_MPS`` env var (``1``/``true``/``yes``), else False.
+      1. ``LNPBO_FORCE_CPU=1`` env var → CPU (hard override for parallel runs).
+      2. CUDA if available AND has at least ``LNPBO_GPU_MIN_FREE_GIB``
+         (default 2 GiB) free — prevents OOM when other workers are running.
+      3. CPU — reliable float64, always works.
+      4. MPS (opt-in via ``LNPBO_USE_MPS``) — Apple Silicon, float32 only.
 
     On the first call of a process, prints a one-line confirmation of the
     selected device so users can verify GPU engagement from benchmark logs
     without resorting to nvidia-smi or py-spy.
     """
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
+    force_cpu = os.environ.get("LNPBO_FORCE_CPU", "").lower() in {"1", "true", "yes"}
+
+    device: torch.device
+    fallback_reason = ""
+    if force_cpu:
+        device = torch.device("cpu")
+        fallback_reason = "LNPBO_FORCE_CPU"
+    elif torch.cuda.is_available():
+        try:
+            min_free = float(os.environ.get("LNPBO_GPU_MIN_FREE_GIB", _DEFAULT_GPU_MIN_FREE_GIB))
+        except ValueError:
+            min_free = _DEFAULT_GPU_MIN_FREE_GIB
+        ok, free_gib = _gpu_has_headroom(min_free)
+        if ok:
+            device = torch.device("cuda")
+        else:
+            device = torch.device("cpu")
+            fallback_reason = f"only {free_gib:.2f} GiB free on CUDA (need {min_free:.2f})"
     else:
         if use_mps is None:
             use_mps = os.environ.get("LNPBO_USE_MPS", "").lower() in {"1", "true", "yes"}
@@ -73,11 +107,11 @@ def get_device(use_mps: bool | None = None) -> torch.device:
     global _DEVICE_LOGGED
     if not _DEVICE_LOGGED:
         _DEVICE_LOGGED = True
-        _log_device_selection(device)
+        _log_device_selection(device, fallback_reason=fallback_reason)
     return device
 
 
-def _log_device_selection(device: torch.device) -> None:
+def _log_device_selection(device: torch.device, fallback_reason: str = "") -> None:
     """Print a one-line device summary the first time a GP fit picks a device."""
     if device.type == "cuda":
         idx = device.index if device.index is not None else torch.cuda.current_device()
@@ -91,7 +125,10 @@ def _log_device_selection(device: torch.device) -> None:
     elif device.type == "mps":
         print("[GP] Fitting on device=mps (Apple Silicon, float32)", flush=True)
     else:
-        print("[GP] Fitting on device=cpu (float64)", flush=True)
+        if fallback_reason:
+            print(f"[GP] Fitting on device=cpu (float64) — fell back: {fallback_reason}", flush=True)
+        else:
+            print("[GP] Fitting on device=cpu (float64)", flush=True)
 
 
 def _to_tensor(
@@ -465,6 +502,37 @@ def fit_multitask_gp(
     if device is None:
         device = get_device()
 
+    if device.type == "cuda":
+        try:
+            return _fit_multitask_gp_on_device(
+                X_train, y_train, task_indices, device, rank=rank,
+            )
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+            if "out of memory" not in str(e).lower():
+                raise
+            torch.cuda.empty_cache()
+            print(f"[GP] CUDA OOM in fit_multitask_gp; retrying on CPU ({type(e).__name__})", flush=True)
+            device = torch.device("cpu")
+
+    return _fit_multitask_gp_on_device(
+        X_train, y_train, task_indices, device, rank=rank,
+    )
+
+
+def _fit_multitask_gp_on_device(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    task_indices: np.ndarray,
+    device: torch.device,
+    *,
+    rank: int,
+):
+    """Body of fit_multitask_gp once device has been chosen."""
+    import contextlib
+
+    import gpytorch
+    from botorch.models import MultiTaskGP
+
     # Append task index as last column (BoTorch MultiTaskGP convention)
     X_aug = np.column_stack([X_train, task_indices.reshape(-1, 1)])
     X = _to_tensor(X_aug, device)
@@ -538,6 +606,39 @@ def fit_gp(
     if device is None:
         device = get_device()
 
+    if device.type == "cuda":
+        try:
+            return _fit_gp_on_device(
+                X_train, y_train, device,
+                use_sparse=use_sparse, n_inducing=n_inducing,
+                _rng=_rng, kernel_type=kernel_type, kernel_kwargs=kernel_kwargs,
+            )
+        except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+            if "out of memory" not in str(e).lower():
+                raise
+            torch.cuda.empty_cache()
+            print(f"[GP] CUDA OOM in fit_gp; retrying on CPU ({type(e).__name__})", flush=True)
+            device = torch.device("cpu")
+
+    return _fit_gp_on_device(
+        X_train, y_train, device,
+        use_sparse=use_sparse, n_inducing=n_inducing,
+        _rng=_rng, kernel_type=kernel_type, kernel_kwargs=kernel_kwargs,
+    )
+
+
+def _fit_gp_on_device(
+    X_train: np.ndarray,
+    y_train: np.ndarray,
+    device: torch.device,
+    *,
+    use_sparse: bool,
+    n_inducing: int,
+    _rng: np.random.RandomState | None,
+    kernel_type: str,
+    kernel_kwargs: dict | None,
+) -> SingleTaskGP | SingleTaskVariationalGP:
+    """Body of fit_gp once device has been chosen. See fit_gp() docstring."""
     X = _to_tensor(X_train, device)
     y = _to_tensor(y_train.ravel(), device).unsqueeze(-1)
 
