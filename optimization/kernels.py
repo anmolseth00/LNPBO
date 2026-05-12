@@ -15,9 +15,12 @@ class TanimotoKernel(Kernel):
 
     k(x, y) = <x, y> / (||x||^2 + ||y||^2 - <x, y>)
 
-    Valid positive definite kernel on all of R^d (Tripp et al., NeurIPS 2023).
-    Appropriate for binary and count Morgan fingerprints where Euclidean
-    distance is not meaningful.
+    Positive definite on the non-negative orthant (binary and count Morgan
+    fingerprints), where it is the standard Jaccard-style similarity. Tripp
+    et al. (NeurIPS 2023) construct a related real-valued extension that is
+    PSD on all of R^d; this implementation applies the unextended formula and
+    clamps negative entries that can otherwise appear on real-valued inputs
+    (e.g. PCA-reduced features), so use only on non-negative fingerprints.
 
     References
     ----------
