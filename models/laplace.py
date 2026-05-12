@@ -73,6 +73,26 @@ class ManualLastLayerLaplace:
 
     def fit(self, train_loader):
         """Compute the Hessian of the last layer using training data."""
+        # Two independent passes over the loader are required to be in the
+        # same order: the residual computation below pairs predictions from
+        # the second pass with targets from the first. If the loader shuffles
+        # between iterations, those pairings silently misalign and corrupt
+        # sigma_obs. Reject shuffled loaders explicitly.
+        loader_shuffle = getattr(getattr(train_loader, "sampler", None), "_shuffle", None)
+        if isinstance(loader_shuffle, bool) and loader_shuffle:
+            raise ValueError(
+                "ManualLastLayerLaplace.fit() requires a deterministic DataLoader "
+                "(shuffle=False). Got a loader with shuffle=True; the two-pass "
+                "residual computation would pair targets and predictions from "
+                "different orderings."
+            )
+        from torch.utils.data import RandomSampler
+        if isinstance(getattr(train_loader, "sampler", None), RandomSampler):
+            raise ValueError(
+                "ManualLastLayerLaplace.fit() requires a deterministic DataLoader "
+                "(shuffle=False)."
+            )
+
         all_features, all_targets = [], []
         for xb, yb in train_loader:
             all_features.append(self._extract_features(xb))
