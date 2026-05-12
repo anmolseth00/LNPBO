@@ -26,8 +26,11 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
+
+from .cache_utils import cached_encode
 
 logger = logging.getLogger("lnpbo")
 
@@ -35,16 +38,19 @@ MODULE_DIR = Path(__file__).resolve().parent
 DEFAULT_CHECKPOINT_DIR = MODULE_DIR / "LiON_for_LNPBO" / "trained_model_checkpoints"
 DEFAULT_FEATURES_CSV = MODULE_DIR / "LiON_for_LNPBO" / "template_extra_data.csv"
 
+CACHE_DIR = MODULE_DIR / "lion_cache"
 
 DEFAULT_CHEMPROP_VENV = MODULE_DIR.parent / ".venv_chemprop_v1"
 
 
 def lion_fingerprints(
     smiles: list[str],
-    experiment_values: list[float] | None,
+    experiment_values: list[float] | None = None,
     checkpoint_dir: Path | str = DEFAULT_CHECKPOINT_DIR,
     features_csv: Path | str = DEFAULT_FEATURES_CSV,
     chemprop_venv: Path | str | None = None,
+    cache_name: str = "default",
+    scaler: StandardScaler | None = None,
 ):
     """Generate LiON fingerprints by extracting D-MPNN penultimate-layer embeddings.
 
@@ -83,11 +89,10 @@ def lion_fingerprints(
         (LiON model and training data).
     """
 
-    if experiment_values is None:
-        experiment_values = [0.0] * len(smiles)
-
-    if len(smiles) != len(experiment_values):
-        raise ValueError("SMILES and experiment_values must have same length")
+    # experiment_values are only used to format the chemprop input CSV;
+    # the fingerprint forward pass does not depend on them. We can therefore
+    # cache by SMILES alone and ignore whatever values the caller passes.
+    del experiment_values
 
     checkpoint_dir = Path(checkpoint_dir).resolve()
     features_csv = Path(features_csv).resolve()
@@ -98,100 +103,91 @@ def lion_fingerprints(
     if not features_csv.exists():
         raise FileNotFoundError(f"Features CSV not found: {features_csv}")
 
-    def _prepare_features_csv(features_csv: Path, n_rows: int, tmpdir: Path) -> Path:
-        """Prepare the auxiliary features CSV for ChemProp input.
+    venv = Path(chemprop_venv).resolve() if chemprop_venv else DEFAULT_CHEMPROP_VENV
+    chemprop_bin = venv / "bin" / "chemprop_fingerprint"
 
-        The template CSV may contain a single row (broadcast to all
-        molecules) or exactly ``n_rows`` rows. The result is written to
-        a temporary file in ``tmpdir``.
-
-        Args:
-            features_csv: Path to the template features CSV.
-            n_rows: Expected number of rows (one per SMILES).
-            tmpdir: Temporary directory for the output file.
-
-        Returns:
-            Path to the prepared features CSV.
-
-        Raises:
-            ValueError: If the template has neither 1 nor ``n_rows`` rows.
-        """
-        features_df = pd.read_csv(features_csv)
-
-        if len(features_df) == n_rows:
-            pass
-        elif len(features_df) == 1:
-            features_df = pd.concat([features_df] * n_rows, ignore_index=True)
-        else:
-            raise ValueError(f"features.csv has {len(features_df)} rows, expected {n_rows}")
-
-        out = tmpdir / "lion_features.csv"
-        features_df.to_csv(out, index=False)
-        return out
-
-    # Create input spreadsheet
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
-
-        input_csv = tmpdir / "lion_input.csv"
-        output_csv = tmpdir / "lion_output.csv"
-
-        df = pd.DataFrame(
-            {
-                "IL_SMILES": smiles,
-                "Experiment_value": experiment_values,
-            }
-        )
-        df.to_csv(input_csv, index=False)
-
-        features_tmp = _prepare_features_csv(
-            features_csv,
-            n_rows=len(smiles),
-            tmpdir=tmpdir,
-        )
-
-        venv = Path(chemprop_venv).resolve() if chemprop_venv else DEFAULT_CHEMPROP_VENV
-        chemprop_bin = venv / "bin" / "chemprop_fingerprint"
+    def _compute(todo_smiles: list[str]) -> dict[str, np.ndarray]:
+        """Run chemprop_fingerprint on cache misses and return SMILES → embedding."""
         if not chemprop_bin.exists():
             raise FileNotFoundError(
                 f"chemprop_fingerprint not found at {chemprop_bin}. "
                 f"Create the venv with: experiments/infrastructure/setup_chemprop_v1.sh"
             )
 
-        cmd = [
-            str(chemprop_bin),
-            "--checkpoint_dir",
-            str(checkpoint_dir),
-            "--test_path",
-            str(input_csv),
-            "--features_path",
-            str(features_tmp),
-            "--preds_path",
-            str(output_csv),
-            # Pin to CPU: fingerprinting is a small forward pass and the
-            # parallel ablation workers may already be holding GPU memory.
-            "--no_cuda",
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            input_csv = tmpdir / "lion_input.csv"
+            output_csv = tmpdir / "lion_output.csv"
+
+            pd.DataFrame(
+                {
+                    "IL_SMILES": todo_smiles,
+                    # Zeros: chemprop wants the column but ignores values
+                    # during fingerprint extraction.
+                    "Experiment_value": [0.0] * len(todo_smiles),
+                }
+            ).to_csv(input_csv, index=False)
+
+            features_df = pd.read_csv(features_csv)
+            if len(features_df) == 1:
+                features_df = pd.concat([features_df] * len(todo_smiles), ignore_index=True)
+            elif len(features_df) != len(todo_smiles):
+                raise ValueError(
+                    f"features.csv has {len(features_df)} rows, expected 1 or {len(todo_smiles)}"
+                )
+            features_tmp = tmpdir / "lion_features.csv"
+            features_df.to_csv(features_tmp, index=False)
+
+            cmd = [
+                str(chemprop_bin),
+                "--checkpoint_dir", str(checkpoint_dir),
+                "--test_path", str(input_csv),
+                "--features_path", str(features_tmp),
+                "--preds_path", str(output_csv),
+                # Pin to CPU: fingerprinting is a small forward pass and the
+                # parallel ablation workers may already be holding GPU memory.
+                "--no_cuda",
+            ]
+            try:
+                subprocess.run(cmd, check=True, capture_output=True, text=True)
+            except subprocess.CalledProcessError as e:
+                logger.warning("LiON fingerprinting failed")
+                logger.warning("STDOUT:\n%s", e.stdout)
+                logger.warning("STDERR:\n%s", e.stderr)
+                raise
+
+            lion_df = pd.read_csv(output_csv)
+
+        feature_cols = [
+            c for c in lion_df.columns
+            if not c.startswith(("IL_SMILES", "Experiment_value"))
         ]
-        try:
-            subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.warning("LiON fingerprinting failed")
-            logger.warning("STDOUT:\n%s", e.stdout)
-            logger.warning("STDERR:\n%s", e.stderr)
-            raise
+        embeddings = lion_df[feature_cols].to_numpy()
+        return {s: embeddings[i] for i, s in enumerate(todo_smiles)}
 
-        lion_df = pd.read_csv(output_csv)
+    return cached_encode(
+        smiles, _compute, CACHE_DIR, cache_name=cache_name,
+        scaler=scaler, label="LiON embeddings",
+    )
 
-    # Drop non-feature columns if present
-    feature_cols = [c for c in lion_df.columns if not c.startswith(("IL_SMILES", "Experiment_value"))]
 
-    lion_features = lion_df[feature_cols].to_numpy()
-    lion_scaler = StandardScaler()
-    lion_scaled = lion_scaler.fit_transform(lion_features)
+if __name__ == "__main__":
+    import argparse
 
-    return lion_scaled, lion_scaler
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    parser = argparse.ArgumentParser(description="Pre-compute LiON embeddings for LNPDB ionizable lipids")
+    parser.add_argument(
+        "--data-path",
+        default=str(MODULE_DIR / "LNPDB_repo" / "data" / "LNPDB_for_LiON" / "LNPDB.csv"),
+    )
+    parser.add_argument("--cache-name", default="IL")
+    args = parser.parse_args()
+
+    df = pd.read_csv(args.data_path, low_memory=False)
+    smiles = df["IL_SMILES"].dropna()
+    smiles = smiles[~smiles.isin(["None", "Unknown", ""])]
+    unique = smiles.unique().tolist()
+    logger.info("Pre-computing LiON embeddings for %d unique ionizable lipids", len(unique))
+    lion_fingerprints(unique, cache_name=args.cache_name)
+    logger.info("Cache written to %s", CACHE_DIR / f"{args.cache_name}.npz")

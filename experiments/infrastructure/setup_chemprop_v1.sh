@@ -39,6 +39,22 @@ print('torch version:', torch.__version__)
 "
 
 echo ""
+echo "=== Pre-computing LiON cache ==="
+# Populate the on-disk LiON cache once so parallel ablation workers all hit
+# cache instead of each spawning chemprop_fingerprint (which would race for
+# GPU memory). Skips if the LNPDB CSV isn't available — workers will then
+# populate the cache lazily on first hit.
+LNPDB_CSV="$REPO_ROOT/data/LNPDB_repo/data/LNPDB_for_LiON/LNPDB.csv"
+if [ -f "$LNPDB_CSV" ]; then
+    (cd "$REPO_ROOT" && uv run python -m data.generate_LiON_fingerprints --cache-name IL) \
+        || echo "WARNING: LiON precompute failed; workers will compute lazily"
+else
+    echo "Skipping precompute: $LNPDB_CSV not found"
+    echo "Workers will populate data/lion_cache/IL.npz lazily on first use."
+fi
+
+echo ""
 echo "=== Done ==="
 echo "Venv: $VENV_DIR"
 echo "chemprop_fingerprint: $VENV_DIR/bin/chemprop_fingerprint"
+echo "LiON cache: $REPO_ROOT/data/lion_cache/"

@@ -40,7 +40,8 @@ def compute_pcs(
             embeddings), ``"chemeleon"`` (CheMeleon embeddings), or
             ``"agile"`` (AGILE GNN embeddings).
         experiment_values: Per-SMILES target values, required for PLS
-            reduction and LiON encoding. Ignored for PCA/none.
+            reduction. Ignored for PCA/none and for all feature types
+            (including LiON, which caches by SMILES alone).
         n_components: Target number of principal components. Automatically
             clamped to ``min(n_samples, n_features)`` when the data is
             too small.
@@ -80,8 +81,6 @@ def compute_pcs(
         Geladi P. & Kowalski B.R., "Partial least-squares regression: a
         tutorial," Analytica Chimica Acta, 185, 1-17, 1986.
     """
-    if feature_type == "lion" and experiment_values is None:
-        experiment_values = [0.0] * len(list_of_smiles)
     if reduction == "pls" and experiment_values is None and fitted_reducer is None:
         raise ValueError("experiment_values required for PLS reduction")
 
@@ -120,8 +119,9 @@ def compute_pcs(
     elif feature_type == "lion":
         from .generate_LiON_fingerprints import lion_fingerprints
 
-        assert experiment_values is not None
-        fp_scaled, fp_scaler = lion_fingerprints(list_of_smiles, experiment_values)
+        fp_scaled, fp_scaler = lion_fingerprints(
+            list_of_smiles, scaler=fitted_scaler, cache_name=cache_name,
+        )
     elif feature_type == "unimol":
         from .generate_unimol_embeddings import unimol_embeddings
 
