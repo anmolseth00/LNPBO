@@ -322,11 +322,13 @@ def _fit_dkl_gp(
     import contextlib
 
     mll_final = ExactMarginalLogLikelihood(model.likelihood, model)
-    # Short L-BFGS polish on GP hyperparameters only (NN is frozen)
+    # Short L-BFGS polish on GP hyperparameters only (NN is frozen).
+    # Cap iterations so the polish stays "short": an unrestricted L-BFGS-B can
+    # move the GP hyperparameters far from the jointly trained values.
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=UserWarning)
         with contextlib.suppress(RuntimeError, ValueError):
-            fit_gpytorch_mll(mll_final)
+            fit_gpytorch_mll(mll_final, optimizer_kwargs={"options": {"maxiter": 50}})
 
     model.eval()
     return model
