@@ -19,12 +19,18 @@ def run_discrete_online_conformal_strategy(
     n_rounds,
     seed,
     kappa=5.0,
-    alpha=0.1,
+    eta=0.1,
     normalize="copula",
     encoded_dataset=None,
     top_k_values=None,
 ):
-    """Run exact online quantile recalibration BO from Deshpande et al."""
+    """Run exact online quantile recalibration BO from Deshpande et al.
+
+    ``eta`` is the learning rate for the linearized quantile-pinball update
+    in Eq. 11 of Deshpande et al. (2024). It is a free hyperparameter and is
+    distinct from the miscoverage target ``alpha`` used by the cumulative
+    split-conformal baseline below.
+    """
     from scipy.stats import norm
 
     from LNPBO.optimization._normalize import copula_transform
@@ -80,7 +86,7 @@ def run_discrete_online_conformal_strategy(
                 n_jobs=1,
             ),
         )
-        recalibrator = ExactOnlineRecalibrator(eta=alpha).fit(recal_dataset)
+        recalibrator = ExactOnlineRecalibrator(eta=eta).fit(recal_dataset)
         calibrated_model = CalibratedProbabilisticModel(base_model, recalibrator)
         q_level = recalibrator.recalibrate(p_ucb)
         scores = calibrated_model.quantile(X_pool, p_ucb)
