@@ -33,8 +33,10 @@ DC2.4 and B16F10 cell lines with contrastive loss. For zero-shot ranking
 we use the DC2.4 prediction head (in_house_lnp_DC24_luc). If both heads
 are available we average them.
 
-Reference: Chang et al., "COMET: Composite Material Transformer for
-Lipid Nanoparticle Design", NeurIPS 2024 ML4H Workshop.
+Reference: Chan, A., Kirtane, A.R., Qu, Q.R., Huang, X., Woo, J., Subramanian,
+D.A. & Traverso, G. (2025). "Designing lipid nanoparticles using a
+transformer-based neural network." Nature Nanotechnology 20(10):1491-1501.
+DOI 10.1038/s41565-025-01975-4.
 """
 
 import argparse

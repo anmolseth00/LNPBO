@@ -11,8 +11,9 @@ Two modes:
      data. Requires torch_geometric and is invoked via subprocess using
      the AGILE repo's Python environment.
 
-Reference: Xu et al., "AGILE: A Graph Neural Network Framework for
-Ionizable Lipid Design", Nature Communications, 2024.
+Reference: Xu, Y., Ma, S., Cui, H. et al. (2024). "AGILE platform: a deep
+learning powered approach to accelerate LNP development for mRNA delivery."
+Nature Communications 15:6305. DOI 10.1038/s41467-024-50619-z.
 
 Usage:
     python -m benchmarks.baselines.agile_baseline

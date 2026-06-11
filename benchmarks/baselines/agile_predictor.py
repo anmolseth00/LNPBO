@@ -9,8 +9,9 @@ Two modes:
   - "embedding_xgb": AGILE embeddings → XGBoost predict-and-rank
   - "embedding_rf":  AGILE embeddings → RF predict-and-rank
 
-Reference: Xu et al., "AGILE: A Graph Neural Network Framework for
-Ionizable Lipid Design", Nature Communications, 2024.
+Reference: Xu, Y., Ma, S., Cui, H. et al. (2024). "AGILE platform: a deep
+learning powered approach to accelerate LNP development for mRNA delivery."
+Nature Communications 15:6305. DOI 10.1038/s41467-024-50619-z.
 
 Usage:
     python -m benchmarks.baselines.agile_predictor

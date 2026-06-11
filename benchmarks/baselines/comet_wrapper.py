@@ -22,8 +22,10 @@ COMET's Uni-Core CUDA kernels are optional. The code has CPU fallbacks for
 softmax_dropout, fused_adam, and fused_multi_tensor. Inference runs fine on
 CPU (macOS ARM64 included) -- it is just slower.
 
-Reference: Chang et al., "COMET: Composite Material Transformer for
-Lipid Nanoparticle Design", NeurIPS 2024 ML4H Workshop.
+Reference: Chan, A., Kirtane, A.R., Qu, Q.R., Huang, X., Woo, J., Subramanian,
+D.A. & Traverso, G. (2025). "Designing lipid nanoparticles using a
+transformer-based neural network." Nature Nanotechnology 20(10):1491-1501.
+DOI 10.1038/s41565-025-01975-4.
 
 Requirements for inference:
   - Python 3.10
