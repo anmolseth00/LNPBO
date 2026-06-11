@@ -472,9 +472,11 @@ class Optimizer:
         if encoded_dataset is not None and getattr(encoded_dataset, "raw_fingerprints", None):
             encoded_dataset.refit_pls(training_idx, external_df=df)
 
-        X_train, y_train, X_pool, pool_arr = self._prepare_indices_data(
+        X_train, y_train, X_pool, pool_arr, valid_train, valid_pool = self._prepare_indices_data(
             df, feature_cols, training_idx, pool_idx,
         )
+        if train_Yvar is not None:
+            train_Yvar = np.asarray(train_Yvar)[valid_train]
         if len(X_train) == 0:
             logger.warning("No training data available — returning empty batch")
             return []
@@ -490,14 +492,20 @@ class Optimizer:
 
         il_names = None
         if family == "casmopolitan":
-            il_names = (df.loc[training_idx, "IL_name"], df.loc[pool_idx, "IL_name"])
+            # Subset IL names to the rows that survived NaN/inf filtering so they
+            # stay aligned with X_train/X_pool.
+            il_train = df.loc[training_idx, "IL_name"].iloc[valid_train].reset_index(drop=True)
+            il_pool = df.loc[pool_idx, "IL_name"].iloc[valid_pool].reset_index(drop=True)
+            il_names = (il_train, il_pool)
 
-        # Extract group/task info for surrogates that need it
+        # Extract group/task info for surrogates that need it. These are aligned
+        # to the *training* rows, so they must be filtered by valid_train to match
+        # the NaN/inf-filtered X_train (otherwise study labels map to wrong rows).
         group_ids = None
         task_indices = None
         if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp"):
             if "study_id" in df.columns:
-                train_study = df.loc[training_idx, "study_id"].values
+                train_study = df.loc[training_idx, "study_id"].values[valid_train]
                 if self.surrogate_type == "multitask_gp":
                     unique_studies = sorted(set(train_study))
                     study_to_int = {s: i for i, s in enumerate(unique_studies)}
@@ -509,7 +517,7 @@ class Optimizer:
             X_train, y_train, X_pool, pool_arr,
             batch_size=bs, seed=seed, surrogate_kwargs=sk,
             il_names=il_names, group_ids=group_ids,
-            task_indices=task_indices,
+            task_indices=task_indices, train_Yvar=train_Yvar,
         )
 
     # ------------------------------------------------------------------
@@ -517,7 +525,12 @@ class Optimizer:
     # ------------------------------------------------------------------
 
     def _prepare_indices_data(self, df, feature_cols, training_idx, pool_idx):
-        """Extract and clean train/pool arrays from *df*, applying normalization and NaN/inf filtering."""
+        """Extract and clean train/pool arrays from *df*, applying normalization and NaN/inf filtering.
+
+        Also returns the boolean ``valid_train``/``valid_pool`` masks (in
+        ``training_idx``/``pool_idx`` order) so callers can subset auxiliary
+        per-row arrays (IL names, study labels, per-point Yvar) to stay aligned.
+        """
         from ._normalize import normalize_values
 
         X_train = df.loc[training_idx, feature_cols].values.astype(np.float64)
@@ -538,12 +551,12 @@ class Optimizer:
         X_pool = X_pool[valid_pool]
         pool_arr = pool_arr[valid_pool]
 
-        return X_train, y_train, X_pool, pool_arr
+        return X_train, y_train, X_pool, pool_arr, valid_train, valid_pool
 
     def _run_batch_selection(
         self, X_train, y_train, X_pool, pool_indices, *,
         batch_size, seed, surrogate_kwargs=None, il_names=None,
-        group_ids=None, task_indices=None,
+        group_ids=None, task_indices=None, train_Yvar=None,
     ):
         """Dispatch batch selection to the appropriate surrogate family.
 
@@ -590,6 +603,7 @@ class Optimizer:
                     use_sparse=use_sparse,
                     kernel_type=effective_kernel,
                     kernel_kwargs=self.kernel_kwargs,
+                    train_Yvar=train_Yvar,
                 )
             return list(selected)
 
