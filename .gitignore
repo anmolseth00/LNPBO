@@ -111,7 +111,11 @@ diagnostics/*.png
 # ==========================
 # Paper (LaTeX source, managed separately)
 # ==========================
-paper/
+# Ignore manuscript sources/build artifacts and figure outputs, but keep the
+# figure-generation scripts under version control so the figure pipeline is
+# reproducible from a fresh clone.
+paper/*
+!paper/*.py
 
 # ==========================
 # MkDocs build output
@@ -144,5 +148,18 @@ LNPDB.pdf
 experiments/analysis/figures/
 experiments/analysis/_archive/
 experiments/data_integrity/figures/
-tests/
 experiments/data_integrity/studies_with_ids.json
+
+# ==========================
+# Local-only data drops / archives (collaborator results, caches, scratch)
+# Never commit these — regenerable or transferred out-of-band.
+# ==========================
+*.tar
+*.tar.gz
+*.zip
+lnpbo_caches.tar
+tmp/
+tmp*.png
+logs/
+# macOS AppleDouble / resource-fork junk (appears in transferred folders)
+._*
