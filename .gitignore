@@ -148,7 +148,6 @@ LNPDB.pdf
 experiments/analysis/figures/
 experiments/analysis/_archive/
 experiments/data_integrity/figures/
-experiments/data_integrity/studies_with_ids.json
 
 # ==========================
 # Local-only data drops / archives (collaborator results, caches, scratch)
