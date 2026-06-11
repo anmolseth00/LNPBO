@@ -80,7 +80,7 @@ def run_discrete_online_conformal_strategy(
         recal_dataset = build_recalibration_dataset(
             X_train,
             y_train,
-            model_factory=lambda: GaussianXGBQuantileModel(
+            model_factory=lambda r=r: GaussianXGBQuantileModel(
                 n_estimators=200,
                 random_state=seed + r,
                 n_jobs=1,

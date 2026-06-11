@@ -24,12 +24,12 @@ Usage:
 import json
 import time
 import warnings
-from pathlib import Path
 
 import numpy as np
 from scipy import stats
 from sklearn.preprocessing import MinMaxScaler
 
+from LNPBO.data.lnpdb_bridge import load_lnpdb_full
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from, paper_root
 
 # ---------------------------------------------------------------------------

@@ -16,7 +16,6 @@ References:
 
 import math
 
-import numpy as np
 import torch
 import torch.nn as nn
 from torch.nn.utils import spectral_norm
@@ -109,7 +108,7 @@ class SNGP(nn.Module):
 
 def train_sngp(X_train, y_train, input_dim, hidden_dims=(256, 128),
                n_random_features=1024, epochs=100, lr=1e-3, batch_size=256,
-               ridge_penalty=1.0, lengthscale=1.0):
+               ridge_penalty=1.0, lengthscale=1.0, seed=None):
     """Fit an SNGP model and build the precision matrix for posterior inference.
 
     Parameters
@@ -117,11 +116,16 @@ def train_sngp(X_train, y_train, input_dim, hidden_dims=(256, 128),
     X_train : Tensor of shape (N, D).
     y_train : Tensor of shape (N,).
     input_dim : Number of input features.
+    seed : int, optional. Seeds torch's global RNG before model construction so
+        the frozen RFF buffers, backbone init, and DataLoader shuffling are
+        reproducible run-to-run.
 
     Returns
     -------
     Fitted SNGP model with precision matrix ready for predict_with_uncertainty().
     """
+    if seed is not None:
+        torch.manual_seed(seed)
     model = SNGP(input_dim, hidden_dims, n_random_features, lengthscale, ridge_penalty)
     optimizer = torch.optim.Adam(model.parameters(), lr=lr)
     dataset = TensorDataset(X_train, y_train)

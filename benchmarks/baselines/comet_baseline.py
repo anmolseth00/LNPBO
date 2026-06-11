@@ -19,6 +19,7 @@ from datetime import datetime
 from pathlib import Path
 
 import numpy as np
+
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
 _PACKAGE_ROOT = package_root_from(__file__, levels_up=3)

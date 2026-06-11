@@ -64,7 +64,6 @@ Usage:
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 

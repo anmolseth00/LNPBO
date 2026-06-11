@@ -13,7 +13,6 @@ Seven hypotheses tested:
   H7: Study-conditional performance (where GPs win)
 """
 
-from pathlib import Path
 
 import matplotlib
 import numpy as np
@@ -159,7 +158,7 @@ print("=" * 80)
 print(f"{'Family':<20} {'Mean':>8} {'Std':>8} {'Lift':>8} {'N':>6}")
 print("-" * 54)
 random_mean = np.mean(get_family_recall("Random"))
-for fam in ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]:
+for fam in ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]:  # noqa: E501
     vals = get_family_recall(fam)
     if len(vals) == 0:
         continue
@@ -882,7 +881,7 @@ for strat in sorted(strategies, key=lambda s: -strat_means.get(s, 0)):
 # Family-level
 print(f"\n{'Family':<20} {'Mean':>8} {'Overall SD':>12} {'Mean seed-SD':>14} {'CV':>8}")
 print("-" * 66)
-for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "CASMOPolitan", "Random"]:
+for fam in ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "CASMOPolitan", "Random"]:  # noqa: E501
     all_vals = get_family_recall(fam)
     if len(all_vals) == 0:
         continue
@@ -911,7 +910,7 @@ print(f"\nLevene's test (GP vs Trees): F={lev_stat:.2f}, p={lev_p:.4f}")
 
 # Figure
 fig, ax = plt.subplots(figsize=(12, 5.5))
-family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]
+family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]  # noqa: E501
 # Filter out families with no data
 family_order = [f for f in family_order if len(get_family_recall(f)) > 0]
 box_data = [get_family_recall(f) for f in family_order]
@@ -1023,7 +1022,7 @@ for strat in STRATEGY_FAMILIES["LNPBO (GP)"]:
 
 # Figure: heatmap
 fig, ax = plt.subplots(figsize=(16, 7))
-families_to_plot = ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "CASMOPolitan", "GP (sklearn)", "Ridge", "Deep Ensemble", "Random"]
+families_to_plot = ["LNPBO (GP)", "RF", "XGBoost", "NGBoost", "CASMOPolitan", "GP (sklearn)", "Ridge", "Deep Ensemble", "Random"]  # noqa: E501
 families_to_plot = [f for f in families_to_plot if len(get_family_recall(f)) > 0]
 n_fams = len(families_to_plot)
 n_studies = len(pmids)
@@ -1081,7 +1080,7 @@ fig, axes = plt.subplots(2, 3, figsize=(18, 11))
 
 # A: Family performance bar chart
 ax = axes[0, 0]
-family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]
+family_order = ["NGBoost", "RF", "CASMOPolitan", "XGBoost", "Deep Ensemble", "GP (sklearn)", "Ridge", "LNPBO (GP)", "Random"]  # noqa: E501
 family_order = [f for f in family_order if len(get_family_recall(f)) > 0]
 means = [np.mean(get_family_recall(f)) for f in family_order]
 sems = [np.std(get_family_recall(f)) / np.sqrt(len(get_family_recall(f))) for f in family_order]

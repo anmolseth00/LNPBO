@@ -279,7 +279,8 @@ def score_candidate_pool(
 
         X_t = torch.tensor(X_train_s, dtype=torch.float32)
         y_t = torch.tensor(y_train, dtype=torch.float32)
-        sngp_kw = {"input_dim": X_train_s.shape[1], "epochs": 100, "lr": 1e-3}
+        sngp_kw = {"input_dim": X_train_s.shape[1], "epochs": 100, "lr": 1e-3,
+                   "seed": random_seed}
         sngp_kw.update(surrogate_kwargs)
         model = train_sngp(X_t, y_t, **sngp_kw)
         mu, sigma = model.predict_with_uncertainty(
@@ -297,6 +298,7 @@ def score_candidate_pool(
 
         X_t = torch.tensor(X_train_s, dtype=torch.float32)
         y_t = torch.tensor(y_train, dtype=torch.float32)
+        torch.manual_seed(random_seed)
         model = SurrogateMLP(X_train_s.shape[1])
         mlp_kw = {"epochs": 100, "lr": 1e-3}
         mlp_kw.update({k: v for k, v in surrogate_kwargs.items()
@@ -335,7 +337,7 @@ def score_candidate_pool(
         from LNPBO.models.groupdro import train_groupdro
 
         gids = group_ids if group_ids is not None else np.zeros(len(y_train), dtype=int)
-        gdro_kw = {"eta": 0.01, "epochs": 200, "lr": 1e-3}
+        gdro_kw = {"eta": 0.01, "epochs": 200, "lr": 1e-3, "seed": random_seed}
         gdro_kw.update(surrogate_kwargs)
         model = train_groupdro(X_train_s, y_train, gids, **gdro_kw)
         model.eval()
@@ -351,7 +353,7 @@ def score_candidate_pool(
         from LNPBO.models.vrex import train_vrex
 
         gids = group_ids if group_ids is not None else np.zeros(len(y_train), dtype=int)
-        vrex_kw = {"lambda_rex": 1.0, "epochs": 200, "lr": 1e-3}
+        vrex_kw = {"lambda_rex": 1.0, "epochs": 200, "lr": 1e-3, "seed": random_seed}
         vrex_kw.update(surrogate_kwargs)
         model = train_vrex(X_train_s, y_train, gids, **vrex_kw)
         model.eval()

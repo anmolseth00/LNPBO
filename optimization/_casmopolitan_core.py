@@ -161,7 +161,7 @@ def optimize_mixed_acquisition(
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             mu_c, sigma_c = gp.predict(x_center, return_std=True)
-        acq_c = _ucb_acquisition(mu_c, sigma_c, kappa)[0] if acq_func == "ucb" else _ei_acquisition(mu_c, sigma_c, y_best)[0]
+        acq_c = _ucb_acquisition(mu_c, sigma_c, kappa)[0] if acq_func == "ucb" else _ei_acquisition(mu_c, sigma_c, y_best)[0]  # noqa: E501
         if acq_c > best_acq_val:
             best_acq_val = acq_c
             best_x = x_center.ravel()
@@ -307,7 +307,7 @@ def _restart_center_from_archive(
     n_cat = len(cat_feature_indices)
     n_cont = len(cont_feature_indices)
     archive_cat = archive_X_raw[:, cat_feature_indices] if n_cat else np.zeros((len(archive_X_raw), 0))
-    archive_cont = cont_scaler.transform(archive_X_raw[:, cont_feature_indices]) if n_cont else np.zeros((len(archive_X_raw), 0))
+    archive_cont = cont_scaler.transform(archive_X_raw[:, cont_feature_indices]) if n_cont else np.zeros((len(archive_X_raw), 0))  # noqa: E501
     archive_mixed = _assemble_mixed_blocks(archive_cat, archive_cont)
     pool_mixed = _assemble_mixed_blocks(X_pool_cat, X_pool_cont)
 
@@ -473,7 +473,7 @@ def _map_candidates_to_pool(
                 pool_avail = pool_avail[cat_match]
                 available_idx = available_idx[cat_match]
 
-        dists = np.sum((pool_avail[:, n_cat_dims:] - candidate[n_cat_dims:]) ** 2, axis=1) if pool_avail.shape[1] > n_cat_dims else np.zeros(len(pool_avail))
+        dists = np.sum((pool_avail[:, n_cat_dims:] - candidate[n_cat_dims:]) ** 2, axis=1) if pool_avail.shape[1] > n_cat_dims else np.zeros(len(pool_avail))  # noqa: E501
         chosen = int(available_idx[int(np.argmin(dists))])
         selected.append(chosen)
         available_mask[chosen] = False
@@ -511,7 +511,7 @@ def score_pool_casmopolitan(
         warnings.simplefilter("ignore")
         mu, sigma = gp.predict(X_pool_mixed, return_std=True)
 
-    scores = _ucb_acquisition(mu, sigma, kappa) if acq_func == "ucb" else _ei_acquisition(mu, sigma, float(y_train.max()))
+    scores = _ucb_acquisition(mu, sigma, kappa) if acq_func == "ucb" else _ei_acquisition(mu, sigma, float(y_train.max()))  # noqa: E501
     penalized_scores = _apply_trust_region_penalty(scores, X_pool_mixed, trust_region, n_cat)
     top_indices = np.argsort(penalized_scores)[-batch_size:][::-1]
     return top_indices, penalized_scores

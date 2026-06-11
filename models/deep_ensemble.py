@@ -14,6 +14,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+
 class _EnsembleMLP(torch.nn.Module):
     """Simple configurable MLP used only inside DeepEnsemble."""
 

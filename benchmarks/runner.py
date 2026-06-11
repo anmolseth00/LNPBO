@@ -39,21 +39,21 @@ from LNPBO.benchmarks._runner_logging import _log_round_complete, _log_round_sta
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
 __all__ = [
-    "_log_round_complete",
-    "_log_round_start",
-    "_run_random",
-    "_ts",
     "ACQ_TYPE_MAP",
     "AITCHISON_STRATEGIES",
     "ALL_STRATEGIES",
     "COMPOSITIONAL_STRATEGIES",
-    "LNPDBOracle",
     "MIXED_STRATEGIES",
     "PLS_STRATEGIES",
     "STRATEGY_COLORS",
     "STRATEGY_CONFIGS",
     "STRATEGY_DISPLAY",
     "TANIMOTO_STRATEGIES",
+    "LNPDBOracle",
+    "_log_round_complete",
+    "_log_round_start",
+    "_run_random",
+    "_ts",
     "classify_feature_columns",
     "compute_metrics",
     "init_history",
@@ -365,7 +365,7 @@ def main():
 
             from ._optimizer_runner import OptimizerRunner
 
-            gp_kernel_kwargs = compositional_kernel_kwargs if strategy in COMPOSITIONAL_STRATEGIES or strategy in MIXED_STRATEGIES else None
+            gp_kernel_kwargs = compositional_kernel_kwargs if strategy in COMPOSITIONAL_STRATEGIES or strategy in MIXED_STRATEGIES else None  # noqa: E501
             opt_kwargs = strategy_to_optimizer_kwargs(strategy, kernel_kwargs=gp_kernel_kwargs)
             optimizer = Optimizer(
                 random_seed=args.seed,

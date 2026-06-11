@@ -20,8 +20,6 @@ import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from .surrogate_mlp import SurrogateMLP
-
 
 def _check_laplace_available():
     try:
@@ -203,7 +201,7 @@ def build_laplace(model, subset_of_weights="last_layer", hessian_structure="kron
     if LAPLACE_AVAILABLE and subset_of_weights == "last_layer":
         try:
             return LaplaceTorchWrapper(model, subset_of_weights, hessian_structure)
-        except (RuntimeError,):
+        except RuntimeError:
             pass
     if subset_of_weights == "last_layer":
         return ManualLastLayerLaplace(model, hessian_structure)

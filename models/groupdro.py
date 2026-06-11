@@ -16,7 +16,7 @@ import torch
 from .surrogate_mlp import SurrogateMLP
 
 
-def train_groupdro(X, y, group_ids, eta=0.01, epochs=200, lr=1e-3):
+def train_groupdro(X, y, group_ids, eta=0.01, epochs=200, lr=1e-3, seed=None):
     """Fit an MLP using GroupDRO training objective.
 
     Parameters
@@ -28,11 +28,15 @@ def train_groupdro(X, y, group_ids, eta=0.01, epochs=200, lr=1e-3):
     eta : float, exponentiated gradient step size for group weight updates.
     epochs : Training epochs.
     lr : Learning rate.
+    seed : int, optional. Seeds torch's global RNG before MLP init for
+        reproducibility.
 
     Returns
     -------
     Fitted SurrogateMLP.
     """
+    if seed is not None:
+        torch.manual_seed(seed)
     X_t = torch.tensor(X, dtype=torch.float32)
     y_t = torch.tensor(y, dtype=torch.float32)
 
@@ -56,7 +60,10 @@ def train_groupdro(X, y, group_ids, eta=0.01, epochs=200, lr=1e-3):
 
         losses_t = torch.stack(losses)
         with torch.no_grad():
-            q = q * np.exp(eta * losses_t.cpu().numpy())
+            # Subtract the max before exp for numerical stability; the constant
+            # factor cancels in the renormalization below, so this is exact.
+            group_losses = losses_t.cpu().numpy()
+            q = q * np.exp(eta * (group_losses - group_losses.max()))
             q = q / q.sum()
         q_t = torch.tensor(q, dtype=losses_t.dtype)
 

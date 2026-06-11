@@ -14,7 +14,7 @@ import torch
 from .surrogate_mlp import SurrogateMLP
 
 
-def train_vrex(X, y, group_ids, lambda_rex=1.0, epochs=200, lr=1e-3):
+def train_vrex(X, y, group_ids, lambda_rex=1.0, epochs=200, lr=1e-3, seed=None):
     """Fit an MLP using V-REx training objective.
 
     The loss is: mean(per_group_losses) + lambda_rex * var(per_group_losses).
@@ -27,11 +27,15 @@ def train_vrex(X, y, group_ids, lambda_rex=1.0, epochs=200, lr=1e-3):
     lambda_rex : float, penalty weight on loss variance across groups.
     epochs : Training epochs.
     lr : Learning rate.
+    seed : int, optional. Seeds torch's global RNG before MLP init for
+        reproducibility.
 
     Returns
     -------
     Fitted SurrogateMLP.
     """
+    if seed is not None:
+        torch.manual_seed(seed)
     X_t = torch.tensor(X, dtype=torch.float32)
     y_t = torch.tensor(y, dtype=torch.float32)
 

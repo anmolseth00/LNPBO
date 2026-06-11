@@ -12,7 +12,7 @@ from pathlib import Path
 
 import joblib
 
-__all__ = ["save_checkpoint", "load_checkpoint"]
+__all__ = ["load_checkpoint", "save_checkpoint"]
 
 # Families grouped by serialization backend
 _TORCH_FAMILIES = {

@@ -242,7 +242,7 @@ def run_pr_cli(
     # --- seed-fraction override ---
     if args.seed_fraction is not None:
         frac = args.seed_fraction
-        pct_label = f"budget_{int(round(frac * 100))}pct"
+        pct_label = f"budget_{round(frac * 100)}pct"
         results_dir = results_dir / pct_label
         for si in study_infos:
             n = si["n_formulations"]

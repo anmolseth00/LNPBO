@@ -33,7 +33,7 @@ from scipy import stats as sp_stats
 
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from
 
-from .constants import ASSAY_TYPE_LABELS, MIN_N_CORRELATION, MIN_N_WILCOXON, SEEDS
+from .constants import ASSAY_TYPE_LABELS, MIN_N_CORRELATION, SEEDS
 from .stats import (
     acceleration_factor,
     benjamini_hochberg,
@@ -890,7 +890,7 @@ def print_cross_dimension_analysis(study_info, result_map, pmids, strategies):
     for dim_key, dim_label in dimensions.items():
         groups = _group_studies_by_dimension(study_info, pmids, dim_key)
         group_lifts = []
-        for gname, gpmids in groups.items():
+        for _gname, gpmids in groups.items():
             if len(gpmids) < 2:
                 continue
             fam_summary, mean_random = _family_means_for_group(result_map, gpmids, strategies)
@@ -2452,7 +2452,7 @@ def print_statistical_deep_dive(study_info, result_map, pmids, strategies):
     print("  Partitioning SS_Study into between-group and within-group components:")
     print()
 
-    for meta_dim, meta_label in [("assay_type", "Assay Type"), ("cargo_class", "Cargo Class"), ("model_class", "Model Class")]:
+    for meta_dim, meta_label in [("assay_type", "Assay Type"), ("cargo_class", "Cargo Class"), ("model_class", "Model Class")]:  # noqa: E501
         study_to_group = {p: study_info[p].get(meta_dim, "unknown") for p in pmids}
         unique_groups = sorted(set(study_to_group.values()))
         n_groups = len(unique_groups)
@@ -2473,7 +2473,6 @@ def print_statistical_deep_dive(study_info, result_map, pmids, strategies):
         )
         ss_within = ss_study - ss_between
         df_between = n_groups - 1
-        df_within = df_study - df_between
 
         omega2_meta = max(0.0, (ss_between - df_between * ms_residual) / denom_resid) if denom_resid > 0 else 0
         pct_of_study = 100 * ss_between / ss_study if ss_study > 0 else 0

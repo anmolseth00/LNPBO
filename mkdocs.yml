@@ -1,8 +1,8 @@
 site_name: LNPBO
 site_description: Bayesian Optimization for LNP Formulation Design
-site_url: https://anmolseth00.github.io/LNPBO
-repo_url: https://github.com/anmolseth00/LNPBO
-repo_name: anmolseth00/LNPBO
+site_url: https://evancollins1.github.io/LNPBO
+repo_url: https://github.com/evancollins1/LNPBO
+repo_name: evancollins1/LNPBO
 
 theme:
   name: material
@@ -85,4 +85,4 @@ markdown_extensions:
 extra:
   social:
     - icon: fontawesome/brands/github
-      link: https://github.com/anmolseth00/LNPBO
+      link: https://github.com/evancollins1/LNPBO

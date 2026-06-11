@@ -27,11 +27,11 @@ Installed-package runs write results under the current working directory's
 """
 
 import argparse
-from importlib import import_module
 import json
 import sys
 import time
 from datetime import datetime
+from importlib import import_module
 from pathlib import Path
 
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from, resolve_input_path
@@ -180,7 +180,7 @@ def run_single(
     if config["type"] == "random":
         history = _run_random(encoded_df, seed_idx, oracle_idx, batch_size, n_rounds, random_seed)
     elif config["type"] == "discrete_online_conformal_exact":
-        run_discrete_online_conformal_strategy = _import_benchmark_module("runner").run_discrete_online_conformal_strategy
+        run_discrete_online_conformal_strategy = _import_benchmark_module("runner").run_discrete_online_conformal_strategy  # noqa: E501
 
         history = run_discrete_online_conformal_strategy(
             encoded_df,
@@ -266,7 +266,7 @@ def _build_conditions(config):
 
     if "configs" in config:
         for c in config["configs"]:
-            conditions.append({"label": c["name"], "seed_fraction": c.get("seed_fraction"), "n_rounds": c.get("n_rounds", 15)})
+            conditions.append({"label": c["name"], "seed_fraction": c.get("seed_fraction"), "n_rounds": c.get("n_rounds", 15)})  # noqa: E501
         return conditions
 
     if "n_pcs_values" in config:
@@ -414,7 +414,7 @@ def run_experiment(config, df, studies, args):
     groups = defaultdict(list)
     for r in runs:
         wk = json.dumps(r["warmup_config"], sort_keys=True) if r["warmup_config"] else ""
-        key = (r["study_id"], r["seed"], r["feature_type"], r["n_pcs"], r["reduction"], r["seed_fraction"], wk, r.get("min_seed"))
+        key = (r["study_id"], r["seed"], r["feature_type"], r["n_pcs"], r["reduction"], r["seed_fraction"], wk, r.get("min_seed"))  # noqa: E501
         groups[key].append(r)
 
     completed = 0

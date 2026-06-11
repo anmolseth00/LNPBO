@@ -159,7 +159,7 @@ def part2_seen_vs_novel(df: pd.DataFrame, smi_to_scaffold: dict) -> dict:
         seen_scaffolds = test_scaffolds & seed_scaffolds
 
         logger.info("  Seed scaffolds: %d", len(seed_scaffolds))
-        logger.info("  Test scaffolds: %d (%d seen, %d novel)", len(test_scaffolds), len(seen_scaffolds), len(novel_scaffolds))
+        logger.info("  Test scaffolds: %d (%d seen, %d novel)", len(test_scaffolds), len(seen_scaffolds), len(novel_scaffolds))  # noqa: E501
 
         test_df = encoded_df.loc[oracle_idx].copy()
         test_df["is_seen"] = test_df["scaffold"].isin(seed_scaffolds)

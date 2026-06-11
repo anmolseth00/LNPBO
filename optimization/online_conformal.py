@@ -114,7 +114,7 @@ class ExactOnlineRecalibrator:
             raise ValueError("eta must be positive.")
         self.dataset_ = RecalibrationDataset(np.empty((0,), dtype=float))
 
-    def fit(self, dataset: RecalibrationDataset | np.ndarray) -> "ExactOnlineRecalibrator":
+    def fit(self, dataset: RecalibrationDataset | np.ndarray) -> ExactOnlineRecalibrator:
         if not isinstance(dataset, RecalibrationDataset):
             dataset = RecalibrationDataset(np.asarray(dataset, dtype=float))
         self.dataset_ = dataset
@@ -125,7 +125,7 @@ class ExactOnlineRecalibrator:
         grad = float(u <= q) - float(p)
         return float(np.clip(q - self.eta * grad, 0.0, 1.0))
 
-    @lru_cache(maxsize=2048)
+    @lru_cache(maxsize=2048)  # noqa: B019 - recalibrators are short-lived, no leak
     def _solve_uncached(self, p_rounded: float) -> float:
         p = float(np.clip(p_rounded, 0.0, 1.0))
         q = 0.0
@@ -186,7 +186,7 @@ class CalibratedProbabilisticModel:
                 eis[i] = 0.0
                 continue
 
-            def integrand(p: float) -> float:
+            def integrand(p: float, x_single=x_single, incumbent=incumbent) -> float:
                 q = float(self.quantile(x_single, p)[0])
                 return max(q - incumbent, 0.0)
 
@@ -203,7 +203,7 @@ class GaussianXGBQuantileModel:
     n_jobs: int = 1
     min_sigma: float = 1e-6
 
-    def fit(self, X: np.ndarray, y: np.ndarray) -> "GaussianXGBQuantileModel":
+    def fit(self, X: np.ndarray, y: np.ndarray) -> GaussianXGBQuantileModel:
         from xgboost import XGBRegressor
 
         X = np.asarray(X, dtype=float)

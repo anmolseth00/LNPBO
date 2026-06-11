@@ -12,7 +12,6 @@ Target: ACS JCIM double-column width (7 in).
 
 import json
 import sys
-from collections import defaultdict
 from pathlib import Path
 
 import matplotlib
@@ -27,7 +26,6 @@ sys.path.insert(0, str(REPO))
 
 from paper.figure_style import (
     DOUBLE_COL,
-    bootstrap_ci,
     light_ygrid,
     panel_label,
     save_figure,
@@ -174,7 +172,7 @@ def main():
     paired_rows.sort(key=lambda r: r["comp_recall_mean"], reverse=True)
 
     # Print summary table
-    print(f"{'Study':>10s}  {'Type':<16s}  {'#IL':>5s}  {'Mixed':>7s}  {'Comp':>7s}  {'Delta':>7s}  {'Mixed t(s)':>11s}  {'Comp t(s)':>11s}  {'Slowdown':>9s}")
+    print(f"{'Study':>10s}  {'Type':<16s}  {'#IL':>5s}  {'Mixed':>7s}  {'Comp':>7s}  {'Delta':>7s}  {'Mixed t(s)':>11s}  {'Comp t(s)':>11s}  {'Slowdown':>9s}")  # noqa: E501
     print("-" * 105)
     for r in paired_rows:
         delta = r["mixed_recall_mean"] - r["comp_recall_mean"]

@@ -36,11 +36,10 @@ _DEVICE_LOGGED = False
 _DEFAULT_GPU_MIN_FREE_GIB = 2.0
 
 if TYPE_CHECKING:
-    from typing import Union
 
     # Type alias: covers SingleTaskGP, SingleTaskVariationalGP, and
     # BatchedMultiOutputGPyTorchModel (returned by condition_on_observations).
-    GPModel = Union[SingleTaskGP, SingleTaskVariationalGP, Model]
+    GPModel = SingleTaskGP | SingleTaskVariationalGP | Model
 
 
 def _gpu_has_headroom(min_free_gib: float) -> tuple[bool, float]:
@@ -472,7 +471,7 @@ def fit_multitask_gp(
     device: torch.device | None = None,
     rank: int = 3,
     train_Yvar: np.ndarray | None = None,
-) -> "Model":
+) -> Model:
     """Fit a Multi-Task GP with low-rank ICM coregionalization.
 
     Each task/study shares a base kernel but has a learned inter-task
@@ -495,10 +494,7 @@ def fit_multitask_gp(
     Bonilla, E.V., Chai, K.M.A., & Williams, C.K.I. (2007).
     "Multi-task Gaussian Process Prediction." NIPS 2007.
     """
-    import contextlib
 
-    import gpytorch
-    from botorch.models import MultiTaskGP
 
     if device is None:
         device = get_device()
@@ -896,6 +892,7 @@ def select_batch(
     n_inducing: int = 512,
     kernel_type: str = "matern",
     kernel_kwargs: dict | None = None,
+    train_Yvar: np.ndarray | None = None,
 ) -> list[int]:
     """Select a batch of points from a discrete candidate pool.
 
@@ -942,6 +939,7 @@ def select_batch(
         _rng=rng,
         kernel_type=kernel_type,
         kernel_kwargs=kernel_kwargs,
+        train_Yvar=train_Yvar,
     )
     y_best = float(y_train.max())
 

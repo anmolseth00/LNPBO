@@ -503,15 +503,14 @@ class Optimizer:
         # the NaN/inf-filtered X_train (otherwise study labels map to wrong rows).
         group_ids = None
         task_indices = None
-        if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp"):
-            if "study_id" in df.columns:
-                train_study = df.loc[training_idx, "study_id"].values[valid_train]
-                if self.surrogate_type == "multitask_gp":
-                    unique_studies = sorted(set(train_study))
-                    study_to_int = {s: i for i, s in enumerate(unique_studies)}
-                    task_indices = np.array([study_to_int[s] for s in train_study])
-                else:
-                    group_ids = train_study
+        if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp") and "study_id" in df.columns:
+            train_study = df.loc[training_idx, "study_id"].values[valid_train]
+            if self.surrogate_type == "multitask_gp":
+                unique_studies = sorted(set(train_study))
+                study_to_int = {s: i for i, s in enumerate(unique_studies)}
+                task_indices = np.array([study_to_int[s] for s in train_study])
+            else:
+                group_ids = train_study
 
         return self._run_batch_selection(
             X_train, y_train, X_pool, pool_arr,
@@ -808,7 +807,7 @@ class Optimizer:
             pool_df = pool_df.drop_duplicates(subset=composition_cols).reset_index(drop=True)
             n_deduped = n_before - len(pool_df)
             if n_deduped > 0:
-                logger.info("Deduplicated pool: %s -> %s (%s duplicates removed)", f"{n_before:,}", f"{len(pool_df):,}", f"{n_deduped:,}")
+                logger.info("Deduplicated pool: %s -> %s (%s duplicates removed)", f"{n_before:,}", f"{len(pool_df):,}", f"{n_deduped:,}")  # noqa: E501
 
         # Clean pool (NaN or inf in features)
         pool_features = pool_df[feature_cols]
@@ -882,15 +881,17 @@ class Optimizer:
         # Extract group/task info for surrogates that need it
         group_ids = None
         task_indices = None
-        if self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp"):
-            if "study_id" in train_df.columns:
-                train_study = train_df["study_id"].values
-                if self.surrogate_type == "multitask_gp":
-                    unique_studies = sorted(set(train_study))
-                    study_to_int = {s: i for i, s in enumerate(unique_studies)}
-                    task_indices = np.array([study_to_int[s] for s in train_study])
-                else:
-                    group_ids = train_study
+        if (
+            self.surrogate_type in ("groupdro", "vrex", "bradley_terry", "multitask_gp")
+            and "study_id" in train_df.columns
+        ):
+            train_study = train_df["study_id"].values
+            if self.surrogate_type == "multitask_gp":
+                unique_studies = sorted(set(train_study))
+                study_to_int = {s: i for i, s in enumerate(unique_studies)}
+                task_indices = np.array([study_to_int[s] for s in train_study])
+            else:
+                group_ids = train_study
 
         selected_pool_idx = self._run_batch_selection(
             X_train, y_train, X_pool, pool_indices,

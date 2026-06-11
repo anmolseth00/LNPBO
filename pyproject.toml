@@ -84,10 +84,10 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/anmolseth00/LNPBO"
-Documentation = "https://anmolseth00.github.io/LNPBO"
-Repository = "https://github.com/anmolseth00/LNPBO"
-Issues = "https://github.com/anmolseth00/LNPBO/issues"
+Homepage = "https://github.com/evancollins1/LNPBO"
+Documentation = "https://evancollins1.github.io/LNPBO"
+Repository = "https://github.com/evancollins1/LNPBO"
+Issues = "https://github.com/evancollins1/LNPBO/issues"
 
 [project.scripts]
 lnpbo = "LNPBO.cli.main:main"
@@ -121,6 +121,9 @@ LNPBO = [
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+# Notebooks and the experimental (non-benchmark) surrogate code are research
+# scratch space and not held to the package lint standard.
+extend-exclude = ["*.ipynb", "models/experimental"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

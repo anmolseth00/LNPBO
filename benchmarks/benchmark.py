@@ -42,12 +42,12 @@ Installed-package runs write results under the current working directory's
 
 import argparse
 import contextlib
-from importlib import import_module
 import json
 import os
 import time
 import warnings
 from datetime import datetime
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -711,7 +711,7 @@ def _checkpoint_fingerprint(study_info):
     top_k = study_info.get("top_k_pct") or {}
     # Coerce to strings for stable comparison across JSON roundtrip (which
     # turns int dict keys into strings).
-    fp["top_k_pct_keys"] = sorted(str(k) for k in top_k.keys())
+    fp["top_k_pct_keys"] = sorted(str(k) for k in top_k)
     lnp_ids = study_info.get("lnp_ids")
     fp["lnp_ids"] = sorted(str(i) for i in lnp_ids) if lnp_ids is not None else None
     return fp

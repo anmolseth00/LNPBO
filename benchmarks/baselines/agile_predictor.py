@@ -19,7 +19,6 @@ Usage:
     python -m benchmarks.baselines.agile_predictor --aggregate-only
 """
 
-from pathlib import Path
 
 from LNPBO.benchmarks.baselines.predict_and_rank import run_pr_cli
 from LNPBO.runtime_paths import benchmark_results_root, package_root_from
