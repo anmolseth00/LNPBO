@@ -4,7 +4,7 @@
 
 LNPBO is an open-source Python package for data-driven optimization of lipid nanoparticle (LNP) formulations. It implements Bayesian optimization with multiple surrogate models, acquisition functions, and molecular encodings, enabling researchers to efficiently navigate the combinatorial LNP design space.
 
-Introduced in [Collins\*, Seth\* et al.](https://github.com/anmolseth00/LNPBO) (*under review*), LNPBO was benchmarked across 38 optimization strategies and 26 LNP studies from the [LNPDB](https://www.nature.com/articles/s41467-026-68818-1) database (~19,800 formulations).
+Introduced in [Collins\*, Seth\* et al.](https://github.com/evancollins1/LNPBO) (*under review*), LNPBO was benchmarked across 38 optimization strategies and 26 LNP studies from the [LNPDB](https://www.nature.com/articles/s41467-026-68818-1) database (~19,800 formulations).
 
 ---
 
@@ -24,19 +24,19 @@ Introduced in [Collins\*, Seth\* et al.](https://github.com/anmolseth00/LNPBO) (
 ```bash
 git clone https://github.com/evancollins1/LNPBO.git
 cd LNPBO
-pip install .
+uv sync
 ```
 
 For GP support (BoTorch/GPyTorch):
 
 ```bash
-pip install ".[gp]"
+uv sync --extra gp
 ```
 
 For all optional dependencies:
 
 ```bash
-pip install ".[all]"
+uv sync --extra all
 ```
 
 ### LNPDB Setup
@@ -147,4 +147,4 @@ Evan Collins\*, Anmol Seth\*, Robert Langer, Daniel G. Anderson
 
 ## License
 
-LNPBO is released under the [MIT License](https://github.com/anmolseth00/LNPBO/blob/main/LICENSE).
+LNPBO is released under the [MIT License](https://github.com/evancollins1/LNPBO/blob/main/LICENSE).
