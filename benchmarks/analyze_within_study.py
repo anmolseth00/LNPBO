@@ -41,7 +41,6 @@ from .stats import (
     cohens_d_paired,
     post_hoc_power,
     rank_biserial,
-    simple_regret,
 )
 from .strategy_registry import STRATEGY_FAMILY as _REG_FAMILY
 from .strategy_registry import STRATEGY_SHORT, is_excluded
@@ -1052,8 +1051,29 @@ def _compute_oracle_best(result_map, pmids, strategies):
     return oracle_best
 
 
+def _resample_curve(curve, target_len):
+    """Linearly interpolate a 1-D trajectory onto a common ``target_len``-point
+    fractional-progress [0,1] axis.
+
+    Studies have different round counts (n_rounds depends on pool/seed size), so
+    requiring an exact length would silently drop every study shorter than the
+    longest. Resampling each trajectory onto a shared normalized-progress grid
+    lets all studies contribute to per-round convergence/regret aggregates.
+    """
+    arr = np.asarray(curve, dtype=float)
+    if len(arr) == target_len:
+        return arr
+    if len(arr) < 2:
+        return np.full(target_len, arr[-1] if len(arr) else np.nan)
+    return np.interp(np.linspace(0.0, 1.0, target_len), np.linspace(0.0, 1.0, len(arr)), arr)
+
+
 def print_convergence_analysis(study_info, result_map, pmids, strategies):
     """Print Section E: convergence analysis.
+
+    Trajectories are resampled onto a common normalized-progress axis (see
+    _resample_curve), so all studies contribute regardless of round count;
+    "Round" indexes normalized progress, not absolute acquisition round.
 
     Reports normalized best-so-far trajectories (as fraction of oracle
     best) per family, with bootstrap CIs at key rounds, and identifies
@@ -1084,8 +1104,8 @@ def print_convergence_analysis(study_info, result_map, pmids, strategies):
                     continue
                 bsf = result_map[key]["result"].get("best_so_far", [])
                 ob = oracle_best.get((pmid, seed))
-                if ob and ob > 0 and len(bsf) == max_len:
-                    norm = [v / ob for v in bsf]
+                if ob and ob > 0 and len(bsf) >= 2:
+                    norm = _resample_curve([v / ob for v in bsf], max_len)
                     family_norm_trajectories[fam].append(norm)
 
     families_to_show = [
@@ -1140,8 +1160,8 @@ def print_convergence_analysis(study_info, result_map, pmids, strategies):
                         continue
                     bsf = result_map[key]["result"].get("best_so_far", [])
                     ob = oracle_best.get((pmid, seed))
-                    if ob and ob > 0 and len(bsf) == max_len:
-                        traj_sum += np.array([v / ob for v in bsf])
+                    if ob and ob > 0 and len(bsf) >= 2:
+                        traj_sum += _resample_curve([v / ob for v in bsf], max_len)
                         traj_count += 1
             if traj_count > 0:
                 study_mean_trajs[pmid] = traj_sum / traj_count
@@ -1213,8 +1233,8 @@ def print_convergence_analysis(study_info, result_map, pmids, strategies):
                     continue
                 bsf = result_map[key]["result"].get("best_so_far", [])
                 ob = oracle_best.get((pmid, seed))
-                if ob and ob > 0 and len(bsf) == max_len:
-                    norm = [v / ob for v in bsf]
+                if ob and ob > 0 and len(bsf) >= 2:
+                    norm = _resample_curve([v / ob for v in bsf], max_len)
                     strat_norm[strategy].append(norm)
 
     header = f"  {'Round':>5}"
@@ -1278,11 +1298,10 @@ def print_regret_analysis(study_info, result_map, pmids, strategies):
                         continue
                     bsf = result_map[key]["result"].get("best_so_far", [])
                     ob = oracle_best.get((pmid, seed))
-                    if ob is not None and len(bsf) == max_len:
-                        regret = simple_regret(bsf, ob)
-                        # Normalize by oracle_best to make cross-study comparable
-                        if ob > 0:
-                            regret_curves.append(regret / ob)
+                    if ob is not None and ob > 0 and len(bsf) >= 2:
+                        # Normalized regret = (oracle - bsf)/oracle = 1 - bsf/oracle,
+                        # resampled onto the common progress axis (all studies contribute).
+                        regret_curves.append(1.0 - _resample_curve([v / ob for v in bsf], max_len))
             if regret_curves:
                 family_study_regret[fam][pmid] = np.mean(regret_curves, axis=0)
 
@@ -1778,14 +1797,11 @@ def print_acceleration_analysis(study_info, result_map, pmids, strategies):
     print("  Computed per (study, seed), then averaged within study.")
     print()
 
-    max_len = 16
     oracle_best = _compute_oracle_best(result_map, pmids, strategies)
 
-    # For acceleration factor, we need recall-like curves indexed by n_evaluated.
-    # Use normalized best_so_far / oracle_best as the "recall" proxy.
-    # The n_evaluated array has 15 entries (rounds 1-15), best_so_far has 16 (rounds 0-15).
-    # We need to build curves as list of (n_evaluated, recall) pairs.
-    # Round 0 uses n_seed evaluations (from study_info).
+    # Acceleration factor uses normalized best_so_far / oracle_best as the
+    # "recall" proxy, as a curve of (n_evaluated, normalized-best) pairs.
+    # n_evaluated and best_so_far are per-round and aligned (same length).
 
     target_recalls = [0.5, 0.75, 0.9]
 
@@ -1796,7 +1812,6 @@ def print_acceleration_analysis(study_info, result_map, pmids, strategies):
     family_af = {fam: {t: [] for t in target_recalls} for fam in families_to_show}
 
     for pmid in pmids:
-        n_seed = study_info[pmid]["n_seed"]
 
         for seed in SEEDS:
             ob = oracle_best.get((pmid, seed))
@@ -1809,12 +1824,14 @@ def print_acceleration_analysis(study_info, result_map, pmids, strategies):
                 continue
             r_bsf = result_map[rkey]["result"].get("best_so_far", [])
             r_ne = result_map[rkey]["result"].get("n_evaluated", [])
-            if len(r_bsf) != max_len or len(r_ne) != max_len - 1:
+            # n_evaluated and best_so_far are per-round and aligned (index 0 =
+            # seed state), same length. Zip directly — the old code assumed
+            # n_evaluated was one shorter, so its guard always fired (empty
+            # table) and its r_bsf[i+1] indexing would overrun. Variable length
+            # is fine: acceleration_factor interpolates on the eval-count axis.
+            if len(r_bsf) < 2 or len(r_bsf) != len(r_ne):
                 continue
-            # Build (n_eval, recall) pairs: round 0 has n_seed evals
-            random_curve = [(n_seed, r_bsf[0] / ob)]
-            for i, ne in enumerate(r_ne):
-                random_curve.append((ne, r_bsf[i + 1] / ob))
+            random_curve = [(ne, b / ob) for ne, b in zip(r_ne, r_bsf)]
 
             # For each BO family, compute AF
             for fam in families_to_show:
@@ -1827,11 +1844,9 @@ def print_acceleration_analysis(study_info, result_map, pmids, strategies):
                         continue
                     bsf = result_map[key]["result"].get("best_so_far", [])
                     ne = result_map[key]["result"].get("n_evaluated", [])
-                    if len(bsf) != max_len or len(ne) != max_len - 1:
+                    if len(bsf) < 2 or len(bsf) != len(ne):
                         continue
-                    bo_curve = [(n_seed, bsf[0] / ob)]
-                    for i, n in enumerate(ne):
-                        bo_curve.append((n, bsf[i + 1] / ob))
+                    bo_curve = [(n, b / ob) for n, b in zip(ne, bsf)]
 
                     for target in target_recalls:
                         af = acceleration_factor(random_curve, bo_curve, target)
