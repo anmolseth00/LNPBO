@@ -89,7 +89,7 @@ class TestRegistry:
             assert "supports_batch" in caps
 
     def test_surrogate_count(self):
-        assert len(SURROGATE_TYPES) == 21
+        assert len(SURROGATE_TYPES) == 20
 
     def test_acquisition_types(self):
         assert {"UCB", "EI", "LogEI"} == ACQUISITION_TYPES
@@ -374,7 +374,7 @@ class TestSuggestDispatch:
         assert SURROGATE_TYPES["gp_sklearn"] == "gp_sklearn"
 
     def test_xgb_dispatches_to_discrete(self):
-        for surr in ("xgb", "xgb_ucb", "rf_ucb", "rf_ts", "ngboost", "xgb_cqr", "deep_ensemble", "tabpfn", "gp_ucb", "ridge"):
+        for surr in ("xgb", "xgb_ucb", "rf_ucb", "rf_ts", "ngboost", "xgb_cqr", "deep_ensemble", "gp_ucb", "ridge"):
             assert SURROGATE_TYPES[surr] == "discrete", f"{surr} should be discrete"
 
     def test_gp_mixed_dispatches_to_gp_mixed(self):

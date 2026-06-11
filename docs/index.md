@@ -10,7 +10,7 @@ Introduced in [Collins\*, Seth\* et al.](https://github.com/evancollins1/LNPBO) 
 
 ## Key Features
 
-- **Multiple surrogate models** -- Gaussian Process (BoTorch/GPyTorch), XGBoost, Random Forest, NGBoost, Deep Ensemble, CASMOPolitan, TabPFN, Ridge, SNGP, Laplace, Bradley-Terry, GroupDRO, VREx
+- **Multiple surrogate models** -- Gaussian Process (BoTorch/GPyTorch), XGBoost, Random Forest, NGBoost, Deep Ensemble, CASMOPolitan, Ridge, SNGP, Laplace, Bradley-Terry, GroupDRO, VREx
 - **Acquisition functions** -- UCB, EI, LogEI with batch strategies (Kriging Believer, Local Penalization, Thompson Sampling, qLogNoisyEI, GIBBON)
 - **9 molecular encodings** -- Morgan FP, Count MFP, RDKit, Mordred, Uni-Mol, CheMeleon, AGILE, LiON, plus the composite LANTERN encoding
 - **Discrete pool scoring** -- Direct scoring of candidate formulations without continuous relaxation

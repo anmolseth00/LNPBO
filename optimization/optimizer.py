@@ -43,8 +43,6 @@ Surrogate types
                         MLP with RFF output layer (Liu et al. 2023).
     ``"laplace"``       MLP + post-hoc Laplace approximation
                         (Daxberger et al. 2021).
-    ``"tabpfn"``        TabPFN zero-shot foundation model
-                        (Hollmann et al. 2025).
     ``"gp_ucb"``        Sklearn GP UCB (discrete pool scoring).
 
 **Preference / domain-robust** (discrete pool scoring):
@@ -152,7 +150,6 @@ SURROGATE_TYPES = {
     "ngboost": "discrete",
     "xgb_cqr": "discrete",
     "deep_ensemble": "discrete",
-    "tabpfn": "discrete",
     "ridge": "discrete",
     "gp_ucb": "discrete",
     # --- Neural UQ surrogates ---

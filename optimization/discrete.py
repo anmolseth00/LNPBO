@@ -1,4 +1,4 @@
-"""Discrete pool scoring for BO surrogates (XGBoost, RF, NGBoost, CQR, TabPFN, conformal).
+"""Discrete pool scoring for BO surrogates (XGBoost, RF, NGBoost, CQR, conformal).
 
 XGB-UCB uses MAPIE conformal prediction for uncertainty quantification:
     Barber, R.F. et al. (2021). "Predictive Inference with the Jackknife+."
@@ -11,10 +11,6 @@ NGBoost (Natural Gradient Boosting) provides native distributional UQ:
 Conformalized Quantile Regression (CQR) produces adaptive-width intervals:
     Romano, Y. et al. (2019). "Conformalized Quantile Regression."
     NeurIPS 2019. arXiv:1905.03222.
-
-TabPFN zero-shot tabular foundation model:
-    Hollmann, N. et al. (2025). "Accurate Predictions on Small Data with a
-    Tabular Foundation Model." Nature.
 """
 
 import warnings
@@ -55,8 +51,7 @@ def score_candidate_pool(
         "rf_ucb" (mean + kappa*std), "rf_ts" (Thompson sampling),
         "gp_ucb" (GP mean + kappa*sigma), "ngboost" (NGBoost distributional UCB),
         "xgb_cqr" (CQR adaptive-width conformal UCB),
-        "ridge" (BayesianRidge mean + kappa*std, MacKay 1992),
-        "tabpfn" (TabPFN zero-shot, Hollmann et al. 2025).
+        "ridge" (BayesianRidge mean + kappa*std, MacKay 1992).
     batch_size : int
         Number of top candidates to return.
     kappa : float
@@ -224,51 +219,6 @@ def score_candidate_pool(
         mu, sigma = model.predict(X_pool_s, return_std=True)
         scores = mu + kappa * sigma
 
-    elif surrogate == "tabpfn":
-        # TabPFN: zero-shot tabular foundation model surrogate.
-        # Hollmann, N. et al. (2025). "Accurate Predictions on Small Data
-        # with a Tabular Foundation Model." Nature.
-        from tabpfn import TabPFNRegressor
-
-        MAX_TABPFN_TRAIN = 3000
-        X_fit, y_fit = X_train_s, y_train
-        if len(X_train_s) > MAX_TABPFN_TRAIN:
-            rng = np.random.RandomState(random_seed)
-            n_bins = min(10, len(y_train) // 5)
-            bins = np.digitize(
-                y_train,
-                np.percentile(y_train, np.linspace(0, 100, n_bins + 1)[1:-1]),
-            )
-            selected = []
-            unique_bins = np.unique(bins)
-            per_bin = max(1, MAX_TABPFN_TRAIN // len(unique_bins))
-            for b in unique_bins:
-                idx_in_bin = np.where(bins == b)[0]
-                take = min(per_bin, len(idx_in_bin))
-                selected.extend(rng.choice(idx_in_bin, size=take, replace=False).tolist())
-            remaining = MAX_TABPFN_TRAIN - len(selected)
-            if remaining > 0:
-                leftover = np.setdiff1d(np.arange(len(y_train)), selected)
-                if len(leftover) > 0:
-                    selected.extend(rng.choice(leftover, size=min(remaining, len(leftover)), replace=False).tolist())
-            sub_idx = np.array(selected[:MAX_TABPFN_TRAIN])
-            X_fit, y_fit = X_train_s[sub_idx], y_train[sub_idx]
-
-        model = TabPFNRegressor()
-        model.fit(X_fit, y_fit)
-
-        sigma = None
-        try:
-            mu, sigma = model.predict(X_pool_s, return_std=True)
-        except TypeError:
-            mu = model.predict(X_pool_s)
-
-        if sigma is not None and len(sigma) == len(mu):
-            scores = mu + kappa * sigma
-        else:
-            warnings.warn("TabPFN did not return std — using mean-only scoring (exploration disabled)", stacklevel=2)
-            scores = mu
-
     elif surrogate == "sngp":
         # SNGP: spectral-normalized MLP + RFF GP head → (mu, sigma).
         # Liu et al. (2023), "A Simple Approach to Improve Single-Model Deep
@@ -365,7 +315,7 @@ def score_candidate_pool(
         raise ValueError(
             f"Unknown surrogate: {surrogate!r}. "
             "Use 'xgb', 'xgb_ucb', 'ngboost', 'xgb_cqr', 'rf_ucb', 'rf_ts', "
-            "'gp_ucb', 'deep_ensemble', 'ridge', 'tabpfn', 'sngp', 'laplace', "
+            "'gp_ucb', 'deep_ensemble', 'ridge', 'sngp', 'laplace', "
             "'bradley_terry', 'groupdro', or 'vrex'."
         )
 

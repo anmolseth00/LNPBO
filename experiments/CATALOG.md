@@ -103,10 +103,11 @@ Expected: ~15 minutes, 15 result files in `benchmark_results/within_study/`.
   - `fig_variance.pdf` -- Variance decomposition (Study/Strategy/Seed)
 - **Status**: 26 studies x 37 strategies x 5 seeds = **4,810 runs (IN PROGRESS)**
     (50 runs excluded: GP-Mixed strategies on 5 sub-studies lacking ratio features)
-  - 38 strategies: random, 8 GP-BO (BoTorch), 6 specialized-kernel GP,
+  - Strategies: random, 8 GP-BO (BoTorch), 6 specialized-kernel GP,
     4 compositional GP, 2 mixed-variable GP, 2 CASMOPolitan, 3 RF, 5 XGBoost,
-    1 NGBoost, 1 Deep Ensemble, 1 GP (sklearn), 1 GIBBON, 1 PLS-GP,
-    1 Ridge, 1 TabPFN
+    1 NGBoost, 1 Deep Ensemble, 1 GP (sklearn), 1 GIBBON, 1 Ridge.
+    (TabPFN cut; the 2 PLS strategies are PCA duplicates and excluded from
+    aggregates — final count is regenerated from the 26-study benchmark.)
   - 5 seeds: 42, 123, 456, 789, 2024
 - **Compute**: ~65 hours serial, ~8 hours on 8 cores. Dominated by slow
   strategies (XGB-CQR ~500 s/run, GIBBON ~340 s/run, RF-Kernel ~300 s/run).

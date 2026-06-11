@@ -40,7 +40,7 @@ uv sync --extra gp
 Optional extras:
 
 ```bash
-uv sync --extra bench      # NGBoost, TabPFN
+uv sync --extra bench      # NGBoost
 uv sync --extra mordred    # Mordred descriptors
 uv sync --extra all        # All optional dependencies
 ```

@@ -67,7 +67,7 @@ generative = [
     "selfies>=2.1",
 ]
 dev = ["ruff>=0.4", "pytest>=8.0"]
-bench = ["ngboost>=0.5", "tabpfn>=2.0"]
+bench = ["ngboost>=0.5"]
 mordred = ["mordredcommunity>=2.0"]
 # LiON fingerprints require chemprop v1 (torch<2.0), which conflicts with
 # the GP extra (torch>=2.0). Install in a separate venv via:

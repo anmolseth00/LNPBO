@@ -96,7 +96,7 @@ from .runner import (
 )
 from .stats import bootstrap_ci
 
-# Strategies to benchmark (same as comprehensive, minus TabPFN)
+# Strategies to benchmark
 DISCRETE_STRATEGIES = [
     "random",
     "discrete_xgb_greedy",
@@ -1292,13 +1292,6 @@ def main():
                 available_strategies.append(s)
             except ImportError:
                 print(f"Skipping {s} (botorch not installed)")
-        elif s == "discrete_tabpfn":
-            try:
-                import tabpfn  # noqa: F401
-
-                available_strategies.append(s)
-            except ImportError:
-                print(f"Skipping {s} (tabpfn not installed)")
         else:
             available_strategies.append(s)
     strategies = available_strategies

@@ -17,7 +17,6 @@ LNPBO provides a diverse set of optimization strategies spanning Gaussian Proces
 | Random Forest TS | `rf_ts` | Per-tree draws | Thompson Sampling |
 | NGBoost | `ngboost` | Distributional | Greedy, TS |
 | Deep Ensemble | `deep_ensemble` | Network disagreement | Greedy, TS |
-| TabPFN | `tabpfn` | Zero-shot foundation model | Greedy |
 | CASMOPolitan | `casmopolitan` | Mixed-variable GP | Internal KB |
 | GP Mixed | `gp_mixed` | Mixed discrete-continuous GP | KB, TS |
 | Robust GP | `robust_gp` | Relevance Pursuit | KB, TS |
@@ -237,24 +236,6 @@ CASMOPolitan is particularly strong on ratio-only optimization tasks (1.74x lift
 
 ---
 
-## TabPFN
-
-TabPFN is a zero-shot foundation model for tabular data that provides predictions without any training. It processes the entire training set as context and generates predictions in a single forward pass.
-
-```python
-# Requires: pip install "LNPBO[bench]"
-optimizer = Optimizer(
-    space=space,
-    candidate_pool=encoded.df,
-    surrogate_type="tabpfn",
-    batch_size=24,
-)
-```
-
-**Reference:** Hollmann, N. et al. "TabPFN: A Transformer That Solves Small Tabular Classification Problems in a Second." *ICLR 2023*.
-
----
-
 ## Random Baseline
 
 For benchmarking purposes, a random baseline selects candidates uniformly at random from the pool. This is implemented in the benchmark runner rather than the Optimizer class:
@@ -282,7 +263,8 @@ Based on within-study benchmarks across 26 studies, 38 strategies, 5 seeds (top-
 | GP (BoTorch) | 0.658 | 1.21x | 19% |
 | Random | 0.545 | --- | 0% |
 
-All 37 non-random strategies are statistically significant vs random (p < 0.001). No single strategy wins all studies -- NGBoost wins 22%, TabPFN and CASMOPolitan each 19%, RF/Ridge/Deep Ensemble each 11%.
+No single strategy wins all studies. See the manuscript (regenerated from the
+current 26-study benchmark) for per-strategy win rates and significance.
 
 ### By Study Type
 

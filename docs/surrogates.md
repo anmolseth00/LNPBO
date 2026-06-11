@@ -23,7 +23,6 @@ documents every available `surrogate_type`, organized by family.
 | `"deep_ensemble"` | Neural | Ensemble | No | Simple, scalable UQ via disagreement |
 | `"sngp"` | Neural | Laplace/RFF | No | Distance-aware; high uncertainty far from data |
 | `"laplace"` | Neural | Laplace | No | Post-hoc UQ on trained MLP; no retraining |
-| `"tabpfn"` | Neural | Foundation | No | Zero-shot; no training needed |
 | `"gp_ucb"` | GP (sklearn) | Posterior | No | Lightweight GP UCB on discrete pool |
 | `"bradley_terry"` | Preference | None | No | Learns ranking from pairwise comparisons |
 | `"groupdro"` | Robust | None | Yes | Worst-group robustness across studies |
@@ -175,15 +174,6 @@ KFAC implementation.
 *Daxberger, E. et al. (2021). "Laplace Redux -- Effortless Bayesian Deep
 Learning." NeurIPS.*
 
-### `"tabpfn"` — TabPFN Zero-Shot
-
-Transformer pretrained on synthetic tabular datasets. Outputs predictions
-with no training on your data. Best for small N (< 3000).
-
-*Hollmann, N. et al. (2025). "Accurate Predictions on Small Data with a
-Tabular Foundation Model." Nature.*
-
-
 ## Preference and domain-robust surrogates
 
 ### `"bradley_terry"` — Pairwise Preference Model
@@ -269,7 +259,6 @@ supports all batch strategies, and works well across dataset sizes.
 - **Large pools (> 10k candidates)** → tree-based (`"xgb_ucb"`, `"rf_ucb"`)
   for speed, or `"gp"` with automatic sparse GP (N > 1000)
 - **Molecular fingerprint features** → `kernel_type="tanimoto"` with `"gp"`
-- **Zero training data / cold start** → `"tabpfn"`
 - **Want distance-aware neural UQ** → `"sngp"` or `"laplace"`
 - **Compositional ratio optimization** → `"gp_mixed"` with
   `kernel_type="compositional"`
