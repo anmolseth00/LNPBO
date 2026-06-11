@@ -1067,11 +1067,22 @@ def _batch_kb(
                 with torch.no_grad(), gpytorch.settings.fast_pred_var():
                     y_fantasy = current_model.posterior(x_new).mean  # type: ignore[union-attr]
 
+            cond_kwargs = {}
+            likelihood = getattr(current_model, "likelihood", None)
+            if isinstance(likelihood, gpytorch.likelihoods.FixedNoiseGaussianLikelihood):
+                # Fixed-noise (per-point train_Yvar) models require an explicit
+                # observation noise for the Kriging-Believer fantasy point;
+                # without it BoTorch's get_fantasy_model raises. Use the mean of
+                # the model's current per-point noise as a representative scale.
+                fantasy_noise = likelihood.noise.mean().detach()
+                cond_kwargs["noise"] = fantasy_noise.expand(y_fantasy.shape).to(y_fantasy)
+
             with warnings.catch_warnings():
                 warnings.filterwarnings("ignore")
                 current_model = current_model.condition_on_observations(
                     x_new,
                     y_fantasy,
+                    **cond_kwargs,
                 )
 
             y_best = max(y_best, y_fantasy.item())
