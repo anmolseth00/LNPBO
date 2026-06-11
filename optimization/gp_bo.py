@@ -1076,51 +1076,82 @@ def _batch_kb(
     available_mask = np.ones(len(X_pool), dtype=bool)
     current_model = model
 
+    def _greedy_fill_remaining():
+        """Fill remaining batch slots from the base model's posterior mean.
+
+        Used when iterative fantasy-conditioning degenerates (NaN/non-PD
+        Cholesky as fantasy points accumulate on ill-conditioned kernels).
+        The base ``model`` fit fine, so a greedy posterior-mean top-up over the
+        still-available pool completes the batch rather than aborting the run.
+        """
+        try:
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                mu = model.posterior(_to_tensor(X_pool, device)).mean.squeeze(-1).cpu().numpy()
+            order = np.where(available_mask)[0][np.argsort(-mu[available_mask])]
+        except (RuntimeError, ValueError):
+            order = np.where(available_mask)[0]
+        for gi in order[: batch_size - len(selected)]:
+            selected.append(int(pool_indices[int(gi)]))
+            available_mask[int(gi)] = False
+
     for i in range(batch_size):
-        scores = score_acquisition(
-            current_model,
-            X_pool[available_mask],
-            acq_type,
-            y_best,
-            kappa,
-            xi,
-        )
-        local_best = int(np.argmax(scores))
-        global_idx = np.where(available_mask)[0][local_best]
+        try:
+            scores = score_acquisition(
+                current_model,
+                X_pool[available_mask],
+                acq_type,
+                y_best,
+                kappa,
+                xi,
+            )
+            local_best = int(np.argmax(scores))
+            global_idx = np.where(available_mask)[0][local_best]
 
-        selected.append(int(pool_indices[global_idx]))
-        available_mask[global_idx] = False
+            selected.append(int(pool_indices[global_idx]))
+            available_mask[global_idx] = False
 
-        if i < batch_size - 1:
-            x_new = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
+            if i < batch_size - 1:
+                x_new = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
 
-            if randomize:
-                with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                    posterior = current_model.posterior(x_new)
-                    y_fantasy = posterior.rsample().squeeze(-1)
-            else:
-                with torch.no_grad(), gpytorch.settings.fast_pred_var():
-                    y_fantasy = current_model.posterior(x_new).mean  # type: ignore[union-attr]
+                if randomize:
+                    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                        posterior = current_model.posterior(x_new)
+                        y_fantasy = posterior.rsample().squeeze(-1)
+                else:
+                    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                        y_fantasy = current_model.posterior(x_new).mean  # type: ignore[union-attr]
 
-            cond_kwargs = {}
-            likelihood = getattr(current_model, "likelihood", None)
-            if isinstance(likelihood, gpytorch.likelihoods.FixedNoiseGaussianLikelihood):
-                # Fixed-noise (per-point train_Yvar) models require an explicit
-                # observation noise for the Kriging-Believer fantasy point;
-                # without it BoTorch's get_fantasy_model raises. Use the mean of
-                # the model's current per-point noise as a representative scale.
-                fantasy_noise = likelihood.noise.mean().detach()
-                cond_kwargs["noise"] = fantasy_noise.expand(y_fantasy.shape).to(y_fantasy)
+                cond_kwargs = {}
+                likelihood = getattr(current_model, "likelihood", None)
+                if isinstance(likelihood, gpytorch.likelihoods.FixedNoiseGaussianLikelihood):
+                    # Fixed-noise (per-point train_Yvar) models require an explicit
+                    # observation noise for the Kriging-Believer fantasy point;
+                    # without it BoTorch's get_fantasy_model raises. Use the mean of
+                    # the model's current per-point noise as a representative scale.
+                    fantasy_noise = likelihood.noise.mean().detach()
+                    cond_kwargs["noise"] = fantasy_noise.expand(y_fantasy.shape).to(y_fantasy)
 
-            with warnings.catch_warnings():
-                warnings.filterwarnings("ignore")
-                current_model = current_model.condition_on_observations(
-                    x_new,
-                    y_fantasy,
-                    **cond_kwargs,
-                )
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore")
+                    current_model = current_model.condition_on_observations(
+                        x_new,
+                        y_fantasy,
+                        **cond_kwargs,
+                    )
 
-            y_best = max(y_best, y_fantasy.item())
+                y_best = max(y_best, y_fantasy.item())
+        except (RuntimeError, ValueError) as e:
+            # Scoring or fantasy-conditioning hit a NaN / non-PD Cholesky (the
+            # KB updates degenerate on ill-conditioned kernels mid-batch). Stop
+            # conditioning and greedily fill the rest so the round completes
+            # instead of aborting the whole run to a truncated trajectory.
+            warnings.warn(
+                f"KB step failed at slot {i} ({type(e).__name__}); greedy-filling "
+                f"remaining {batch_size - len(selected)} of {batch_size}",
+                stacklevel=2,
+            )
+            _greedy_fill_remaining()
+            break
 
     return selected
 
