@@ -190,6 +190,7 @@ class Dataset:
         fitted_transformers_in: dict | None = None,
         fp_radius: int | None = None,
         fp_bits: int | None = None,
+        target_train_idx: list | None = None,
     ) -> Dataset:
         """Encode molecular features for all lipid components.
 
@@ -294,9 +295,19 @@ class Dataset:
             )
 
         def average_experiment_values(role: str) -> dict[str, float]:
-            """Per-lipid mean Experiment_value for *role* (used as PLS/LiON targets)."""
+            """Per-lipid mean Experiment_value for *role* (used as PLS/LiON targets).
+
+            For supervised reduction (PLS) or LiON targets this must be fit on
+            training rows only — averaging over the full frame (incl. pool/oracle
+            rows) leaks held-out targets into the encoder. Pass ``target_train_idx``
+            (the training row labels) to restrict the average; defaults to the
+            full frame for backward compatibility (safe only when the frame is
+            already train-only, e.g. transform-only pool encoding does not reach
+            here, and the within-study path uses PCA which needs no targets).
+            """
             name_col = f"{role}_name"
-            return df.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean().to_dict()
+            src = df if target_train_idx is None else df.loc[df.index.intersection(target_train_idx)]
+            return src.dropna(subset=["Experiment_value"]).groupby(name_col)["Experiment_value"].mean().to_dict()
 
         fitted_transformers = {}
         raw_fingerprints = {}
