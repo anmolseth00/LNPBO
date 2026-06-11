@@ -168,10 +168,18 @@ def load_all_results():
     return results
 
 
+# PLS strategies are bit-identical duplicates of their non-PLS twins (PCA was
+# hardcoded, so PLS never engaged); exclude them from every figure/aggregate
+# and the strategy count to avoid double-weighting GP-LogEI / GP-LP-LogEI.
+EXCLUDED_STRATEGIES = frozenset({"lnpbo_pls_logei", "lnpbo_pls_lp_logei"})
+
+
 def build_tables(results):
     study_info, result_map = {}, {}
     strategies = set()
     for r in results:
+        if r["strategy"] in EXCLUDED_STRATEGIES:
+            continue
         study_id = r.get("study_id", str(int(r["pmid"])))
         study_info[study_id] = r["study_info"]
         result_map[(study_id, r["strategy"], r["seed"])] = r

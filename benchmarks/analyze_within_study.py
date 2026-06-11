@@ -44,7 +44,7 @@ from .stats import (
     simple_regret,
 )
 from .strategy_registry import STRATEGY_FAMILY as _REG_FAMILY
-from .strategy_registry import STRATEGY_SHORT
+from .strategy_registry import STRATEGY_SHORT, is_excluded
 
 _PACKAGE_ROOT = package_root_from(__file__, levels_up=2)
 RESULTS_DIR = benchmark_results_root(_PACKAGE_ROOT) / "within_study"
@@ -155,6 +155,11 @@ def build_tables(results):
         # Use study_id if present, else derive from pmid
         study_id = r.get("study_id", str(int(r["pmid"])))
         strategy = r["strategy"]
+        # Skip duplicate/non-reportable strategies (e.g. the PLS strategies,
+        # which are bit-identical to their non-PLS twins — see EXCLUDED_STRATEGIES)
+        # so they never enter rankings, family aggregates, or the strategy count.
+        if is_excluded(strategy):
+            continue
         seed = r["seed"]
         si = r["study_info"]
 

@@ -13,8 +13,8 @@ STRATEGY_FAMILY = {
     "lnpbo_logei": "LNPBO (GP)",
     "lnpbo_lp_ei": "LNPBO (GP)",
     "lnpbo_lp_logei": "LNPBO (GP)",
-    "lnpbo_pls_logei": "LNPBO (GP)",
-    "lnpbo_pls_lp_logei": "LNPBO (GP)",
+    "lnpbo_pls_logei": "LNPBO (GP)",  # excluded from aggregates — see EXCLUDED_STRATEGIES
+    "lnpbo_pls_lp_logei": "LNPBO (GP)",  # excluded from aggregates — see EXCLUDED_STRATEGIES
     "lnpbo_rkb_logei": "LNPBO (GP)",
     "lnpbo_ts_batch": "LNPBO (GP)",
     "lnpbo_gibbon": "LNPBO (GP)",
@@ -38,17 +38,28 @@ STRATEGY_FAMILY = {
     "discrete_xgb_greedy": "XGBoost",
     "discrete_xgb_cqr": "XGBoost",
     "discrete_xgb_online_conformal": "XGBoost",
-    "discrete_xgb_cumulative_split_conformal_ucb_baseline": "XGBoost",
     "discrete_xgb_ucb_ts_batch": "XGBoost",
     "discrete_ngboost_ucb": "NGBoost",
     "discrete_deep_ensemble": "Deep Ensemble",
     "discrete_ridge_ucb": "Ridge",
     "discrete_gp_ucb": "GP (sklearn)",
-    "discrete_tabpfn": "TabPFN",
     # CASMOPolitan
     "casmopolitan_ei": "CASMOPolitan",
     "casmopolitan_ucb": "CASMOPolitan",
 }
+
+# Strategies that ran but must be EXCLUDED from family/rank aggregates and the
+# headline strategy count. The two PLS strategies are exact duplicates of their
+# non-PLS twins in the within-study benchmark: prepare_study_data hardcodes
+# reduction="pca", so PLS never engaged and the trajectories are bit-identical
+# to lnpbo_logei / lnpbo_lp_logei (verified 130/130 across seeds x studies).
+# Counting both would double-weight the GP-LogEI / GP-LP-LogEI configs.
+EXCLUDED_STRATEGIES = frozenset({"lnpbo_pls_logei", "lnpbo_pls_lp_logei"})
+
+
+def is_excluded(strategy_name):
+    """True if *strategy_name* is a duplicate/non-reportable strategy."""
+    return strategy_name in EXCLUDED_STRATEGIES
 
 # strategy_name -> short display label (for plots/tables)
 STRATEGY_SHORT = {
@@ -84,13 +95,11 @@ STRATEGY_SHORT = {
     "discrete_xgb_greedy": "XGB-Greedy",
     "discrete_xgb_cqr": "XGB-CQR",
     "discrete_xgb_online_conformal": "XGB-OnlineConf",
-    "discrete_xgb_cumulative_split_conformal_ucb_baseline": "XGB-SplitConf-Base",
     "discrete_xgb_ucb_ts_batch": "XGB-UCB-TS-Batch",
     "discrete_ngboost_ucb": "NGBoost-UCB",
     "discrete_deep_ensemble": "DeepEnsemble",
     "discrete_ridge_ucb": "Ridge-UCB",
     "discrete_gp_ucb": "GP-UCB (sklearn)",
-    "discrete_tabpfn": "TabPFN",
 }
 
 # family_label -> list of strategies (inverse of STRATEGY_FAMILY)
@@ -107,7 +116,6 @@ FAMILY_COLORS = {
     "GP (sklearn)": "#8c564b",
     "Ridge": "#e377c2",
     "CASMOPolitan": "#17becf",
-    "TabPFN": "#bcbd22",
     "Random": "#7f7f7f",
 }
 

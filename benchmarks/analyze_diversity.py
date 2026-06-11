@@ -69,7 +69,7 @@ SURROGATE_DISPLAY = {
     "ngboost": "NGBoost",
 }
 
-from .strategy_registry import STRATEGY_FAMILY
+from .strategy_registry import STRATEGY_FAMILY, is_excluded
 
 FAMILIES_TO_SHOW = [
     "NGBoost",
@@ -432,7 +432,7 @@ def analyze_interfamily_diversity(bo_results, bo_study_info):
 
     # Get all BO study_ids
     all_sids = sorted(set(sid for sid, _, _ in bo_results))
-    all_strategies = sorted(set(strat for _, strat, _ in bo_results))
+    all_strategies = sorted(set(strat for _, strat, _ in bo_results if not is_excluded(strat)))
     families_present = [f for f in FAMILIES_TO_SHOW if f != "Random"]
 
     # Per study: average number of distinct final_best values across seeds
@@ -579,7 +579,7 @@ def analyze_winner_diversity(bo_results, bo_study_info):
     print()
 
     all_sids = sorted(set(sid for sid, _, _ in bo_results))
-    all_strategies = sorted(set(strat for _, strat, _ in bo_results))
+    all_strategies = sorted(set(strat for _, strat, _ in bo_results if not is_excluded(strat)))
     families = [f for f in FAMILIES_TO_SHOW if f != "Random"]
 
     win_counts = defaultdict(int)
