@@ -294,7 +294,8 @@ def score_candidate_pool(
         import torch
         from torch.utils.data import DataLoader, TensorDataset
 
-        from LNPBO.models.laplace import SurrogateMLP, build_laplace, train_mlp
+        from LNPBO.models.laplace import build_laplace, train_mlp
+        from LNPBO.models.surrogate_mlp import SurrogateMLP
 
         X_t = torch.tensor(X_train_s, dtype=torch.float32)
         y_t = torch.tensor(y_train, dtype=torch.float32)
