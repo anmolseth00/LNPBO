@@ -15,8 +15,24 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# ---------------------------------------------------------------------------
+# GPU memory hygiene — prevents the multi-day OOM/fragmentation stall where a
+# big-CPU box launches more GPU-resident workers than one GPU can hold. All
+# use ${VAR:-default} so an explicit env override still wins.
+#   - expandable_segments: defeats CUDA caching-allocator fragmentation that
+#     creeps up over long runs (the "fine for a day, then no progress" symptom)
+#   - thread caps: each worker process otherwise spawns ncores BLAS threads;
+#     N workers x ncores threads thrash the CPU once any worker falls back
+#   - MIN_FREE_GIB: workers stay off CUDA unless this much VRAM is free
+# ---------------------------------------------------------------------------
+export PYTORCH_CUDA_ALLOC_CONF="${PYTORCH_CUDA_ALLOC_CONF:-expandable_segments:True}"
+export OMP_NUM_THREADS="${OMP_NUM_THREADS:-2}"
+export MKL_NUM_THREADS="${MKL_NUM_THREADS:-2}"
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-2}"
+export LNPBO_GPU_MIN_FREE_GIB="${LNPBO_GPU_MIN_FREE_GIB:-4}"
+
 STUDIES_JSON="experiments/data_integrity/studies_with_ids.json"
-N_WORKERS=4  # 4 workers × ~3 cores each = 12 cores
+N_WORKERS=4  # within-study default; capped to GPU capacity at runtime
 TARGET="${1:-all}"
 
 LOG_DIR="logs/benchmark_$(date +%Y%m%d_%H%M%S)"
@@ -29,10 +45,44 @@ echo "Logs: $LOG_DIR"
 echo ""
 
 # ---------------------------------------------------------------------------
+# Max concurrent GPU-resident workers one GPU can hold, given a per-worker
+# VRAM budget (LNPBO_GPU_GIB_PER_WORKER, default 4 GiB — a single GP fit can
+# spike past 2 GiB). Returns a large sentinel (9999) when no GPU is present,
+# so GPU does not constrain CPU-only fan-out.
+#
+# NOTE: bounds by a SINGLE GPU's total VRAM (the smallest, if several) rather
+# than summing across GPUs, because get_device() in gp_bo.py always selects
+# the default cuda device — every worker piles onto GPU 0. Reserves ~2 GiB
+# for CUDA context + fragmentation headroom.
+# ---------------------------------------------------------------------------
+gpu_worker_cap() {
+    command -v nvidia-smi >/dev/null 2>&1 || { echo 9999; return; }
+    local total_mib
+    total_mib=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null \
+        | sort -n | head -1)
+    [[ -z "$total_mib" || ! "$total_mib" =~ ^[0-9]+$ ]] && { echo 9999; return; }
+    local total_gib=$(( total_mib / 1024 ))
+    local per_worker="${LNPBO_GPU_GIB_PER_WORKER:-4}"
+    [[ $per_worker -lt 1 ]] && per_worker=1
+    local usable=$(( total_gib > 2 ? total_gib - 2 : total_gib ))
+    local cap=$(( usable / per_worker ))
+    [[ $cap -lt 1 ]] && cap=1
+    echo "$cap"
+}
+
+# ---------------------------------------------------------------------------
 # Within-study benchmark (load-balanced across workers)
 # ---------------------------------------------------------------------------
 run_within_study() {
     echo "--- Within-study benchmark ---"
+
+    # Cap worker fan-out to what one GPU can hold (no-op when no GPU present).
+    local gpu_cap
+    gpu_cap=$(gpu_worker_cap)
+    if [[ $gpu_cap -lt $N_WORKERS ]]; then
+        echo "  GPU capacity caps within-study workers: $N_WORKERS -> $gpu_cap"
+        N_WORKERS=$gpu_cap
+    fi
 
     # Load-balance studies into N_WORKERS groups by total formulations.
     # Distribute by study_id (not PMID) to avoid conflicts on sub-studies.
@@ -123,18 +173,22 @@ detect_ablation_workers() {
     if command -v nvidia-smi >/dev/null 2>&1; then
         gpus=$(nvidia-smi -L 2>/dev/null | wc -l | tr -d ' ')
     fi
+    local by_gpu
+    by_gpu=$(gpu_worker_cap)
     local n="${ABLATION_WORKERS:-}"
     if [[ -z "$n" ]]; then
-        # 1 worker per 2 CPUs (reserving 2 for system) and 1 per 3GB RAM, capped at 16
+        # 1 worker per 2 CPUs (reserving 2 for system) and 1 per 3GB RAM, then
+        # bounded by GPU capacity (workers share one GPU), capped at 16.
         local by_cpu=$(( (cpus - 2) / 2 ))
         local by_mem=$(( mem_gb / 3 ))
         [[ $by_cpu -lt 1 ]] && by_cpu=1
         [[ $by_mem -lt 1 ]] && by_mem=1
         n=$by_cpu
         [[ $by_mem -lt $n ]] && n=$by_mem
+        [[ $by_gpu -lt $n ]] && n=$by_gpu
         [[ $n -gt 16 ]] && n=16
     fi
-    echo "$n|$cpus|$mem_gb|$gpus"
+    echo "$n|$cpus|$mem_gb|$gpus|$by_gpu"
 }
 
 # Extract per-condition labels from an ablation config so we can fan out
@@ -180,8 +234,12 @@ run_ablations() {
     cpus=$(echo "$meta" | cut -d'|' -f2)
     mem_gb=$(echo "$meta" | cut -d'|' -f3)
     gpus=$(echo "$meta" | cut -d'|' -f4)
-    echo "  Resources: $cpus CPUs, ${mem_gb}GB RAM, $gpus GPU(s) → $workers worker(s) per ablation"
-    echo "  (override with ABLATION_WORKERS=N)"
+    local gpu_cap
+    gpu_cap=$(echo "$meta" | cut -d'|' -f5)
+    local gpu_note=""
+    [[ "$gpus" -gt 0 ]] && gpu_note=" (GPU holds ~$gpu_cap)"
+    echo "  Resources: $cpus CPUs, ${mem_gb}GB RAM, $gpus GPU(s)${gpu_note} → $workers worker(s) per ablation"
+    echo "  (override with ABLATION_WORKERS=N or LNPBO_GPU_GIB_PER_WORKER=N)"
 
     local configs=(
         experiments/ablations/encoding/config.json
