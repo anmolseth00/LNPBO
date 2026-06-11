@@ -40,6 +40,7 @@ Lipid Nanoparticle Design", NeurIPS 2024 ML4H Workshop.
 import argparse
 import contextlib
 import copy
+import hashlib
 import json
 import os
 import pickle
@@ -153,11 +154,49 @@ def _smi_to_mol_data_pickled(smi):
 # ---------------------------------------------------------------------------
 
 
-def build_mol_lmdb(smi_list, output_path, nthreads=4):
+def _conformer_cache_path(cache_dir, smi):
+    h = hashlib.sha1(smi.encode("utf-8")).hexdigest()
+    return os.path.join(cache_dir, h[:2], f"{h}.pkl")
+
+
+def _compute_to_cache(smi_and_dir):
+    """Compute mol-data for one SMILES and persist it to the conformer cache.
+
+    Conformers are deterministic (fixed embedding seeds 0..conf_size-1, set in
+    smi2_3Dcoords and independent of the BO seed), so a SMILES->mol-data cache
+    is exact and safe to reuse across seeds, studies, and runs. Writes are
+    atomic (tmp + os.replace) so parallel workers and crashes can't corrupt it.
+    """
+    smi, cache_dir = smi_and_dir
+    path = _conformer_cache_path(cache_dir, smi)
+    if os.path.exists(path):
+        return
+    try:
+        data = smi_to_mol_data(smi)
+    except Exception as e:
+        print(f"Failed SMILES: {smi}: {e}")
+        return
+    if data is None:
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp{os.getpid()}"
+    with open(tmp, "wb") as fh:
+        fh.write(pickle.dumps(data, protocol=-1))
+    os.replace(tmp, path)
+
+
+def build_mol_lmdb(smi_list, output_path, nthreads=4, cache_dir=None):
     """Build mol.lmdb from a list of unique SMILES.
 
     Returns (n_mols, smi2mol_id) where smi2mol_id maps each successfully
     processed SMILES to its index in the LMDB.
+
+    When ``cache_dir`` is given, per-SMILES mol-data is read from / written to
+    a persistent on-disk cache. Because conformers use fixed embedding seeds
+    this is exact — identical results across seeds/studies/runs — and conformer
+    work is skipped for any SMILES already seen (e.g. the same study's other
+    seeds, which share an identical pool). Also makes the run crash-resumable
+    at the SMILES level.
     """
     with contextlib.suppress(OSError):
         os.remove(output_path)
@@ -174,17 +213,41 @@ def build_mol_lmdb(smi_list, output_path, nthreads=4):
     )
     txn = env.begin(write=True)
     smi2mol_id = {}
-    with Pool(nthreads) as pool:
+
+    if cache_dir is not None:
+        # Compute (in parallel) only the SMILES not already cached, then
+        # assemble the LMDB in smi_list order from the cache.
+        missing = [s for s in smi_list if not os.path.exists(_conformer_cache_path(cache_dir, s))]
+        if missing:
+            with Pool(nthreads) as pool:
+                for _ in tqdm(
+                    pool.imap_unordered(_compute_to_cache, [(s, cache_dir) for s in missing]),
+                    total=len(missing),
+                    desc=f"Conformers ({len(missing)} miss / {len(smi_list)} pool)",
+                ):
+                    pass
         i = 0
-        for smi, result in tqdm(
-            zip(smi_list, pool.imap(_smi_to_mol_data_pickled, smi_list)),
-            total=len(smi_list),
-            desc="Building mol.lmdb",
-        ):
-            if result is not None:
-                txn.put(f"{i}".encode("ascii"), result)
-                smi2mol_id[smi] = i
-                i += 1
+        for smi in smi_list:
+            path = _conformer_cache_path(cache_dir, smi)
+            if not os.path.exists(path):
+                continue  # SMILES failed conformer generation
+            with open(path, "rb") as fh:
+                txn.put(f"{i}".encode("ascii"), fh.read())
+            smi2mol_id[smi] = i
+            i += 1
+    else:
+        with Pool(nthreads) as pool:
+            i = 0
+            for smi, result in tqdm(
+                zip(smi_list, pool.imap(_smi_to_mol_data_pickled, smi_list)),
+                total=len(smi_list),
+                desc="Building mol.lmdb",
+            ):
+                if result is not None:
+                    txn.put(f"{i}".encode("ascii"), result)
+                    smi2mol_id[smi] = i
+                    i += 1
+
     txn.commit()
     env.close()
     return i, smi2mol_id
@@ -493,6 +556,7 @@ def process_study_file(
     weights_dir,
     output_dir,
     nthreads=4,
+    cache_dir=None,
 ):
     """Process a single exported study JSON file.
 
@@ -552,7 +616,9 @@ def process_study_file(
 
         # Build mol.lmdb from unique SMILES
         mol_lmdb_path = os.path.join(task_dir, "mol.lmdb")
-        n_mols, smi2mol_id = build_mol_lmdb(unique_smiles, mol_lmdb_path, nthreads=nthreads)
+        n_mols, smi2mol_id = build_mol_lmdb(
+            unique_smiles, mol_lmdb_path, nthreads=nthreads, cache_dir=cache_dir
+        )
         print(f"Built mol.lmdb: {n_mols} molecules")
 
         # Build infer.lmdb
@@ -620,6 +686,7 @@ def process_study_file_ensemble(
     weights_dirs,
     output_dir,
     nthreads=4,
+    cache_dir=None,
 ):
     """Process a single study with an ensemble of COMET folds.
 
@@ -671,7 +738,9 @@ def process_study_file_ensemble(
 
         # Build mol.lmdb (once for all folds)
         mol_lmdb_path = os.path.join(task_dir, "mol.lmdb")
-        n_mols, smi2mol_id = build_mol_lmdb(unique_smiles, mol_lmdb_path, nthreads=nthreads)
+        n_mols, smi2mol_id = build_mol_lmdb(
+            unique_smiles, mol_lmdb_path, nthreads=nthreads, cache_dir=cache_dir
+        )
         print(f"Built mol.lmdb: {n_mols} molecules")
 
         # Build infer.lmdb
@@ -765,6 +834,14 @@ def main():
         help="Number of threads for conformer generation",
     )
     parser.add_argument(
+        "--conformer-cache",
+        type=str,
+        default=None,
+        help="Persistent SMILES->conformer cache dir (exact: conformers use "
+        "fixed seeds). Defaults to <output-dir>/../conformer_cache. "
+        "Pass 'none' to disable.",
+    )
+    parser.add_argument(
         "--studies",
         type=str,
         default=None,
@@ -819,9 +896,20 @@ def main():
                 remaining.append(f)
         exported_files = remaining
 
+    # Persistent conformer cache (deterministic conformers -> exact reuse).
+    if args.conformer_cache and args.conformer_cache.lower() == "none":
+        cache_dir = None
+    elif args.conformer_cache:
+        cache_dir = args.conformer_cache
+    else:
+        cache_dir = os.path.join(os.path.dirname(os.path.abspath(args.output_dir)), "conformer_cache")
+    if cache_dir:
+        os.makedirs(cache_dir, exist_ok=True)
+
     print(f"Processing {len(exported_files)} exported files")
     print(f"COMET repo: {args.comet_repo}")
     print(f"Weights: {args.weights_dir}")
+    print(f"Conformer cache: {cache_dir or 'disabled'}")
 
     # Determine if ensemble mode
     weights_dir = Path(args.weights_dir)
@@ -848,6 +936,7 @@ def main():
                     weights_dirs=ensemble_dirs,
                     output_dir=args.output_dir,
                     nthreads=args.nthreads,
+                    cache_dir=cache_dir,
                 )
             else:
                 process_study_file(
@@ -856,6 +945,7 @@ def main():
                     weights_dir=args.weights_dir,
                     output_dir=args.output_dir,
                     nthreads=args.nthreads,
+                    cache_dir=cache_dir,
                 )
         except Exception as e:
             print(f"  FAILED: {e}")
