@@ -70,6 +70,12 @@ class SNGP(nn.Module):
             "precision", torch.eye(n_random_features) * ridge_penalty
         )
         self.register_buffer("n_train", torch.tensor(0, dtype=torch.long))
+        # Observation-noise variance (estimated from training residuals in
+        # train_sngp). Used to (a) weight the Laplace precision by the
+        # likelihood precision 1/sigma^2 and (b) add the aleatoric term to the
+        # predictive variance, so SNGP returns total (epistemic + observation)
+        # uncertainty rather than epistemic-only.
+        self.register_buffer("sigma_obs_sq", torch.tensor(1.0))
 
     def forward(self, x):
         h = self.backbone(x)
@@ -86,7 +92,9 @@ class SNGP(nn.Module):
         with torch.no_grad():
             h = self.backbone(x)
             phi = self.rff(h)
-            self.precision.add_(phi.T @ phi)
+            # Weight by the likelihood precision 1/sigma_obs^2 (Liu et al. 2023);
+            # the unweighted Gram understates the posterior precision.
+            self.precision.add_(phi.T @ phi / self.sigma_obs_sq)
             self.n_train.add_(phi.size(0))
 
     def predict_with_uncertainty(self, x):
@@ -103,6 +111,11 @@ class SNGP(nn.Module):
             except torch.linalg.LinAlgError:
                 cov = torch.linalg.solve(self.precision, phi.T)
                 var = (phi * cov.T).sum(dim=-1)
+            # Total predictive variance = aleatoric (observation noise) +
+            # epistemic (Laplace). Returning epistemic-only would make the
+            # mu + kappa*sigma acquisition under-explore relative to the
+            # other surrogates.
+            var = self.sigma_obs_sq + var
         return mu.cpu().numpy(), var.sqrt().cpu().numpy()
 
 
@@ -139,6 +152,14 @@ def train_sngp(X_train, y_train, input_dim, hidden_dims=(256, 128),
             loss = nn.functional.mse_loss(pred, yb)
             loss.backward()
             optimizer.step()
+
+    # Estimate observation-noise variance from training residuals before
+    # building the precision matrix (it weights the precision and is added to
+    # the predictive variance).
+    model.eval()
+    with torch.no_grad():
+        resid = model(X_train) - y_train
+        model.sigma_obs_sq.fill_(float(resid.pow(2).mean().clamp_min(1e-6)))
 
     model.reset_precision()
     for (xb,) in DataLoader(TensorDataset(X_train), batch_size=1024, shuffle=False):

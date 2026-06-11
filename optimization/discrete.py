@@ -254,7 +254,11 @@ def score_candidate_pool(
         mlp_kw = {"epochs": 100, "lr": 1e-3}
         mlp_kw.update({k: v for k, v in surrogate_kwargs.items()
                        if k in ("epochs", "lr", "batch_size")})
-        train_mlp(model, X_t, y_t, **mlp_kw)
+        # Regularize the MAP with weight_decay = prior_precision / N (the Laplace
+        # default prior_precision is 1.0) so the MAP is consistent with the
+        # Gaussian prior the Laplace approximation assumes; otherwise the prior
+        # is fictional and the epistemic variance is mis-scaled.
+        train_mlp(model, X_t, y_t, weight_decay=1.0 / max(1, len(X_train_s)), **mlp_kw)
         model.eval()
 
         la = build_laplace(model)

@@ -32,9 +32,15 @@ def _check_laplace_available():
 LAPLACE_AVAILABLE = _check_laplace_available()
 
 
-def train_mlp(model, X_train, y_train, epochs=100, lr=1e-3, batch_size=256):
-    """Train an MLP on (X, y) with MSE loss."""
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+def train_mlp(model, X_train, y_train, epochs=100, lr=1e-3, batch_size=256, weight_decay=0.0):
+    """Train an MLP on (X, y) with MSE loss.
+
+    ``weight_decay`` should be set to ``prior_precision / N`` so the MAP
+    estimate is consistent with the Gaussian prior the subsequent Laplace
+    approximation assumes (H + prior_precision*I). Without it the MAP is an
+    unregularized MLE and the Laplace prior is fictional.
+    """
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     dataset = TensorDataset(X_train, y_train)
     loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
     model.train()
