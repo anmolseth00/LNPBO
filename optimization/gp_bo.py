@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 import gpytorch
 import numpy as np
 import torch
+from botorch.exceptions.errors import ModelFittingError
 from botorch.fit import fit_gpytorch_mll
 from botorch.models import SingleTaskGP, SingleTaskVariationalGP
 from botorch.models.model import Model
@@ -325,9 +326,21 @@ def _fit_dkl_gp(
         # Manually set the training data to the current transformed inputs
         # so the GP's forward pass uses updated features each step.
         temp_model.set_train_data(X_feat, y.squeeze(-1), strict=False)
-        output = temp_model(X_feat)
-        loss = -mll(output, y.squeeze(-1))
+        try:
+            output = temp_model(X_feat)
+            loss = -mll(output, y.squeeze(-1))
+        except (ValueError, RuntimeError):
+            # The deep-kernel NN can diverge and drive a GP hyperparameter
+            # outside its LogNormalPrior support (or produce NaN features).
+            # Stop training and keep the last valid hyperparameters rather than
+            # crashing the whole BO run.
+            break
+        if not torch.isfinite(loss):
+            break
         loss.backward()
+        # Clip gradients so the feature extractor cannot blow up into NaNs —
+        # the common cause of the prior-support violation above.
+        torch.nn.utils.clip_grad_norm_(all_params, max_norm=10.0)
         optimizer.step()
         curr_loss = loss.item()
         if prev_loss - curr_loss < 1e-6:
@@ -771,7 +784,19 @@ def _fit_gp_on_device(
             model = SingleTaskGP(X, y, train_Yvar=Yvar, covar_module=covar_module)
             model.to(device)
             mll = ExactMarginalLogLikelihood(model.likelihood, model)
-            fit_gpytorch_mll(mll)
+            try:
+                fit_gpytorch_mll(mll)
+            except (ModelFittingError, RuntimeError, ValueError) as e:
+                # Some kernels (e.g. Tanimoto on near-degenerate fingerprint
+                # blocks) can fail every MLL retry. Aborting would truncate the
+                # whole BO run to the seed round (results below random); instead
+                # fall back to the model's default/prior hyperparameters so the
+                # round still produces a usable posterior and the run continues.
+                warnings.warn(
+                    f"GP MLL fit failed ({type(e).__name__}); using default "
+                    f"hyperparameters for this round",
+                    stacklevel=2,
+                )
 
     model.eval()
     return model
@@ -945,49 +970,59 @@ def select_batch(
 
     strategy = batch_strategy.lower()
     device = next(model.parameters()).device
-    if strategy == "qlogei":
-        return _batch_qlogei(model, X_train, X_pool, pool_indices, batch_size, device=device)
-    elif strategy == "gibbon":
-        return _batch_gibbon(model, X_pool, pool_indices, batch_size, device=device)
-    elif strategy == "ts":
-        return _batch_ts(model, X_pool, pool_indices, batch_size, seed)
-    elif strategy == "kb":
-        return _batch_kb(
-            model,
-            X_pool,
-            pool_indices,
-            batch_size,
-            acq_type,
-            y_best,
-            kappa,
-            xi,
-            randomize=False,
-        )
-    elif strategy == "rkb":
-        return _batch_kb(
-            model,
-            X_pool,
-            pool_indices,
-            batch_size,
-            acq_type,
-            y_best,
-            kappa,
-            xi,
-            randomize=True,
-        )
-    elif strategy == "lp":
-        return _batch_lp(
-            model,
-            X_pool,
-            pool_indices,
-            batch_size,
-            acq_type,
-            y_best,
-            kappa,
-            xi,
-        )
-    else:
-        raise ValueError(f"Unknown batch_strategy '{batch_strategy}'. Choose from: kb, rkb, lp, ts, qlogei, gibbon")
+    # Robust Cholesky jitter for the entire acquisition step. Ill-conditioned
+    # kernels (e.g. Tanimoto / DKL on near-duplicate fingerprint rows) yield a
+    # posterior covariance that fails gpytorch's default 1e-3 double-precision
+    # jitter cap; raising the cap here keeps the posterior positive-definite for
+    # every batch strategy (kb/rkb/lp/ts/qlogei/gibbon) instead of crashing and
+    # truncating the run. The GP is float64, so double_value is the binding one.
+    with (
+        gpytorch.settings.cholesky_jitter(float_value=1e-2, double_value=1e-2),
+        gpytorch.settings.cholesky_max_tries(6),
+    ):
+        if strategy == "qlogei":
+            return _batch_qlogei(model, X_train, X_pool, pool_indices, batch_size, device=device)
+        elif strategy == "gibbon":
+            return _batch_gibbon(model, X_pool, pool_indices, batch_size, device=device)
+        elif strategy == "ts":
+            return _batch_ts(model, X_pool, pool_indices, batch_size, seed)
+        elif strategy == "kb":
+            return _batch_kb(
+                model,
+                X_pool,
+                pool_indices,
+                batch_size,
+                acq_type,
+                y_best,
+                kappa,
+                xi,
+                randomize=False,
+            )
+        elif strategy == "rkb":
+            return _batch_kb(
+                model,
+                X_pool,
+                pool_indices,
+                batch_size,
+                acq_type,
+                y_best,
+                kappa,
+                xi,
+                randomize=True,
+            )
+        elif strategy == "lp":
+            return _batch_lp(
+                model,
+                X_pool,
+                pool_indices,
+                batch_size,
+                acq_type,
+                y_best,
+                kappa,
+                xi,
+            )
+        else:
+            raise ValueError(f"Unknown batch_strategy '{batch_strategy}'. Choose from: kb, rkb, lp, ts, qlogei, gibbon")
 
 
 def _batch_kb(
@@ -1204,16 +1239,39 @@ def _batch_ts(
     # Draw all batch_size posterior samples in one call to avoid
     # recomputing the Cholesky-based posterior for each batch slot.
     torch.manual_seed(seed)
-    with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        posterior = model.posterior(X_pool_t)
-        # (batch_size, M, 1) -> (batch_size, M)
-        all_samples = posterior.rsample(
-            torch.Size([batch_size]),
-        ).squeeze(-1)
+    # Allow extra Cholesky jitter: some kernels (e.g. Tanimoto on near-degenerate
+    # fingerprint blocks with duplicate rows) yield an ill-conditioned training
+    # covariance. The default double-precision jitter caps at 1e-3; raise both
+    # the float and double caps so the posterior is computable. NOTE: the GP runs
+    # in float64, so the `double=` value is the one that matters here.
+    with (
+        gpytorch.settings.cholesky_jitter(float_value=1e-2, double_value=1e-2),
+        gpytorch.settings.cholesky_max_tries(6),
+    ):
+        try:
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                posterior = model.posterior(X_pool_t)
+                # (batch_size, M, 1) -> (batch_size, M)
+                all_samples = posterior.rsample(torch.Size([batch_size])).squeeze(-1)
+            samples_np = all_samples.cpu().numpy()
+        except (RuntimeError, ValueError) as e:
+            # Still not positive-definite: fall back to mean + diagonal-variance
+            # Gaussian draws so TS returns a diverse batch and the run continues
+            # instead of aborting to the seed round.
+            warnings.warn(
+                f"TS posterior sampling failed ({type(e).__name__}); using "
+                f"mean+diagonal-variance fallback for this round",
+                stacklevel=2,
+            )
+            with torch.no_grad(), gpytorch.settings.fast_pred_var():
+                post = model.posterior(X_pool_t)
+                mu = post.mean.squeeze(-1).cpu().numpy()
+                sd = post.variance.clamp_min(1e-12).sqrt().squeeze(-1).cpu().numpy()
+            rng = np.random.RandomState(seed)
+            samples_np = np.stack([mu + sd * rng.standard_normal(len(mu)) for _ in range(batch_size)])
 
     selected = []
     available_mask = np.ones(len(X_pool), dtype=bool)
-    samples_np = all_samples.cpu().numpy()
 
     for i in range(batch_size):
         sample = samples_np[i].copy()
