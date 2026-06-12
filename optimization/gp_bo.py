@@ -1571,16 +1571,33 @@ def select_batch_mixed(
                 "was disabled. This path requires exact conditioning."
             )
         x_new = _to_tensor(X_pool[global_idx].reshape(1, -1), device)
-        with torch.no_grad(), gpytorch.settings.fast_pred_var():
-            posterior = cur_model.posterior(x_new)
-            if batch_strategy.lower() == "rkb":
-                y_fantasy = posterior.rsample().squeeze(-1)
-            else:
-                y_fantasy = posterior.mean  # type: ignore[union-attr]
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore")
-            conditioned = cur_model.condition_on_observations(x_new, y_fantasy)
-        return conditioned, float(y_fantasy.item())
+        try:
+            with (
+                torch.no_grad(),
+                gpytorch.settings.fast_pred_var(),
+                gpytorch.settings.cholesky_jitter(float_value=1e-2, double_value=1e-2),
+                gpytorch.settings.cholesky_max_tries(6),
+            ):
+                posterior = cur_model.posterior(x_new)
+                if batch_strategy.lower() == "rkb":
+                    y_fantasy = posterior.rsample().squeeze(-1)
+                else:
+                    y_fantasy = posterior.mean  # type: ignore[union-attr]
+                with warnings.catch_warnings():
+                    warnings.filterwarnings("ignore")
+                    conditioned = cur_model.condition_on_observations(x_new, y_fantasy)
+            return conditioned, float(y_fantasy.item())
+        except (RuntimeError, ValueError) as e:
+            # Ill-conditioned mixed-GP posterior (NotPSD even past the default
+            # 1e-3 jitter cap, which also thrashes). Skip KB conditioning for
+            # this slot rather than aborting the whole run; the batch is slightly
+            # less diverse but the trajectory completes.
+            warnings.warn(
+                f"Mixed KB conditioning failed ({type(e).__name__}); skipping "
+                f"fantasy for this slot",
+                stacklevel=2,
+            )
+            return cur_model, None
 
     for i in range(batch_size):
         acqf = _build_acqf(current_model, y_best_running)
