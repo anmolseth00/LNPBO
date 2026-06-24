@@ -1,0 +1,72 @@
+"""Load pre-computed AGILE (GNN) embeddings from NPZ cache.
+
+AGILE embeddings are pre-computed by ``generate_AGILE_embeddings.py``
+(which requires the AGILE repo and its conda env). This module provides
+a ``agile_embeddings()`` function matching the standard encoder interface.
+
+Reference: Xu et al., "AGILE: A Graph Neural Network Framework for
+Ionizable Lipid Design", Nature Communications, 2024.
+"""
+
+import logging
+from pathlib import Path
+
+import numpy as np
+from sklearn.preprocessing import StandardScaler
+
+logger = logging.getLogger("lnpbo")
+
+EMBED_DIM = 512
+_NPZ_PATH = Path(__file__).parent / "agile_embeddings.npz"
+
+_cache: dict[str, np.ndarray] | None = None
+
+
+def _load_cache() -> dict[str, np.ndarray]:
+    global _cache
+    if _cache is not None:
+        return _cache
+    if not _NPZ_PATH.exists():
+        raise FileNotFoundError(
+            f"AGILE embeddings not found at {_NPZ_PATH}. Run data/generate_AGILE_embeddings.py first."
+        )
+    data = np.load(_NPZ_PATH, allow_pickle=False)
+    # Materialize arrays once; accessing data["embeddings"][i] inside the
+    # comprehension re-decompresses the NPZ archive on every iteration on
+    # some numpy versions and blows up memory/time.
+    smiles_arr = data["smiles"]
+    embeddings_arr = data["embeddings"]
+    _cache = {str(s): embeddings_arr[i] for i, s in enumerate(smiles_arr)}
+    logger.info("AGILE: loaded %d embeddings from cache", len(_cache))
+    return _cache
+
+
+def agile_embeddings(
+    list_of_smiles: list[str],
+    cache_name: str = "default",
+    scaler=None,
+) -> tuple[np.ndarray, StandardScaler]:
+    """Look up AGILE GNN embeddings for a list of SMILES."""
+    cache = _load_cache()
+    missing = [s for s in list_of_smiles if s not in cache]
+    if missing:
+        # Missing SMILES fall back to zero vectors. Always warn; raise >5%.
+        n_total = len(list_of_smiles)
+        pct = 100.0 * len(missing) / n_total if n_total else 0.0
+        logger.warning(
+            "AGILE: %d/%d SMILES (%.1f%%) not found in cache - zero vectors used",
+            len(missing), n_total, pct,
+        )
+        if pct > 5.0:
+            raise ValueError(
+                f"AGILE: {pct:.1f}% of SMILES ({len(missing)}/{n_total}) not found in the "
+                "precomputed cache and would become zero vectors (threshold 5%). "
+                "Regenerate embeddings with data/generate_AGILE_embeddings.py. Aborting."
+            )
+
+    arr = np.array([cache.get(s, np.zeros(EMBED_DIM)) for s in list_of_smiles])
+
+    if scaler is not None:
+        return scaler.transform(arr), scaler
+    new_scaler = StandardScaler()
+    return new_scaler.fit_transform(arr), new_scaler
