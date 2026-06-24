@@ -1,0 +1,84 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# IDE / Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.settings/
+
+# OS generated files
+.DS_Store
+.DS_Store?
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.Spotlight-V100
+.Trashes
+._*
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+
+# Pipeline outputs (generated at runtime)
+pipeline_output.csv
+pipeline_encodings.csv
+round_*_gp.pkl
+
+# Lock / temp files
+.~lock.*
+*.lock
+!uv.lock
+!poetry.lock
+tmp/
+tmp*.png
+
+# Logs
+*.log
+logs/
+
+# TensorBoard / training artifacts
+events.out.tfevents.*
+
+# Large model binaries
+*.pt
+*.pkl
+*.joblib
+*.npy
+*.npz
+*.tar
+*.tar.gz
+*.zip
+
+# LNPDB data symlink
+data/LNPDB_repo
+
+# Embedding / descriptor caches (large binary files)
+data/chemeleon_cache/
+data/mordred_cache/
+data/rdkit_cache/
+data/unimol_cache/
+
+# MkDocs build output
+site/
+
+# Claude Code
+.claude/

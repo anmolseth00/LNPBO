@@ -1,0 +1,142 @@
+[build-system]
+requires = ["setuptools>=75.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "LNPBO"
+version = "0.1.0"
+description = "Bayesian Optimization for LNP Formulation Design"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.10"
+authors = [
+    {name = "Evan Collins"},
+    {name = "Anmol Seth", email = "anmolseth00@gmail.com"},
+]
+maintainers = [
+    {name = "Anmol Seth", email = "anmolseth00@gmail.com"},
+]
+keywords = [
+    "bayesian-optimization",
+    "lipid-nanoparticles",
+    "drug-delivery",
+    "gaussian-process",
+    "materials-science",
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Development Status :: 3 - Alpha",
+]
+dependencies = [
+    "scikit-learn>=1.2",
+    "scipy>=1.10",
+    "numpy>=1.24",
+    "pandas>=1.5",
+    "joblib>=1.3",
+    "xgboost>=2.0",
+    "mapie>=0.8",
+    "rdkit>=2023.3",
+    "tqdm>=4.60",
+    "bayesian-optimization>=3.0",
+]
+
+[project.optional-dependencies]
+gp = [
+    "torch>=2.0",
+    "gpytorch>=1.10",
+    "botorch>=0.9",
+]
+generative = [
+    "selfies>=2.1",
+]
+dev = ["ruff>=0.4"]
+bench = ["ngboost>=0.5"]
+mordred = ["mordredcommunity>=2.0"]
+# LiON fingerprints require chemprop v1 (torch<2.0), which conflicts with
+# the GP extra (torch>=2.0). Install chemprop v1 in a separate virtualenv
+# (default location: .venv_chemprop_v1) and pass its path via chemprop_venv.
+# lion = ["chemprop==1.7.1", "torch>=1.12,<2.0", "descriptastorus>=2.6"]
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+    "mkdocstrings[python]>=0.27",
+    "griffe>=1.5",
+]
+all = [
+    "LNPBO[gp,generative,mordred,bench]",
+]
+
+[project.urls]
+Homepage = "https://github.com/evancollins1/LNPBO"
+Documentation = "https://evancollins1.github.io/LNPBO"
+Repository = "https://github.com/evancollins1/LNPBO"
+Issues = "https://github.com/evancollins1/LNPBO/issues"
+
+[project.scripts]
+lnpbo = "LNPBO.cli.main:main"
+
+[tool.setuptools.package-dir]
+LNPBO = "."
+
+[tool.setuptools]
+packages = [
+    "LNPBO",
+    "LNPBO.cli",
+    "LNPBO.data",
+    "LNPBO.models",
+    "LNPBO.optimization",
+    "LNPBO.space",
+]
+include-package-data = false
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+# Notebooks are research scratch space and not held to the package lint standard.
+extend-exclude = ["*.ipynb"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = [
+    "E741",   # ambiguous variable name (l, u are standard in optimization math)
+    "E402",   # module-level import not at top (notebook cells, lazy imports)
+    "SIM108", # use ternary operator (readability preference)
+    "B905",   # zip() without strict= (internal data, guaranteed same-length)
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["LNPBO"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.ty.environment]
+python-version = "3.10"
+extra-paths = [".."]
+
+[tool.ty.rules]
+# Third-party libraries without complete type stubs (rdkit, gpytorch, xgboost,
+# matplotlib, torch). These fire on correct code due to missing/incomplete stubs.
+unresolved-attribute = "warn"
+possibly-missing-attribute = "ignore"
+unresolved-import = "warn"
+call-non-callable = "warn"
+unsupported-operator = "warn"
+no-matching-overload = "warn"
+invalid-method-override = "warn"
+# matplotlib tight_layout rect, torch copy_, argparse suggest_on_error (3.14),
+# gpytorch Tensor operations — all false positives from incomplete stubs
+invalid-argument-type = "warn"
+invalid-assignment = "warn"
+unknown-argument = "warn"
+not-iterable = "warn"
+not-subscriptable = "warn"
