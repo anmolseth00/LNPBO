@@ -1,326 +1,268 @@
-# Lipid Nanoparticle Bayesian Optimization (LNPBO)
+# LNPBO: Bayesian Optimization for Lipid Nanoparticle Design
 
 <p align="center">
-  <img src="LNPBO.png" alt="alt text" width="600px" align="middle"/>
+  <img src="LNPBO.png" alt="LNPBO overview" width="600px" align="middle"/>
 </p>
 
-*Figure: LNPBO is a Python implementation of Bayesian optimization tailored for lipid nanoparticle optimization.*
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-# Description
+Data-driven optimization of lipid nanoparticle (LNP) formulations.
 
-LNPBO is an open source method for implementing Bayesian optimization (BO) for lipid nanoparticle (LNP) optimization, as introduced in [our paper](#citation) (*under review*).
+---
 
-Things LNPBO can do:
+## Table of Contents
 
-- Suggest new LNPs to make based on initial batch
+- [Installation](#installation)
+- [Quickstart](#quickstart)
+- [Examples](#examples)
+- [Choosing a Strategy](#choosing-a-strategy)
+- [Molecular Encodings](#molecular-encodings)
+- [License](#license)
 
-- Back-and-forth suggest new LNPs based on subsequent batches
+---
 
-To do these things, LNPBO encodes the inputted LNPs. Besides molar ratios, featurizing lipid identity involves generating encodings of Morgan fingerprints, Mordred descriptors, or LiON model fingerprints. The inputted LNPs are expected to follow a column format similar to what we introduced in [LNPDB](https://www.nature.com/articles/s41467-026-68818-1). We detail this input organization in the [Usage](#usage) section, where we walk through examples that illustrate what LNPBO can do.
+## Installation
 
-
-Future version of LNPBO will also do these things:
-
-- Suggest initial LNPs to make based on ingredient list
-
-- Make landscape plots
-
-_____
-
-# Table of contents
-
-- [Getting started / installation](#installation)
-- [Usage](#usage)
-- [Citation](#citation)
-
-____
-
-# Getting started / installation
-
-To set up LNPBO locally, follow these steps.
-
-We will first install this repository.
-
-```
+```bash
 git clone https://github.com/evancollins1/LNPBO.git
+cd LNPBO
+uv sync
 ```
 
-We will next create the conda environment `lnpbo`.
+For GP support (BoTorch/GPyTorch):
 
-```
-conda create -n lnpbo python=3.11
-conda activate lnpbo
-conda install -c conda-forge chemprop=2.2.2 bayesian-optimization=3.2.0 mordred pandas jupyter
+```bash
+uv sync --extra gp
 ```
 
-In order to use LiON fingerprint encodings, we will also need to create the conda environment `lnp_ml` as introduced in our [prior](https://github.com/evancollins1/LNPDB?tab=readme-ov-file#training--testing-lion-deep-learning-model) [repos](https://github.com/jswitten/LNP_ML?tab=readme-ov-file#install-python-dependencies). Make sure to `conda deactivate` from `lnpbo` before running the below chunk.
+Optional extras:
 
+```bash
+uv sync --extra bench      # NGBoost
+uv sync --extra mordred    # Mordred descriptors
+uv sync --extra all        # All optional dependencies
 ```
-conda create -n lnp_ml python=3.8
-conda activate lnp_ml
-pip install chemprop==1.7.0
+
+### LNPDB Setup
+
+Working with the full [LNPDB](https://github.com/evancollins1/LNPDB) dataset (e.g., generating Uni-Mol or LiON embeddings) requires cloning it as a sibling directory and creating the expected symlink:
+
+```bash
+git clone https://github.com/evancollins1/LNPDB.git   # sibling to LNPBO/
+cd LNPBO
+ln -s ../LNPDB data/LNPDB_repo
 ```
 
-____
+### Development Installation
 
-# Usage
-
-We will now walk through the capabilities of LNPBO by discussing three example use cases, each with descriptions in this README as well as Jupyter notebooks to process the provided example data (see `/examples` folder).
-
-1. Example 1: varying ratios
-
-2. Example 2: varying ratios, helper lipid
-
-3. Example 3: varying rations, helper lipid, ionizable lipid
-
-Note that LNPBO can also handle other things (e.g., varying cholesterol and PEG lipid), but these three minimal examples provide the framework to understand what LNPBO can do. Also note that the transfection results for the example data provided in this repo are only for exercise purposes, as they have been synthetically generated. Note that IL denotes ionizable lipid, HL denotes helper lipid, CHL denotes cholesterol, and PEG denotes PEG lipid.
-
-## Example 1: varying ratios
-
-For example 1, let's say a scientist made and tested an initial batch of LNPs where only ratios were varied. More specifically, let's say that they kept constant the lipid identities (cKK-E12 IL, DOPE HL, Cholesterol, DMG-PEG2000) and only varied some lipid molar ratios (IL, HL, CHL) and the IL:mRNA mass ratio. This example could reflect when a scientist is confident in the lipid identities but wants to optimize their relative amounts. They now want LNPBO to suggest some number of new LNPs to make for the next batch based on the initial batch.
-
-Take note of the organization of `/examples/example1/example1.csv`, which is the spreadsheet prepared by the scientist for the initial batch (round 0). This is the expected input organization for LNPBO. For each row (i.e., LNP formulation), the scientist should specify the following columns (i.e., structure-function data) in a .csv spreadsheet: 
-
-- `IL_name`: name of ionizable lipid
-
-- `IL_SMILES`: SMILES of ionizable lipid
-
-- `IL_molratio`: molar ratio of ionizable lipid
-
-- `IL_to_nucleicacid_massratio`: ionizable lipid-to-nucleic acid mass ratio
-
-- `HL_name`: name of helper lipid
-
-- `HL_SMILES`: SMILES of helper lipid
-
-- `HL_molratio`: molar ratio of helper lipid
-
-- `CHL_name`: name of cholesterol
-
-- `CHL_SMILES`: SMILES of cholesterol
-
-- `CHL_molratio`: molar ratio of cholesterol
-
-- `PEG_name`: name of PEG lipid
-
-- `PEG_SMILES`: SMILES of PEG lipid
-
-- `PEG_molratio`: molar ratio of PEG lipid
-
-- `Experiment_value`: functional value (e.g., transfection luminescence)
-
-
-In cases like this one where the lipid identities are not being varied, entering the SMILES data is optional. 
-
-For LNPBO to suggest new LNPs for the next batch based on this initial batch, follow the instructions below. Note that the code chunks below are also provided in `/examples/example1/example1.ipynb`.
-
-Load packages and `example1.csv` (i.e., the spreadsheet prepared by the scientist for the initial batch).
-
+```bash
+git clone https://github.com/evancollins1/LNPBO.git
+cd LNPBO
+uv sync --extra dev
 ```
-import pandas as pd
-import sys
-from pathlib import Path
-project_root = Path.cwd().resolve().parents[2]
-sys.path.append(str(project_root))
+
+Requires Python >= 3.10.
+
+---
+
+## Quickstart
+
+Given a CSV of tested LNP formulations (see [input format](#input-format)), suggest the next batch to synthesize:
+
+```python
 from LNPBO.data.dataset import Dataset
 from LNPBO.space.formulation import FormulationSpace
 from LNPBO.optimization.optimizer import Optimizer
 
-# Load dataset
-dataset = Dataset.from_lnpdb_csv("example1.csv")
+# Load and encode
+dataset = Dataset.from_lnpdb_csv("my_lnps.csv")
+encoded = dataset.encode_dataset(feature_type="lantern")
+space = FormulationSpace.from_dataset(encoded)
+
+# Optimize
+optimizer = Optimizer(space=space, surrogate_type="gp", candidate_pool=encoded.df, acquisition_type="UCB", kappa=5.0, batch_size=12)
+suggestions = optimizer.suggest(output_csv="round1.csv")
 ```
 
-Next, encode the dataset and build the `FormulationSpace` object to be used for BO. `encoding_csv_path` specifies the directory for saving the encodings.
+The output CSV appends the suggested formulations (with blank `Experiment_value`) to your original data. Test them in lab, fill in results, and re-run for the next round.
 
-```
-# Encode dataset
-encoded_dataset = dataset.encode_dataset(
-    encoding_csv_path="example1_encodings.csv",
-)
+---
 
-# Build FormulationSpace for BO
-space = FormulationSpace.from_dataset(encoded_dataset)
-```
+## Examples
 
-Next, we will initialize the `Optimizer`. `space` specifies the `FormulationSpace`. `type` specifies the acquisition function type, either "UCB" (upper confidence bound) or "EI" (expected improvement). If `type="UCB"`, then its `kappa` value should be defined. If `type="EI"`, then its `xi` value should be defined. `kappa` and `xi` balance exploration vs. exploitation, with higher values favoring exploration, as outlined nicely [here](https://github.com/bayesian-optimization/BayesianOptimization/blob/master/examples/exploitation_vs_exploration.ipynb). `alpha` specifies a small constant added to the diagonal of the kernel matrix of the Gaussian Process (GP), modeling experimental noise, with higher values reflecting noisier data. `random_seed` specifies the random seed. `batch_size` specifies the number of LNPs to suggest for the next batch.
+The `examples/` folder contains Jupyter notebooks for the three synthetic use cases below; Example 4 runs the same workflow on real LNPDB data.
 
-```
-# Initialize Optimizer
-optimizer = Optimizer(
-    space=space,
-    type="UCB",
-    kappa=5.0,
-    alpha=1e-6,
-    random_seed=42,
-    batch_size=24
-)
-```
+LNPBO supports two BO modes:
 
-Finally, to suggest `batch_size` number of new LNPs for the next batch, run the following. `example1_round1.csv` specifies the directory for saving the BO results. Note that the resulting .csv appends the `batch_size` number of new LNPs to the bottom of the originally-inputted dataset (i.e., `example1.csv`). The `Experiment_value` (e.g., transfection luminescence) column for these new LNPs will be left blank, as it's now the scientist's job to test the suggested LNPs in lab.
+- **Discrete pool BO (retrospective or prospective)** - A surrogate model scores a fixed candidate pool and selects the most promising batch. Best for library screening where lipid identities vary. *(Examples 2, 3, 4)*
+- **Continuous BO (prospective, real-time)** - A GP optimizes over continuous ratio bounds to suggest new formulations not in any existing pool. Best for ratio-only optimization with fixed lipid identities. *(Example 1)*
 
-```
-# Perform first round of BO suggestions
-round1_suggestions = optimizer.suggest(
-    output_csv="example1_round1.csv"
-)
-```
+Examples 1–3 use synthetic data to illustrate the input format; Example 4 uses real LNPDB data.
 
-If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. This use case is not described in example 1 but it is described in example 2, so see below if applicable.
+<details>
+<summary><b>Example 1: Ratio optimization (continuous BO, real-time)</b> &mdash; fixed lipid identities, varying molar ratios</summary>
 
-## Example 2: varying ratios, helper lipid
+A scientist has chosen lipid identities (cKK-E12, DOPE, Cholesterol, DMG-PEG2000) and wants to optimize IL, HL, and CHL molar ratios plus the IL:mRNA mass ratio.
 
-For example 2, let's say a scientist made and tested an initial batch of LNPs where ratios and HL identity were varied. More specifically, let's say that They kept constant the IL identity, CHL identity, PEG identity, and PEG molar ratio. They varied the HL identity, IL molar ratio, HL molar ratio, CHL molar ratio, and IL:mRNA mass ratio. This example could reflect when a scientist is confident in the IL identity but wants to explore alternative HLs and optimize their relative amounts. They now want LNPBO to suggest some number of new LNPs to make for the next batch based on the initial batch.
-
-Take note of the organization of `/examples/example2/example2.csv`, which is the spreadsheet prepared by the scientist for the initial batch (round 0). See example 1 above for details about the organization.
-
-For LNPBO to suggest new LNPs for the next batch based on this initial batch, follow the instructions below. Note that the code chunks below are also provided in `/examples/example2/example2.ipynb`.
-
-Load packages and `example2.csv` (i.e., the spreadsheet prepared by the scientist for the initial batch).
-
-```
-import pandas as pd
-import sys
-from pathlib import Path
-project_root = Path.cwd().resolve().parents[2]
-sys.path.append(str(project_root))
+```python
 from LNPBO.data.dataset import Dataset
 from LNPBO.space.formulation import FormulationSpace
 from LNPBO.optimization.optimizer import Optimizer
 
-# Load dataset
-dataset = Dataset.from_lnpdb_csv("example2.csv")
+dataset = Dataset.from_lnpdb_csv("examples/example1/example1.csv")
+encoded = dataset.encode_dataset(encoding_csv_path="example1_enc.csv")
+space = FormulationSpace.from_dataset(encoded)
+
+optimizer = Optimizer(space=space, surrogate_type="gp", gp_engine="sklearn", acquisition_type="UCB", kappa=5.0, batch_size=24)
+suggestions = optimizer.suggest(output_csv="example1_round1.csv")
 ```
 
-Next, encode the dataset and build the `FormulationSpace` object to be used for BO. `HL_n_pcs_morgan` specifies the number of principal components to encode the HLs. `HL_n_pcs_mordred` specifies the number of principal components to encode the HLs. If both Morgan and Mordred are specified, then they will be combined. `encoding_csv_path` specifies the directory for saving the encodings.
+Since no lipid identities vary, SMILES columns are optional and no molecular encoding is needed. The sklearn GP engine is used here for fast, continuous optimization over ratio bounds.
 
-```
-# Encode dataset
-encoded_dataset = dataset.encode_dataset(
-    HL_n_pcs_morgan=5,
-    HL_n_pcs_mordred=5,
-    encoding_csv_path="example2_encodings.csv",
-)
+See: [`examples/example1/example1.ipynb`](examples/example1/example1.ipynb)
 
-# Build FormulationSpace for BO
-space = FormulationSpace.from_dataset(encoded_dataset)
-```
+</details>
 
-Next, we will initialize the `Optimizer`. See example 1 above for details about the options for `Optimizer`.
+<details>
+<summary><b>Example 2: Ratio + helper lipid optimization (discrete pool BO, retrospective or prospective)</b> &mdash; varying HL identity and molar ratios</summary>
 
-```
-# Initialize Optimizer
-optimizer = Optimizer(
-    space=space,
-    type="UCB",
-    kappa=5.0,
-    alpha=1e-6,
-    random_seed=42,
-    batch_size=24
-)
+A scientist fixes the IL identity but wants to explore alternative helper lipids while optimizing ratios. This requires molecular encoding to featurize HL structure.
+
+```python
+dataset = Dataset.from_lnpdb_csv("examples/example2/example2.csv")
+encoded = dataset.encode_dataset(feature_type="lantern", encoding_csv_path="example2_enc.csv")
+space = FormulationSpace.from_dataset(encoded)
+
+optimizer = Optimizer(space=space, surrogate_type="gp", candidate_pool=encoded.df, acquisition_type="UCB", kappa=5.0, batch_size=24)
+suggestions = optimizer.suggest(output_csv="example2_round1.csv")
 ```
 
-Finally, to suggest `batch_size` number of new LNPs for the next batch, run the following. `example2_round1.csv` specifies the directory for saving the BO results. Note that the resulting .csv appends the `batch_size` number of new LNPs to the bottom of the originally-inputted dataset (i.e., `example2.csv`). The `Experiment_value` (e.g., transfection luminescence) column for these new LNPs will be left blank, as it's now the scientist's job to test the suggested LNPs in lab.
+**Multi-round optimization:** When round 1 results come back from the lab, reload and re-run:
 
-```
-# Perform first round of BO suggestions
-round1_suggestions = optimizer.suggest(
-    output_csv="example2_round1.csv"
-)
-```
-
-If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. To do this, run the following, where in this example the scientist has saved these round 1 results in `example2_round1_w_results.csv`. The new suggested LNPs for round 2 are included in the outputted `example2_round2.csv`. Note that you can also adjust the optimizer at this point too (e.g., change kappa value or batch size).
-
-```
-# Wrap into Dataset
-encoded_dataset = optimizer.update("example2_round1_w_results.csv")
-
-# Suggest round 2
-round2_suggestions = optimizer.suggest(output_csv="example2_round2.csv")
+```python
+dataset = Dataset.from_lnpdb_csv("example2_round1_w_results.csv")
+encoded = dataset.encode_dataset(feature_type="lantern", encoding_csv_path="example2_enc_r2.csv")
+space = FormulationSpace.from_dataset(encoded)
+optimizer = Optimizer(space=space, surrogate_type="gp", candidate_pool=encoded.df, acquisition_type="UCB", kappa=5.0, batch_size=24)
+suggestions = optimizer.suggest(output_csv="example2_round2.csv")
 ```
 
-## Example 3: varying ratios, helper lipid, ionizable lipid
+See: [`examples/example2/example2.ipynb`](examples/example2/example2.ipynb)
 
-For example 3, let's say a scientist made and tested an initial batch of LNPs where molar ratios and IL & HL identities were varied. More specifically, let's say that they kept constant the CHL identity, PEG identity, PEG molar ratio, and IL:mRNA mass ratio. They varied the IL identity, HL identity, IL molar ratio, HL molar ratio, and CHL molar ratio. This example could reflect when a scientist wants to explore a library of ILs with different HLs and optimize their relative amounts. They now want LNPBO to suggest some number of new LNPs to make for the next batch based on the initial batch.
+</details>
 
-Take note of the organization of `/examples/example3/example3.csv`, which is the spreadsheet prepared by the scientist for the initial batch (round 0). See example 1 above for details about the organization.
+<details>
+<summary><b>Example 3: Full library screening (discrete pool BO, retrospective or prospective &mdash; tree surrogate)</b> &mdash; varying IL, HL identities and molar ratios</summary>
 
-Load packages and `example3.csv` (i.e., the spreadsheet prepared by the scientist for the initial batch).
+A scientist wants to screen a combinatorial library of ionizable lipids and helper lipids while co-optimizing molar ratios. This is the most complex scenario.
 
+```python
+dataset = Dataset.from_lnpdb_csv("examples/example3/example3.csv")
+encoded = dataset.encode_dataset(feature_type="lantern", encoding_csv_path="example3_enc.csv")
+space = FormulationSpace.from_dataset(encoded)
+
+optimizer = Optimizer(space=space, surrogate_type="ngboost", candidate_pool=encoded.df, batch_size=24)
+suggestions = optimizer.suggest(output_csv="example3_round1.csv")
 ```
-import pandas as pd
-import sys
-from pathlib import Path
-project_root = Path.cwd().resolve().parents[2]
-sys.path.append(str(project_root))
+
+Alternative encodings:
+
+```python
+# Morgan fingerprints (fast, 2048-bit)
+encoded = dataset.encode_dataset(feature_type="mfp")
+
+# Mordred descriptors (requires: uv sync --extra mordred)
+encoded = dataset.encode_dataset(feature_type="mordred")
+```
+
+See: [`examples/example3/example3.ipynb`](examples/example3/example3.ipynb)
+
+</details>
+
+<details>
+<summary><b>Example 4: Real LNPDB data (discrete pool BO)</b> &mdash; screening real formulations from the LNPDB database</summary>
+
+With the [LNPDB Setup](#lnpdb-setup) symlink in place, point `from_lnpdb_csv` at an LNPDB-format CSV of real formulations (e.g., a study exported from `data/LNPDB_repo`) and run the same discrete pool BO workflow as Examples 2&ndash;3 on real data:
+
+```python
 from LNPBO.data.dataset import Dataset
 from LNPBO.space.formulation import FormulationSpace
 from LNPBO.optimization.optimizer import Optimizer
 
-# Load dataset
-dataset = Dataset.from_lnpdb_csv("example3.csv")
+dataset = Dataset.from_lnpdb_csv("my_lnpdb_study.csv")
+encoded = dataset.encode_dataset(feature_type="lantern")
+space = FormulationSpace.from_dataset(encoded)
+
+optimizer = Optimizer(space=space, surrogate_type="rf_ts", candidate_pool=encoded.df, batch_size=24)
+suggestions = optimizer.suggest(output_csv="lnpdb_round1.csv")
 ```
 
-Next, encode the dataset and build the `FormulationSpace` object to be used for BO. `HL_n_pcs_morgan` specifies the number of principal components to encode the HLs, analagous for `IL_n_pcs_morgan`. `HL_n_pcs_mordred` specifies the number of principal components to encode the HLs, analagous for `IL_n_pcs_mordred`. If both Morgan and Mordred are specified for IL or HL, then they will be combined. `encoding_csv_path` specifies the directory for saving the encodings.
+</details>
 
-```
-# Encode dataset
-encoded_dataset = dataset.encode_dataset(
-    HL_n_pcs_morgan=5,
-    HL_n_pcs_mordred=5,
-    IL_n_pcs_morgan=5,
-    IL_n_pcs_mordred=5,
-    encoding_csv_path="example3_encodings.csv",
-)
+### Input format
 
-# Build FormulationSpace for BO
-space = FormulationSpace.from_dataset(encoded_dataset)
-```
+Each row is one LNP formulation. Required columns:
 
-Alternatively, rather than encoding IL chemistry with Morgan fingerprints and Mordred descriptors, fingerprints from the LiON deep learning model can be used. These fingerprints are extracted from the penultimate linear layer of the LiON deep learning model trained on LNPDB, as introduced in our prior [repo](https://github.com/evancollins1/LNPDB).
+| Column | Description |
+|--------|-------------|
+| `IL_name` | Ionizable lipid name |
+| `IL_SMILES` | Ionizable lipid SMILES (optional if IL identity is fixed) |
+| `IL_molratio` | IL molar ratio |
+| `IL_to_nucleicacid_massratio` | IL:nucleic acid mass ratio |
+| `HL_name`, `HL_SMILES`, `HL_molratio` | Helper lipid |
+| `CHL_name`, `CHL_SMILES`, `CHL_molratio` | Cholesterol |
+| `PEG_name`, `PEG_SMILES`, `PEG_molratio` | PEG lipid |
+| `Experiment_value` | Functional readout (e.g., transfection) |
 
-```
-# Encode dataset
-encoded_dataset = dataset.encode_dataset(
-    HL_n_pcs_morgan=5,
-    HL_n_pcs_mordred=5,
-    IL_n_pcs_lion=5,
-    encoding_csv_path="example3_encodings.csv",
-)
+---
 
-# Build FormulationSpace for BO
-space = FormulationSpace.from_dataset(encoded_dataset)
-```
+## Choosing a Strategy
 
-Next, we will initialize the `Optimizer`. See example 1 above for details about the options for `Optimizer`.
+Suggested starting points:
 
-```
-# Initialize Optimizer
-optimizer = Optimizer(
-    space=space,
-    type="UCB",
-    kappa=5.0,
-    alpha=1e-6,
-    random_seed=42,
-    batch_size=24
-)
+| Scenario | Recommended strategy |
+|----------|---------------------|
+| Default / general use | `NGBoost-UCB` or `RF-TS` |
+| Screening diverse IL libraries | Tree-based surrogates (RF, XGBoost, NGBoost) |
+| Ratio-only optimization | `CASMOPolitan` or GP-based methods |
+| Limited compute budget | `XGBoost-Greedy` (no uncertainty quantification needed) |
+
+> **Note:** NGBoost is not a core dependency — install it with `uv sync --extra bench` before using `surrogate_type="ngboost"`.
+
+```python
+# NGBoost with UCB
+optimizer = Optimizer(space=space, surrogate_type="ngboost", candidate_pool=encoded.df, batch_size=24)
+
+# Random Forest with Thompson Sampling
+optimizer = Optimizer(space=space, surrogate_type="rf_ts", candidate_pool=encoded.df, batch_size=24)
+
+# CASMOPolitan (mixed continuous/categorical)
+optimizer = Optimizer(space=space, surrogate_type="casmopolitan", candidate_pool=encoded.df, batch_size=24)
 ```
 
-Finally, to suggest `batch_size` number of new LNPs for the next batch, run the following. `example3_round1.csv` specifies the directory for saving the BO results. Note that the resulting .csv appends the `batch_size` number of new LNPs to the bottom of the originally-inputted dataset (i.e., `example3.csv`). The `Experiment_value` (e.g., transfection luminescence) column for these new LNPs will be left blank, as it's now the scientist's job to test the suggested LNPs in lab.
+**Acquisition functions:** `"UCB"` (upper confidence bound), `"EI"` (expected improvement), `"LogEI"` (log expected improvement). `kappa` (UCB) and `xi` (EI/LogEI) control exploration vs. exploitation.
 
-```
-# Perform first round of BO suggestions
-round1_suggestions = optimizer.suggest(
-    output_csv="example3_round1.csv"
-)
-```
-If the scientist does ultimately come back with the `Experiment_value` results for the new round 1 LNPs, then it's possible for LNPBO to suggest another batch of LNPs based on the updated results. This use case is not described in example 1 but it is described in example 3, so see above if applicable.
+**Batch strategies:** `"kb"` (Kriging Believer), `"rkb"` (Resampling KB), `"lp"` (Local Penalization), `"ts"` (Thompson sampling), `"qlogei"` (q-Log Noisy EI), `"gibbon"` (GIBBON).
 
-______
+---
 
-# Citation
+## Molecular Encodings
 
-**A self-driving lab for the directed evolution of mRNA lipid nanoparticles**
+| Encoding | Description | Best for |
+|----------|-------------|----------|
+| `lantern` | Count Morgan FP + RDKit descriptors, PCA to 5 PCs | Default |
+| `mfp` | Morgan fingerprints (2048-bit) | Fast baseline |
+| `count_mfp` | Count-based Morgan fingerprints | When counts matter |
+| `rdkit` | RDKit 2D descriptors | Physicochemical properties |
+| `mordred` | Mordred 2D descriptors (`uv sync --extra mordred`) | Rich physicochemical features |
+| `unimol` | Uni-Mol 3D molecular embeddings | 3D structure-aware |
+| `chemeleon` | CheMeleon embeddings | Pretrained chemical language model |
+| `lion` | LiON lipid-specific embeddings | Lipid-tailored representations |
+| `agile` | AGILE foundation model embeddings | Pretrained embeddings available |
 
-Evan Collins, Rajith S. Manan, Samuel Detmer, Till Muser, Easwer Raman, Richard Zhu, Srinivas Balagopal, Yanshu Shi, Jungyong Ji, Akash Gupta, Yizong Hu, Suthathip Trongjit, Wontaek Chung, Haseeb Mughal, Jacob Witten, Anna Lapteva, Ashwin Pasupathy, Wonpil Im, Robert Langer, Daniel G. Anderson
+---
 
-*Under review*
+## License
+
+MIT License. See [LICENSE](LICENSE) for details.
