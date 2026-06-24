@@ -1,16 +1,17 @@
-from __future__ import annotations
-from typing import Dict, List, Tuple, Optional
-import random
-import numpy as np
-import pandas as pd
+"""Formulation search-space builder for LNP Bayesian optimization."""
 
+from __future__ import annotations
+
+import random
+
+import numpy as np
+
+from ..data.dataset import Dataset
 from .parameters import (
     ComponentParameter,
     DiscreteParameter,
     MixtureRatiosParameter,
 )
-from ..utils.ordering import order_df_columns
-from ..data.dataset import Dataset
 
 
 class FormulationSpace:
@@ -23,20 +24,39 @@ class FormulationSpace:
 
     def __init__(
         self,
-        components: Dict[str, List[Dict]],
-        molratio_bounds: Dict[str, Tuple[float, float]],
-        il_mrna_massratio_values: List[float],
-
+        components: dict[str, list[dict]],
+        molratio_bounds: dict[str, tuple[float, float]],
+        il_mrna_massratio_values: list[float],
         target: str = "Experiment_value",
-        dataset = None,
-        component_pcs: Dict[str, Dict[str, int]] | None = None,
-        fixed_values: Dict[str, float] | None = None,
-
+        dataset=None,
+        component_pcs: dict[str, dict[str, int]] | None = None,
+        fixed_values: dict[str, float] | None = None,
         normalize_molratios: bool = True,
-        random_seed: Optional[int] = None,
-        name = "screen"
+        random_seed: int | None = None,
+        name="screen",
     ):
-        self._dataset = dataset
+        """Initialize a FormulationSpace from explicit component and ratio specs.
+
+        Args:
+            components: Mapping from role (IL, HL, CHL, PEG) to lists of
+                component dicts, each with at least a ``"name"`` key.
+            molratio_bounds: Mapping from role to (min, max) molar ratio
+                bounds.
+            il_mrna_massratio_values: Allowed discrete IL-to-mRNA mass ratio
+                values.
+            target: Name of the target column in the dataset.
+            dataset: Optional encoded ``Dataset`` instance backing the space.
+            component_pcs: Optional mapping from role to encoder-name/n_pcs
+                dicts.
+            fixed_values: Column names mapped to their fixed scalar values
+                (for roles whose ratios do not vary).
+            normalize_molratios: Whether molar ratios should be normalized
+                to sum to 1.
+            random_seed: If provided, seeds both ``random`` and ``numpy``
+                RNGs for reproducibility.
+            name: Human-readable name for this space.
+        """
+        self._dataset: Dataset | None = dataset
         self.name = name
 
         self.components = components
@@ -57,8 +77,104 @@ class FormulationSpace:
 
         self._validate_inputs()
 
+        # Build parameter objects for BO
+        self.parameters = self._build_parameters()
+
+    def _build_parameters(self):
+        """
+        Build a list of BayesParameter objects from the current space configuration.
+        Mirrors the logic in get_configs() but creates actual parameter objects.
+        """
+        params = []
+
+        if self._dataset is None or not self._dataset.metadata:
+            return params
+
+        metadata = self._dataset.metadata
+        encoders = self._dataset.encoders
+        df = self._dataset.df
+
+        if not encoders:
+            return params
+
+        # Component parameters
+        for role in self.ROLES:
+            if not metadata["variable_components"].get(role, False):
+                continue
+
+            pcs_dict = encoders[role]
+
+            columns = []
+            for encoder_name, n_pcs in pcs_dict.items():
+                columns += [f"{role}_{encoder_name}_pc{i}" for i in range(1, n_pcs + 1)]
+
+            if not columns:
+                continue
+
+            # Extract unique component PC values from the dataset
+            valid_cols = [c for c in columns if c in df.columns]
+            if not valid_cols:
+                continue
+
+            unique_vals = df[valid_cols].drop_duplicates().values
+            bounds = np.column_stack(
+                [
+                    df[valid_cols].min().values,
+                    df[valid_cols].max().values,
+                ]
+            )
+
+            params.append(
+                ComponentParameter(
+                    name=role,
+                    bounds=bounds,
+                    valid_options=unique_vals,
+                )
+            )
+
+        # Mixture ratio parameters
+        columns_mixture = []
+        for role in self.ROLES:
+            if metadata["variable_molratios"].get(role, False):
+                columns_mixture.append(f"{role}_molratio")
+
+        if columns_mixture:
+            nr_components = len(columns_mixture)
+            mr_bounds = np.array(
+                [
+                    [self.molratio_bounds[role][0], self.molratio_bounds[role][1]]
+                    for role in self.ROLES
+                    if metadata["variable_molratios"].get(role, False)
+                ]
+            )
+            params.append(
+                MixtureRatiosParameter(
+                    name="molratio",
+                    nr_components=nr_components,
+                    bounds=mr_bounds,
+                )
+            )
+
+        # IL to mRNA mass ratio (discrete)
+        if metadata.get("variable_il_mrna", False):
+            domain = np.array(self.il_mrna_massratio_values)
+            params.append(
+                DiscreteParameter(
+                    name="IL_to_nucleicacid_massratio",
+                    domain=domain,
+                )
+            )
+
+        return params
+
     # Validation
     def _validate_inputs(self):
+        """Check that components and molratio_bounds contain all four roles.
+
+        Raises:
+            ValueError: If the keys of ``components`` or ``molratio_bounds``
+                do not match ``ROLES``.
+        """
         if set(self.components.keys()) != set(self.ROLES):
             raise ValueError(f"components must contain {self.ROLES}")
 
@@ -69,9 +185,26 @@ class FormulationSpace:
     def from_dataset(
         cls,
         dataset: Dataset,
-        molratio_bounds_override: Dict[str, Tuple[float, float]] | None = None,
-    ) -> "FormulationSpace":
+        molratio_bounds_override: dict[str, tuple[float, float]] | None = None,
+    ) -> FormulationSpace:
+        """Construct a FormulationSpace from an encoded Dataset.
 
+        Derives component lists, molar-ratio bounds, IL:mRNA values, and
+        structural PC specifications directly from the dataset metadata
+        and dataframe.
+
+        Args:
+            dataset: An encoded ``Dataset`` (must have populated metadata).
+            molratio_bounds_override: Optional per-role overrides for molar
+                ratio bounds.  Roles not present fall back to data-derived
+                ranges.
+
+        Returns:
+            A fully initialized ``FormulationSpace``.
+
+        Raises:
+            ValueError: If the dataset has not been encoded yet.
+        """
         df = dataset.df
         meta = dataset.metadata
 
@@ -79,11 +212,7 @@ class FormulationSpace:
             raise ValueError("Dataset must be encoded before FormulationSpace.")
 
         # Structural PCs
-        component_pcs = {
-            role: meta["pcs"].get(role, {})
-            for role in cls.ROLES
-            if meta["variable_components"].get(role)
-        }
+        component_pcs = {role: meta["pcs"].get(role, {}) for role in cls.ROLES if meta["variable_components"].get(role)}
 
         # Molratio bounds
         molratio_bounds = {}
@@ -113,17 +242,16 @@ class FormulationSpace:
             return (
                 df[cols]
                 .drop_duplicates()
-                .rename(columns={
-                    f"{role}_name": "name",
-                    f"{role}_SMILES": "smiles",
-                })
+                .rename(
+                    columns={
+                        f"{role}_name": "name",
+                        f"{role}_SMILES": "smiles",
+                    }
+                )
                 .to_dict("records")
             )
 
-        components = {
-            role: component_records(role)
-            for role in cls.ROLES
-        }
+        components = {role: component_records(role) for role in cls.ROLES}
 
         return cls(
             components=components,
@@ -135,7 +263,7 @@ class FormulationSpace:
             dataset=dataset,
             name=dataset.name,
         )
-    
+
     def update(self, dataset: Dataset):
         """
         Update the internal formulation space from a Dataset.
@@ -143,39 +271,47 @@ class FormulationSpace:
         - Updates molratio bounds
         - Updates IL:mRNA values
         - Updates component PCs
+        - Rebuilds self.parameters
         """
         self._dataset = dataset
-        # df = dataset.df
-        # meta = dataset.metadata
+        df = dataset.df
+        meta = dataset.metadata
 
-        # # Update components
-        # for role in self.ROLES:
-        #     current_names = {c["name"] for c in self.components[role]}
-        #     # find new unique lipids
-        #     new_lipids = df[[f"{role}_name", f"{role}_SMILES"]].drop_duplicates()
-        #     for _, row in new_lipids.iterrows():
-        #         if row[f"{role}_name"] not in current_names:
-        #             self.components[role].append(
-        #                 {"name": row[f"{role}_name"], "smiles": row.get(f"{role}_SMILES")}
-        #             )
+        # Update components
+        for role in self.ROLES:
+            current_names = {c["name"] for c in self.components[role]}
+            # find new unique lipids
+            cols = [f"{role}_name"]
+            if f"{role}_SMILES" in df.columns:
+                cols.append(f"{role}_SMILES")
+            new_lipids = df[cols].drop_duplicates()
+            for _, row in new_lipids.iterrows():
+                if row[f"{role}_name"] not in current_names:
+                    rec = {"name": row[f"{role}_name"]}
+                    if f"{role}_SMILES" in row.index:
+                        rec["smiles"] = row[f"{role}_SMILES"]
+                    self.components[role].append(rec)
 
-        # # Update molratio bounds
-        # for role in self.ROLES:
-        #     col = f"{role}_molratio"
-        #     if meta["variable_molratios"].get(role, False):
-        #         self.molratio_bounds[role] = (df[col].min(), df[col].max())
-        #     else:
-        #         self.molratio_bounds[role] = (df[col].iloc[0], df[col].iloc[0])
-        #         self.fixed_values[col] = df[col].iloc[0]
+        # Update molratio bounds
+        for role in self.ROLES:
+            col = f"{role}_molratio"
+            if meta["variable_molratios"].get(role, False):
+                self.molratio_bounds[role] = (df[col].min(), df[col].max())
+            else:
+                self.molratio_bounds[role] = (df[col].iloc[0], df[col].iloc[0])
+                self.fixed_values[col] = df[col].iloc[0]
 
-        # # Update IL:mRNA massratio values
-        # self.il_mrna_massratio_values = sorted(df["IL_to_nucleicacid_massratio"].dropna().unique())
+        # Update IL:mRNA massratio values
+        self.il_mrna_massratio_values = sorted(df["IL_to_nucleicacid_massratio"].dropna().unique().tolist())
 
-        # # Update PCs if present
-        # for role in self.ROLES:
-        #     pcs_spec = meta.get("pcs", {}).get(role, {})
-        #     if pcs_spec:
-        #         self.component_pcs[role] = pcs_spec
+        # Update PCs if present
+        for role in self.ROLES:
+            pcs_spec = meta.get("pcs", {}).get(role, {})
+            if pcs_spec:
+                self.component_pcs[role] = pcs_spec
+
+        # Rebuild parameters
+        self.parameters = self._build_parameters()
 
     # -------------------------
     # BO-facing API
@@ -191,66 +327,95 @@ class FormulationSpace:
             "parameters": [],
         }
 
+        assert self._dataset is not None
         metadata = self._dataset.metadata
         encoders = self._dataset.encoders
+        assert encoders is not None
 
         # Component parameters
         for component in metadata["variable_components"]:
-
             if not metadata["variable_components"][component]:
                 continue
 
             pcs_dict = encoders[component]
+            df_cols = set(self._dataset.df.columns)
 
             columns = []
             for encoder_name, n_pcs in pcs_dict.items():
-                columns += [
+                # Use actual columns present in df (n_components may have been
+                # clamped by compute_pcs when data is smaller than requested)
+                enc_cols = [
                     f"{component}_{encoder_name}_pc{i}"
                     for i in range(1, n_pcs + 1)
+                    if f"{component}_{encoder_name}_pc{i}" in df_cols
                 ]
+                columns += enc_cols
 
-            d["parameters"].append({
-                "name": component,
-                "type": "ComponentParameter",
-                "columns": columns,
-            })
+            if not columns:
+                continue
 
-        # Mixture ratio parameters
+            d["parameters"].append(
+                {
+                    "name": component,
+                    "type": "ComponentParameter",
+                    "columns": columns,
+                }
+            )
+
+        # Mixture ratio parameters (only if at least one ratio varies)
         columns_mixture = []
         for molratio, is_var in metadata["variable_molratios"].items():
             if is_var:
                 molratio = molratio + "_molratio"
                 columns_mixture.append(molratio)
-        param_dict = {
-            "name": "molratio",
-            "type": "MixtureRatiosParameter",
-            "columns": columns_mixture,
-        }
-        d["parameters"].append(param_dict)
+        if columns_mixture:
+            param_dict = {
+                "name": "molratio",
+                "type": "MixtureRatiosParameter",
+                "columns": columns_mixture,
+            }
+            d["parameters"].append(param_dict)
 
         # IL to mRNA mass ratio
         if metadata.get("variable_il_mrna", False):
-            d["parameters"].append({
-                "name": "IL_to_nucleicacid_massratio",
-                "type": "DiscreteParameter",
-                "columns": ["IL_to_nucleicacid_massratio"],
-            })
-        # print(encoders)
-        # print(d)
+            d["parameters"].append(
+                {
+                    "name": "IL_to_nucleicacid_massratio",
+                    "type": "DiscreteParameter",
+                    "columns": ["IL_to_nucleicacid_massratio"],
+                }
+            )
         return d
 
     def get_parameters(self):
+        """Return the list of BayesParameter objects for this space.
+
+        Returns:
+            List of ``ComponentParameter``, ``MixtureRatiosParameter``,
+            and/or ``DiscreteParameter`` instances.
+        """
         return self.parameters
 
     def get_target(self):
+        """Return the name of the optimization target column.
+
+        Returns:
+            Target column name (default ``"Experiment_value"``).
+        """
         return self.target
 
     def get_fixed_values(self):
+        """Return a dict of column names mapped to their fixed scalar values.
+
+        Returns:
+            Dict mapping column names (e.g. ``"HL_molratio"``) to the
+            constant value used for roles that do not vary in this space.
+        """
         return self.fixed_values
 
     def new_round(self):
+        """Increment the internal round counter by one."""
         self._round_counter += 1
-
 
     # Sampling (still symmetric)
     def sample_random(self, n: int):
@@ -277,15 +442,15 @@ class FormulationSpace:
         for p in self.parameters:
             if isinstance(p, ComponentParameter):
                 # Pick a random component row
-                idx = np.random.randint(len(p.valid_options))
-                sample[p.name] = p.valid_options[idx]  # np.array of all columns
+                idx = np.random.randint(len(p.unique_categories))
+                sample[p.name] = p.unique_categories[idx]  # np.array of all columns
 
             elif isinstance(p, DiscreteParameter):
                 sample[p.name] = random.choice(p.domain)
 
             elif isinstance(p, MixtureRatiosParameter):
                 # Sample random ratios summing to sum_to
-                raw = np.random.rand(p.nr_components)
+                raw = np.random.rand(len(p.domain))
                 raw /= raw.sum()  # normalize
                 raw *= p.sum_to
                 sample[p.name] = raw
