@@ -80,5 +80,11 @@ data/unimol_cache/
 # MkDocs build output
 site/
 
+# Manuscript PDF
+*.pdf
+
+# Local test suite (not shipped in the library)
+tests/
+
 # Claude Code
 .claude/
