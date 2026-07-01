@@ -249,17 +249,25 @@ optimizer = Optimizer(space=space, surrogate_type="casmopolitan", candidate_pool
 
 ## Molecular Encodings
 
-| Encoding | Description | Best for |
-|----------|-------------|----------|
-| `lantern` | Count Morgan FP + RDKit descriptors, PCA to 5 PCs | Default |
-| `mfp` | Morgan fingerprints (2048-bit) | Fast baseline |
-| `count_mfp` | Count-based Morgan fingerprints | When counts matter |
-| `rdkit` | RDKit 2D descriptors | Physicochemical properties |
-| `mordred` | Mordred 2D descriptors (`uv sync --extra mordred`) | Rich physicochemical features |
-| `unimol` | Uni-Mol 3D molecular embeddings | 3D structure-aware |
-| `chemeleon` | CheMeleon embeddings | Pretrained chemical language model |
-| `lion` | LiON lipid-specific embeddings | Lipid-tailored representations |
-| `agile` | AGILE foundation model embeddings | Pretrained embeddings available |
+Pass any name below as the `feature_type` argument to `encode_dataset()`:
+
+```python
+encoded = dataset.encode_dataset(feature_type="lantern")
+```
+
+| `feature_type` | Description | Best for | Reference |
+|----------|-------------|----------|-----------|
+| `lantern` | Count Morgan FP + RDKit descriptors, PCA to 5 PCs | Default | [LANTERN, 2025](https://arxiv.org/abs/2507.03209) |
+| `mfp` | Morgan fingerprints (2048-bit) | Fast baseline | [Rogers & Hahn, 2010](https://doi.org/10.1021/ci100050t) |
+| `count_mfp` | Count-based Morgan fingerprints | When counts matter | [Rogers & Hahn, 2010](https://doi.org/10.1021/ci100050t) |
+| `rdkit` | RDKit 2D descriptors | Physicochemical properties | [RDKit](https://www.rdkit.org) |
+| `mordred` | Mordred 2D descriptors (`uv sync --extra mordred`) | Rich physicochemical features | [Moriwaki et al., 2018](https://doi.org/10.1186/s13321-018-0258-y) |
+| `unimol` | Uni-Mol 3D molecular embeddings | 3D structure-aware | [Zhou et al., 2023](https://chemrxiv.org/doi/full/10.26434/chemrxiv-2022-jjm0j-v4) |
+| `chemeleon` | CheMeleon embeddings | Pretrained chemical language model | [Burns et al., 2025](https://arxiv.org/html/2506.15792v1) |
+| `lion` | LiON lipid-specific embeddings | Lipid-tailored representations | [Witten et al., 2025](https://www.nature.com/articles/s41587-024-02490-y) |
+| `agile` | AGILE foundation model embeddings | Pretrained embeddings available | [Xu et al., 2024](https://www.nature.com/articles/s41467-024-50619-z) |
+
+For per-role encoders and PC counts, see the [encodings guide](https://evancollins1.github.io/LNPBO/guide/encodings/).
 
 ---
 
